@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="lib/commons-compress-1.3.jar"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/QGeneric"/>
+	<classpathentry kind="lib" path="lib/javacsv.jar" sourcepath="lib/javacsv-src.zip"/>
+	<classpathentry kind="lib" path="lib/wildcard-1.03.jar"/>
+	<classpathentry kind="lib" path="lib/javacl-1.0.0-RC1-shaded.jar"/>
+	<classpathentry kind="lib" path="lib/jgrapht.jar"/>
+	<classpathentry kind="lib" path="lib/jdistlib-0.3.6b-bin.jar"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
