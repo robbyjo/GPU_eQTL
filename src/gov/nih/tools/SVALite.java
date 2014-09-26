@@ -19,6 +19,7 @@ package gov.nih.tools;
 
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,8 +46,7 @@ public class SVALite {
 		int
 			rows = X.length,
 			cols = X[0].length,
-			numElements = rows * cols,
-			numThreads = kNumCPUCores > numElements ? numElements : kNumCPUCores;
+			numThreads = kNumCPUCores > rows ? rows : kNumCPUCores;
 		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads + 1);
 		SynchronizedCounter counter = new SynchronizedCounter(0, rows);
 		double[][] result = new double[rows][cols];
@@ -63,8 +63,7 @@ public class SVALite {
 	private static final double[][] parallelCrossProduct(double[][] X) {
 		int
 			cols = X[0].length,
-			numElements = cols * cols,
-			numThreads = kNumCPUCores > numElements ? numElements : kNumCPUCores;
+			numThreads = kNumCPUCores > cols ? cols : kNumCPUCores;
 		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads + 1);
 		SynchronizedCounter counter = new SynchronizedCounter(0, cols);
 		double[][] result = new double[cols][cols];
@@ -124,16 +123,30 @@ public class SVALite {
 		return lfdr;
 	}
 
-	private static void shuffle(double[][] src, double[][] dest, MersenneTwister rng) {
+	private static void shuffle(double[][] src, double[][] dest) {
+		int
+			nrow = src.length,
+			numThreads = kNumCPUCores > nrow ? nrow : kNumCPUCores;
+		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads + 1);
+		SynchronizedCounter counter = new SynchronizedCounter(0, nrow);
+		for (int i = 0; i < numThreads; i++)
+			threadPool.execute(new ShuffleJob(src, dest, counter));
+		threadPool.shutdown();
+		try {
+			threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+		} catch (InterruptedException exx) {}
+
+		/*
 		int nrow = src.length, ncol = src[0].length, k = ncol / 2;
 		for (int i = 0; i < nrow; i++) {
 			System.arraycopy(src[i], 0, dest[i], 0, ncol);
 			double[] v = dest[i];
 			for (int j = 0; j < k; j++) {
-				int a = rng.nextInt(), b = rng.nextInt();
+				int a = rng.nextInt(ncol), b = rng.nextInt(ncol);
 				double temp = v[a]; v[a] = v[b]; v[b] = temp;
 			}
 		}
+		//*/
 	}
 
 	private static double[] calcProportion(double[] d, int ndf) {
@@ -176,7 +189,7 @@ public class SVALite {
 	 * @param rng
 	 * @return
 	 */
-	public static int calcNumSV(double[][] data, double[][] altModel, double svsig, MersenneTwister rng) {
+	public static int calcNumSV(double[][] data, double[][] altModel, double svsig) {
 		if (svsig <= 0 || svsig > 1) throw new RuntimeException();
 		QR qr = new QR(altModel);
 		int
@@ -194,12 +207,19 @@ public class SVALite {
 			dstat0 = new double[ndf];
 
 		for (int i = 0; i < B; i++) {
-			shuffle(residual, res0, rng);
+			System.out.print("Iteration " + i + ": Shuffle");
+			shuffle(residual, res0);
+			System.out.print(", residualize");
 			res0 = parallelResidualize(res0, qq);
-			svd = new SVD(parallelCrossProduct(res0), false, false);
+			System.out.print(", cross product");
+			double[][] temp = parallelCrossProduct(res0);
+			System.out.print(", SVD");
+			svd = new SVD(temp, false, false);
+			System.out.print(", counting");
 			double[] newd = calcProportion(svd.getSingularValues(), ndf);
 			for (int j = 0; j < ndf; j++)
 				if (newd[j] >= dstat[j]) dstat0[j]++;
+			System.out.println();
 		}
 
 		int numSVs = 0;
@@ -259,19 +279,40 @@ public class SVALite {
 
 	public static final void main(String[] args) {
 		String dataFile = args[1], altModelFile = args[2], nullModelFile = args.length >= 4 ? args[3] : null;
+		int dotPos = dataFile.lastIndexOf('.');
+		String
+			prefix = dotPos >= 0 ? dataFile.substring(0, dotPos) : dataFile,
+			suffix = dotPos >= 0 ? dataFile.substring(dotPos) : "";
+
 		double svsig = Double.parseDouble(args[0]);
 		if (svsig <= 0 || svsig > 1) throw new RuntimeException();
 		Table altModelTable, nullModelTable = null, dataTable;
 		try {
+			System.out.println("Loading...");
 			altModelTable = Table.load(altModelFile);
 			if (nullModelFile != null) {
 				nullModelTable = Table.load(nullModelFile);
 			}
 			dataTable = Table.load(dataFile);
-			int numSVs = calcNumSV(dataTable.matrix, altModelTable.matrix, svsig, new MersenneTwister());
-			System.out.println(numSVs);
+			System.out.println("Loading is done!");
+			int numSVs = calcNumSV(dataTable.matrix, altModelTable.matrix, svsig);
+			System.out.println("Num SVs = " + numSVs);
 			System.exit(0);
+
 			double[][] sv = irwSVA(dataTable.matrix, altModelTable.matrix, nullModelTable == null ? null : nullModelTable.matrix, numSVs, 5);
+			int nrow = sv.length, ncol = numSVs;
+			PrintWriter writer = new PrintWriter(prefix + "-sva" + suffix);
+			writer.print("ID");
+			for (int i = 0; i < ncol; i++)
+				writer.print(",SV" + (i+1));
+			String[] rn = altModelTable.rowNames;
+			for (int i = 0; i < nrow; i++) {
+				if (rn != null) writer.print(rn[i]);
+				double[] v = sv[i];
+				for (int j = 0; j < ncol; j++)
+					writer.print("," + v[j]);
+			}
+			writer.close(); writer = null;
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -336,6 +377,35 @@ class CrossProductJob implements Runnable
 					sum += mX[k][i] * mX[k][j];
 				mResult[i][j] = mResult[j][i] = sum;
 			}
+			i = mCounter.next();
+		} while (i >= 0);
+	}
+}
+
+class ShuffleJob implements Runnable
+{
+	protected double[][] src, dest;
+	protected SynchronizedCounter mCounter;
+	protected MersenneTwister rng = new MersenneTwister();
+
+	public ShuffleJob(double[][] x, double[][] result, SynchronizedCounter counter) {
+		src = x; dest = result; mCounter = counter;
+	}
+
+	public void run() {
+		int
+			i = mCounter.next(),
+			ncol = src[0].length,
+			k = ncol / 2;
+		if (i < 0) return;
+		do {
+			System.arraycopy(src[i], 0, dest[i], 0, ncol);
+			double[] v = dest[i];
+			for (int j = 0; j < k; j++) {
+				int a = rng.nextInt(ncol), b = rng.nextInt(ncol);
+				double temp = v[a]; v[a] = v[b]; v[b] = temp;
+			}
+
 			i = mCounter.next();
 		} while (i >= 0);
 	}
