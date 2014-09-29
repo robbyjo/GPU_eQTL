@@ -9,5 +9,6 @@
 	<classpathentry kind="lib" path="lib/javacl-1.0.0-RC1-shaded.jar"/>
 	<classpathentry kind="lib" path="lib/jgrapht.jar"/>
 	<classpathentry kind="lib" path="lib/jdistlib-0.3.6b-bin.jar"/>
+	<classpathentry kind="lib" path="lib/JTransforms-3.0.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

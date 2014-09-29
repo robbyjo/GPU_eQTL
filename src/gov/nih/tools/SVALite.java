@@ -31,6 +31,7 @@ import com.csvreader.CsvReader;
 
 import jdistlib.F;
 import jdistlib.Normal;
+import jdistlib.math.density.Density;
 import jdistlib.math.spline.SmoothSpline;
 import jdistlib.math.spline.SmoothSplineResult;
 import jdistlib.rng.MersenneTwister;
@@ -103,9 +104,8 @@ public class SVALite {
 		}
 		pi0 = Math.min(1, (pi0/n)/(1-lambda));
 
-//		myd = density(x, adjust=adj) // TODO
-//		mys = smooth.spline(x=myd$x, y=myd$y)
-		SmoothSplineResult mys = SmoothSpline.fit(null, null);
+		Density myd = Density.density(x, adj);
+		SmoothSplineResult mys = SmoothSpline.fit(myd.x, myd.y);
 		double[] lfdr = new double[n];
 		int[] order = new int[n];
 		for (int i = 0; i < n; i++) {
