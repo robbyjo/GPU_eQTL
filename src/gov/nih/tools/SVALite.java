@@ -285,7 +285,10 @@ public class SVALite {
 			suffix = dotPos >= 0 ? dataFile.substring(dotPos) : "";
 
 		double svsig = Double.parseDouble(args[0]);
-		if (svsig <= 0 || svsig > 1) throw new RuntimeException();
+		if (svsig <= 0) throw new RuntimeException();
+		if (svsig >= 1) {
+			System.out.println("First parameter is at least 1. It is taken as the number of SVs: " + ((int) svsig));
+		}
 		Table altModelTable, nullModelTable = null, dataTable;
 		try {
 			System.out.println("Loading...");
@@ -295,9 +298,8 @@ public class SVALite {
 			}
 			dataTable = Table.load(dataFile);
 			System.out.println("Loading is done!");
-			int numSVs = calcNumSV(dataTable.matrix, altModelTable.matrix, svsig);
+			int numSVs = svsig >= 1 ? (int) svsig : calcNumSV(dataTable.matrix, altModelTable.matrix, svsig);
 			System.out.println("Num SVs = " + numSVs);
-			System.exit(0);
 
 			double[][] sv = irwSVA(dataTable.matrix, altModelTable.matrix, nullModelTable == null ? null : nullModelTable.matrix, numSVs, 5);
 			int nrow = sv.length, ncol = numSVs;
