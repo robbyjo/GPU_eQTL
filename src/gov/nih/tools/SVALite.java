@@ -22,7 +22,9 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -36,7 +38,7 @@ import jdistlib.math.spline.SmoothSpline;
 import jdistlib.math.spline.SmoothSplineResult;
 import jdistlib.rng.MersenneTwister;
 import jdistlib.util.Utilities;
-import static java.lang.Math.hypot;
+import static java.lang.Math.*;
 
 /**
  * @author Roby Joehanes
@@ -102,7 +104,7 @@ public class SVALite {
 			if (p[i] < eps) p[i] = eps; else if (p[i] > eps0) p[i] = eps0;
 			x[i] = Normal.quantile(p[i], 0, 1, true, false);
 		}
-		pi0 = Math.min(1, (pi0/n)/(1-lambda));
+		pi0 = min(1, (pi0/n)/(1-lambda));
 
 		Density myd = Density.density(x, adj);
 		SmoothSplineResult mys = SmoothSpline.fit(myd.x, myd.y);
@@ -124,6 +126,7 @@ public class SVALite {
 	}
 
 	private static void shuffle(double[][] src, double[][] dest) {
+		/*
 		int
 			nrow = src.length,
 			numThreads = kNumCPUCores > nrow ? nrow : kNumCPUCores;
@@ -135,8 +138,8 @@ public class SVALite {
 		try {
 			threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 		} catch (InterruptedException exx) {}
-
-		/*
+		/*/
+		MersenneTwister rng = new MersenneTwister();
 		int nrow = src.length, ncol = src[0].length, k = ncol / 2;
 		for (int i = 0; i < nrow; i++) {
 			System.arraycopy(src[i], 0, dest[i], 0, ncol);
@@ -189,13 +192,12 @@ public class SVALite {
 	 * @param rng
 	 * @return
 	 */
-	public static int calcNumSV(double[][] data, double[][] altModel, double svsig) {
+	public static int calcNumSV(double[][] data, double[][] altModel, double svsig, int B) {
 		if (svsig <= 0 || svsig > 1) throw new RuntimeException();
 		QR qr = new QR(altModel);
 		int
 			nrow = data.length,
 			ncol = data[0].length,
-			B = (int) Math.ceil(2 / svsig),
 			ndf = ncol - qr.getRank();
 		double[][]
 			qq = qr.getQ(),
@@ -225,7 +227,7 @@ public class SVALite {
 		int numSVs = 0;
 		for (int j = 0; j < ndf; j++) {
 			dstat0[j] /= B;
-			if (j > 0) dstat0[j] = Math.max(dstat0[j-1], dstat0[j]);
+			if (j > 0) dstat0[j] = max(dstat0[j-1], dstat0[j]);
 			if (dstat0[j] <= svsig) numSVs++;
 		}
 		return numSVs;
@@ -277,33 +279,71 @@ public class SVALite {
 		return uu;
 	}
 
-	public static final void main(String[] args) {
-		String dataFile = args[1], altModelFile = args[2], nullModelFile = args.length >= 4 ? args[3] : null;
-		int dotPos = dataFile.lastIndexOf('.');
-		String
-			prefix = dotPos >= 0 ? dataFile.substring(0, dotPos) : dataFile,
-			suffix = dotPos >= 0 ? dataFile.substring(dotPos) : "";
-
-		double svsig = Double.parseDouble(args[0]);
-		if (svsig <= 0) throw new RuntimeException();
-		if (svsig >= 1) {
-			System.out.println("First parameter is at least 1. It is taken as the number of SVs: " + ((int) svsig));
+	static final void usage() {
+		System.exit(0);
+	}
+	static final Map<String, String> parseArgs(String[] args) {
+		if (args == null || args.length == 0) usage();
+		Map<String, String> argMap = new HashMap<String, String>();
+		int n = args.length;
+		for (int i = 0; i < n; i++) {
+			String tok = args[i];
+			if (tok.startsWith("--")) {
+				tok = tok.substring(2);
+				int eqPos = tok.indexOf('=');
+				if (eqPos < 0) {
+					argMap.put(tok, "true");
+				} else {
+					String val = tok.substring(eqPos + 1);
+					argMap.put(tok, val);
+				}
+			} else
+				throw new RuntimeException("Unknown option "+tok);
 		}
+		return argMap;
+	}
+
+	public static final void main(String[] args) {
+		Map<String, String> argMap = parseArgs(args);
+
+		String
+			dataFile = argMap.get("input"),
+			altModelFile = argMap.get("alt"),
+			nullModelFile = argMap.get("null"),
+			outputFile = argMap.get("output"),
+			numIterNumSVString = argMap.get("num-iter-numsv"),
+			numIterMainString = argMap.get("num-iter-main"),
+			svSigString = argMap.get("sv-sig"),
+			numSVString = argMap.get("numsv");
+		if (dataFile == null || altModelFile == null || outputFile == null) usage();
+		if ((numIterNumSVString != null || svSigString != null) && numSVString != null) usage();
+
+		int numIterMain = numIterMainString == null ? 5 : Integer.parseInt(numIterMainString);
+		double svsig = svSigString == null ? 0.1 : Double.parseDouble(svSigString);
+		int numIterNumSV = numIterNumSVString == null ? (int) ceil(2.0 / svsig) : Integer.parseInt(numIterNumSVString);
+		int numSVs = numSVString == null ? -1 : Integer.parseInt(numSVString);
+		if (svsig <= 0 || svsig >= 1 || numIterMain <= 0 || numIterNumSV < (int) ceil(2.0 / svsig) || numSVs <= 0) usage();
+
 		Table altModelTable, nullModelTable = null, dataTable;
 		try {
 			System.out.println("Loading...");
 			altModelTable = Table.load(altModelFile);
 			if (nullModelFile != null) {
 				nullModelTable = Table.load(nullModelFile);
+				if (altModelTable.matrix.length != nullModelTable.matrix.length)
+					throw new RuntimeException("Number of individuals does not match between alternative and null matrix tables!");
 			}
 			dataTable = Table.load(dataFile);
 			System.out.println("Loading is done!");
-			int numSVs = svsig >= 1 ? (int) svsig : calcNumSV(dataTable.matrix, altModelTable.matrix, svsig);
+			if (altModelTable.matrix.length != dataTable.matrix[0].length)
+				throw new RuntimeException("Number of individuals does not match between alternative matrix table and input data table!");
+			if (numSVs <= 0)
+				numSVs = calcNumSV(dataTable.matrix, altModelTable.matrix, svsig, numIterNumSV);
 			System.out.println("Num SVs = " + numSVs);
 
-			double[][] sv = irwSVA(dataTable.matrix, altModelTable.matrix, nullModelTable == null ? null : nullModelTable.matrix, numSVs, 5);
+			double[][] sv = irwSVA(dataTable.matrix, altModelTable.matrix, nullModelTable == null ? null : nullModelTable.matrix, numSVs, numIterMain);
 			int nrow = sv.length, ncol = numSVs;
-			PrintWriter writer = new PrintWriter(prefix + "-sva" + suffix);
+			PrintWriter writer = new PrintWriter(outputFile);
 			writer.print("ID");
 			for (int i = 0; i < ncol; i++)
 				writer.print(",SV" + (i+1));
@@ -688,8 +728,8 @@ class QR {
 			// The old norm code did not handle ill-conditioned data.
 			// This one is much slower but safer
 			for (int rowNo = colNo; rowNo < numRows; rowNo++)
-				nrm = Math.hypot(nrm,qr[rowNo][colNo]);
-			double absNrm = Math.abs(nrm);
+				nrm = hypot(nrm,qr[rowNo][colNo]);
+			double absNrm = abs(nrm);
 			// if (absNrm > curExtremeNorm)
 			//	curExtremeNorm = absNrm;
 
@@ -801,7 +841,7 @@ class QR {
 		// Apply transformation to additional columns.
 		for (int colNo = 0; colNo < mRank; colNo++)
 		{
-			if (Math.abs(newRDiag[colNo]) > tolerance)
+			if (abs(newRDiag[colNo]) > tolerance)
 			{
 				for (int col = mRank; col < singularIdx; col++)
 				{
@@ -890,7 +930,7 @@ class QR {
 		// Apply transformation to additional columns.
 		for (int colNo = 0; colNo < mRank; colNo++)
 		{
-			if (Math.abs(newRDiag[colNo]) > tolerance)
+			if (abs(newRDiag[colNo]) > tolerance)
 			{
 				for (int col = mRank; col < singularIdx; col++)
 				{
@@ -1294,7 +1334,7 @@ class QR {
  * to fix the bug that occurs when n > m. I also optimized it for speed.
  */
 class SVD {
-	static final double eps = Math.pow(2.0,-52.0);
+	static final double eps = pow(2.0,-52.0);
 	/* ------------------------
 	 * Class variables
 	 * ------------------------ */
@@ -1361,7 +1401,7 @@ class SVD {
 		// Initialize.
 		m = arg.length;
 		n = arg[0].length;
-		int nu = Math.min(m,n);
+		int nu = min(m,n);
 		s = new double [nu]; // RJ's bugfix
 		U = new double [m][nu];
 		V = new double [n][nu]; // RJ's bugfix
@@ -1375,9 +1415,9 @@ class SVD {
 		// Reduce A to bidiagonal form, storing the diagonal elements
 		// in s and the super-diagonal elements in e.
 		int
-			nct = Math.min(m-1,n),
-			nrt = Math.max(0,Math.min(n-2,m)),
-			mcrtnrt = Math.max(nct,nrt);
+			nct = min(m-1,n),
+			nrt = max(0,min(n-2,m)),
+			mcrtnrt = max(nct,nrt);
 		for (int k = 0; k < mcrtnrt; k++)
 		{
 			if (k < nct)
@@ -1577,7 +1617,7 @@ class SVD {
 				if (k == -1)
 					break;
 
-				if (Math.abs(e[k]) <= eps*(Math.abs(s[k]) + Math.abs(s[k+1])))
+				if (abs(e[k]) <= eps*(abs(s[k]) + abs(s[k+1])))
 				{
 					e[k] = 0.0f;
 					break;
@@ -1594,9 +1634,9 @@ class SVD {
 					if (ks == k)
 						break;
 
-					double t = (ks != p ? Math.abs(e[ks]) : 0.) + 
-								(ks != k+1 ? Math.abs(e[ks-1]) : 0.);
-					if (Math.abs(s[ks]) <= eps*t)
+					double t = (ks != p ? abs(e[ks]) : 0.) + 
+								(ks != k+1 ? abs(e[ks-1]) : 0.);
+					if (abs(s[ks]) <= eps*t)
 					{
 						s[ks] = 0.0f;
 						break;
@@ -1672,9 +1712,9 @@ class SVD {
 				case 3: { // Perform one qr step.
 					// Calculate the shift.
 					double
-						scale = Math.max(Math.max(Math.max(Math.max(
-							Math.abs(s[p-1]),Math.abs(s[p-2])),Math.abs(e[p-2])), 
-							Math.abs(s[k])),Math.abs(e[k])),
+						scale = max(max(max(max(
+							abs(s[p-1]),abs(s[p-2])),abs(e[p-2])), 
+							abs(s[k])),abs(e[k])),
 						sp = s[p-1]/scale,
 						spm1 = s[p-2]/scale,
 						epm1 = e[p-2]/scale,
@@ -1686,7 +1726,7 @@ class SVD {
 
 					if (b != 0.0 || c != 0.0)
 					{
-						shift = Math.sqrt(b*b + c);
+						shift = sqrt(b*b + c);
 						if (b < 0.0)
 							shift = -shift;
 						shift = c/(b + shift);
@@ -1838,14 +1878,14 @@ class SVD {
 	 * @return     max(S)/min(S)
 	 */
 	public double cond ()
-	{	return s[0]/s[Math.min(m,n)-1]; }
+	{	return s[0]/s[min(m,n)-1]; }
 
 	/**
 	 * Effective numerical matrix rank
 	 * @return     Number of nonnegligible singular values.
 	 */
 	public int rank () {
-		double tol = Math.max(m,n)*s[0]*eps;
+		double tol = max(m,n)*s[0]*eps;
 		// Exploit the fact that the eigenvalues are sorted in descending order -- RJ
 		int r = s.length;
 		for (int i = 0; i < r; i++)
