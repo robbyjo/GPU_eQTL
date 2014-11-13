@@ -742,7 +742,7 @@ public class QeQTLAnalysis implements IJobOwner
 			 * T = sqrt(DF / (1/R^2 - 1))
 			 */
 			if (thresholdType.equals("pval")) {
-				double tval = T.quantile(t0/2.0, dfe, false, false);
+				double tval = T.quantile(t0/2.0, dfe - dfOffset, false, false);
 				tval *= tval;
 				double rsq = tval / (dfe + tval);
 				System.out.println("P-value of " + t0 + " corresponds to R^2 of " + rsq);
