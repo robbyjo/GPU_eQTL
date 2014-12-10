@@ -94,7 +94,7 @@ public class mQTLCis {
 	public static void main(String[] args) {
 		CsvReader reader = null;
 		PrintWriter writer = null;
-		int lineNo = 0, writtenNo = 0;
+		long lineNo = 0, writtenNo = 0;
 		long time1, time2;
 		try {
 			time1 = System.currentTimeMillis();
