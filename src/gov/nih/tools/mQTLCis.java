@@ -20,8 +20,6 @@
  */
 package gov.nih.tools;
 
-import gov.nih.tools.IntervalTree.IntervalData;
-
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,8 +44,8 @@ public class mQTLCis {
 
 	public static final void loadProbeAnnot(String filename) {
 		CsvReader reader = null;
-		HashMap<String, List<IntervalData<String>>>
-			probeIDToNodes = new HashMap<String, List<IntervalData<String>>>();
+		HashMap<String, List<IntervalTree.IntervalData<String>>>
+			probeIDToNodes = new HashMap<String, List<IntervalTree.IntervalData<String>>>();
 		int lineNo = 0;
 		try {
 			reader = new CsvReader(filename);
@@ -65,17 +63,22 @@ public class mQTLCis {
 				String
 					chr = tokens[11],
 					pos_str = tokens[12];
+				if (chr == "") continue;
 				//if (chr.startsWith("chr")) chr = chr.substring(3);
 				probeAnnotTable.put(tokens[0], new String[] {
 					tokens[0],chr,pos_str });
-				List<IntervalData<String>> ivalList = probeIDToNodes.get(chr);
+				List<IntervalTree.IntervalData<String>> ivalList = probeIDToNodes.get(chr);
 				if (ivalList == null) {
-					ivalList = new ArrayList<IntervalData<String>>();
+					ivalList = new ArrayList<IntervalTree.IntervalData<String>>();
 					probeIDToNodes.put(chr, ivalList);
 				}
+				try {
 				long pos = (long) Double.parseDouble(pos_str);
-				IntervalData<String> node = new IntervalData<String>(Math.max(0, pos - cisLimit), pos + cisLimit, tokens[0]);
+				IntervalTree.IntervalData<String> node = new IntervalTree.IntervalData<String>(Math.max(0, pos - cisLimit), pos + cisLimit, tokens[0]);
 				ivalList.add(node);
+				} catch (Exception ee) {
+					System.out.println("Error: Line " + lineNo + ": ID = " + tokens[0] + ", Chr: " + chr + ", Pos = " + pos_str);
+				}
 			}
 			System.out.println(lineNo + " lines were read.");
 			reader.close(); reader = null;
@@ -118,7 +121,7 @@ public class mQTLCis {
 				IntervalTree<String> tree = probeIDToTree.get(chr);
 				if (tree == null) // Unlikely
 					continue;
-				IntervalData<String> data = tree.query((long) Double.parseDouble(tokens[2]));
+				IntervalTree.IntervalData<String> data = tree.query((long) Double.parseDouble(tokens[2]));
 				if (data == null) // Not found
 					continue;
 				long pos = (long) Double.parseDouble(tokens[2]);
