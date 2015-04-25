@@ -669,9 +669,8 @@ public class QeQTLAnalysis implements IJobOwner
 			time1 = System.currentTimeMillis();
 			System.out.println("Number of SNPs = " + numSNPs);
 			System.out.println("Number of individuals in SNP data = " + numInds);
-			System.out.println("Loading expression data...");
 			if (covarMatrix != null && covarMatrix.length != numInds) {
-				System.err.println("ERROR: The number of individuals in the SNP data does not match with that of covariate data!");
+				System.err.println("ERROR: The number of individuals in the SNP data does not match with that of covariate data! " + numInds + " (SNP) vs. " + covarMatrix.length + " (Covar)");
 				System.exit(kExitCodeErrorNumIndGenoCovarNotMatch);
 			}
 			if (covarMatrix != null) {
@@ -681,6 +680,7 @@ public class QeQTLAnalysis implements IJobOwner
 						System.exit(kExitCodeErrorGenoMissingValues);
 					}
 			}
+			System.out.println("Loading expression data...");
 			QGeneExpressionData exprData = QGeneExpressionData.load(exprFilename, cCommonDelimiter, "#", true, true);
 			time2 = System.currentTimeMillis();
 			int numETraits = exprData.getNumberOfRows();
@@ -693,7 +693,7 @@ public class QeQTLAnalysis implements IJobOwner
 			System.out.println("Number of e-traits = " + numETraits);
 			System.out.println("Number of individuals in expression data = " + exprData.getNumberOfColumns());
 			if (exprData.getNumberOfColumns() != numInds) {
-				System.err.println("ERROR: The number of individuals in the SNP data does not match with that of expression data!");
+				System.err.println("ERROR: The number of individuals in the SNP data does not match with that of expression data! " + numInds + " (SNP) vs. " + exprData.getNumberOfColumns() + " (Expr)");
 				System.exit(kExitCodeErrorNumIndGenoExprNotMatch);
 			}
 
