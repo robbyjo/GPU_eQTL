@@ -42,13 +42,11 @@ import com.csvreader.CsvReader;
 public class AnnotateCis {
 	static final long kLongCis = 5000000, kShortCis = 1000000;
 	static class ParsedAnnotation {
-		public Map<String, List<IntervalData<String>>> probeIDToNodes;
+		public Map<String, IntervalTree<String>> probeIDToTree;
 		public Map<String, String[]> probeAnnotTable;
-		public String header;
-		public ParsedAnnotation(Map<String, String[]> annottbl, Map<String, List<IntervalData<String>>> nodestbl, String hdr) {
+		public ParsedAnnotation(Map<String, String[]> annottbl, Map<String, IntervalTree<String>> treeTbl) {
 			probeAnnotTable = annottbl;
-			probeIDToNodes = nodestbl;
-			header = hdr;
+			probeIDToTree = treeTbl;
 		}
 	}
 
@@ -125,7 +123,12 @@ public class AnnotateCis {
 		}
 		System.out.println(lineNo + " lines were read.");
 		reader.close(); reader = null;
-		return new ParsedAnnotation(probeAnnotTable, probeIDToNodes, "HuEx_ProbesetID,HuEx_Transcript_Cluster_ID,HuEx_GeneSymbol,HuEx_EntrezID,HuEx_Strand,HuEx_Chr,HuEx_Start,HuEx_Stop");
+		Map<String, IntervalTree<String>> treeTbl = new HashMap<String, IntervalTree<String>>();
+		for (String chr: probeIDToNodes.keySet()) {
+			List<IntervalData<String>> ivalList = probeIDToNodes.get(chr);
+			treeTbl.put(chr, new IntervalTree<String>(ivalList));
+		}
+		return new ParsedAnnotation(probeAnnotTable, treeTbl);
 	}
 
 	/*
@@ -145,22 +148,26 @@ public class AnnotateCis {
 	//*/
 
 	public static void main(String[] args) {
-		ParsedAnnotation parsedAnnotTable = null;
-		Map<String, IntervalTree<String>> probeIDToTree = new HashMap<String, IntervalTree<String>>();
+		ParsedAnnotation parsedAnnotTableGene = null, parsedAnnotTableExon = null;
 		CsvReader reader = null;
 		PrintWriter writer = null;
 		long lineNo = 0;
 		long time1, time2;
 		try {
 			time1 = System.currentTimeMillis();
-			parsedAnnotTable = loadHuEx(args[0]);
+			parsedAnnotTableGene = loadHuEx(args[0]);
 			time2 = System.currentTimeMillis();
 			System.out.println(args[0] + " annotation read " + (time2 - time1) + " ms");
 
-			reader = new CsvReader(args[1]);
+			time1 = System.currentTimeMillis();
+			parsedAnnotTableExon = loadHuEx(args[1]);
+			time2 = System.currentTimeMillis();
+			System.out.println(args[0] + " annotation read " + (time2 - time1) + " ms");
+
+			reader = new CsvReader(args[2]);
 			reader.setTrimWhitespace(true);
 			reader.setUseTextQualifier(true);
-			writer = new PrintWriter(args[2]);
+			writer = new PrintWriter(args[3]);
 			while(reader.readRecord()) {
 				String[] tokens = reader.getValues();
 				lineNo++;
@@ -168,25 +175,39 @@ public class AnnotateCis {
 					Map<String, Integer> colnamesToIdx = new HashMap<String, Integer>();
 					for (int i = 0; i < tokens.length; i++)
 						colnamesToIdx.put(tokens[i], i);
-					writer.println(reader.getRawRecord() + ",LongCis5MGene");
+					writer.println(reader.getRawRecord() + ",LongCis5MGene,LongCis5MExon");
 					writer.flush();
 					continue; // Skip first line
 				}
 				String chr = tokens[1];
-				IntervalTree<String> tree = probeIDToTree.get(chr);
-				if (tree == null) // Unlikely
-					continue;
-				IntervalTree.IntervalData<String> data = tree.query((long) Double.parseDouble(tokens[2])); // Position in SNP annotation
-				if (data == null) // Not found
-					continue;
 				long pos = (long) Double.parseDouble(tokens[2]); // Position in SNP annotation
-				int count = 0;
-				for (String id: data.getSet()) {
-					String[] toks = parsedAnnotTable.probeAnnotTable.get(id);
-					long deltapos = Math.abs(pos - ((long) Double.parseDouble(toks[6])));
-					if (deltapos > kShortCis) count++;
+				int countGene = 0, countExon = 0;
+
+				IntervalTree<String> tree = parsedAnnotTableGene.probeIDToTree.get(chr);
+				if (tree != null) {
+					IntervalTree.IntervalData<String> data = tree.query(pos);
+					if (data != null) {
+						for (String id: data.getSet()) {
+							String[] toks = parsedAnnotTableGene.probeAnnotTable.get(id);
+							long deltapos = Math.abs(pos - ((long) Double.parseDouble(toks[6])));
+							if (deltapos > kShortCis) countGene++;
+						}
+					}
 				}
-				writer.println(reader.getRawRecord()+","+ count);
+
+				tree = parsedAnnotTableExon.probeIDToTree.get(chr);
+				if (tree != null) {
+					IntervalTree.IntervalData<String> data = tree.query(pos);
+					if (data != null) {
+						for (String id: data.getSet()) {
+							String[] toks = parsedAnnotTableExon.probeAnnotTable.get(id);
+							long deltapos = Math.abs(pos - ((long) Double.parseDouble(toks[6])));
+							if (deltapos > kShortCis) countExon++;
+						}
+					}
+				}
+
+				writer.println(reader.getRawRecord()+","+ countGene+","+ countExon);
 				writer.flush();
 			}
 			System.out.println(lineNo + " lines were read.");
