@@ -82,7 +82,7 @@ public class SNPOnProbe {
 		}
 		// Construct tree for each chromosome
 		for(String key: probeIDToNodes.keySet())
-			probeIDToTree.put(key, new IntervalTree(probeIDToNodes.get(key)));
+			probeIDToTree.put(key, new IntervalTree<String>(probeIDToNodes.get(key)));
 		probeIDToNodes.clear();
 	}
 
