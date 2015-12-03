@@ -60,7 +60,6 @@ public class TestCount {
 			isCisCol = -1;
 		try {
 			reader = new LineNumberReader(new FileReader(args[1]));
-			curLine = reader.readLine(); // Remove the header
 			do {
 				curLine = reader.readLine();
 				if (curLine == null)
@@ -76,7 +75,7 @@ public class TestCount {
 							fdrCol = i;
 						else if ("Marker".equalsIgnoreCase(t))
 							markerCol = i;
-						else if ("ProbesetID".equalsIgnoreCase(t))
+						else if ("CpG".equalsIgnoreCase(t))
 							transcriptCol = i;
 						else if ("Is_Cis".equalsIgnoreCase(t))
 							isCisCol = i;
@@ -91,6 +90,7 @@ public class TestCount {
 						reader.close(); reader = null;
 						throw new RuntimeException();
 					}
+					continue;
 				}
 				if (lineNo % 10000000 == 0) System.out.println(lineNo/1000000);
 				double curPval = Double.parseDouble(tok[pvalCol]);
@@ -114,7 +114,7 @@ public class TestCount {
 		}
 		System.out.println("There are " + pairCount_cis + " cis pairs and " + pairCount_trans + " trans pairs.");
 		System.out.println("There are " + markers_cis.size() + " unique cis SNPs and " + markers_trans.size() + " unique trans SNPs.");
-		System.out.println("There are " + probesets_cis.size() + " unique cis probesets and " + probesets_cis.size() + " unique trans probesets.");
+		System.out.println("There are " + probesets_cis.size() + " unique cis probesets and " + probesets_trans.size() + " unique trans probesets.");
 		markers_cis.addAll(markers_trans);
 		System.out.println("There are " + markers_cis.size() + " unique SNPs total");
 		markers_cis.clear(); markers_cis = null;
