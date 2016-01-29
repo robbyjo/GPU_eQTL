@@ -21,7 +21,6 @@
 package gov.nih.tools;
 
 import gov.nih.tools.IntervalTree;
-import gov.nih.tools.IntervalTree.IntervalData;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -34,6 +33,7 @@ import java.util.Set;
 
 import com.csvreader.CsvReader;
 
+// java -cp .:javacsv.jar AnnotateCis HuEx-1_0-st-v2.na33.1.hg19.transcript-core.txt HuEx-1_0-st-v2.na33.1.hg19.probeset-core.txt 1000G-annot-longcis.txt 1000G-annot-longcis-chr.txt
 /**
  * Example script
  * 
@@ -71,7 +71,7 @@ public class AnnotateCis {
 	}
 
 	public static final ParsedAnnotation loadHuEx(String filename) throws NumberFormatException, IOException {
-		Map<String, List<IntervalData<String>>> probeIDToNodes = new HashMap<String, List<IntervalData<String>>>();
+		Map<String, List<IntervalTree.IntervalData<String>>> probeIDToNodes = new HashMap<String, List<IntervalTree.IntervalData<String>>>();
 		Map<String, String[]> probeAnnotTable = new HashMap<String, String[]>();
 		Map<String, Integer> colnamesToIdx = new HashMap<String, Integer>();
 		CsvReader reader = null;
@@ -112,20 +112,20 @@ public class AnnotateCis {
 			probeAnnotTable.put(probeid, new String[] {
 					probeid, txid, genesym, entrez, strand, chr, start, stop
 			});
-			List<IntervalData<String>> ivalList = probeIDToNodes.get(chr);
+			List<IntervalTree.IntervalData<String>> ivalList = probeIDToNodes.get(chr);
 			if (ivalList == null) {
-				ivalList = new ArrayList<IntervalData<String>>();
+				ivalList = new ArrayList<IntervalTree.IntervalData<String>>();
 				probeIDToNodes.put(chr, ivalList);
 			}
 			long startPos = Long.parseLong(start);
-			IntervalData<String> node = new IntervalData<String>(startPos > kLongCis ? startPos - kLongCis : 0, startPos + kLongCis, probeid);
+			IntervalTree.IntervalData<String> node = new IntervalTree.IntervalData<String>(startPos > kShortCis ? startPos - kShortCis : 0, startPos + kShortCis, probeid);
 			ivalList.add(node);
 		}
 		System.out.println(lineNo + " lines were read.");
 		reader.close(); reader = null;
 		Map<String, IntervalTree<String>> treeTbl = new HashMap<String, IntervalTree<String>>();
 		for (String chr: probeIDToNodes.keySet()) {
-			List<IntervalData<String>> ivalList = probeIDToNodes.get(chr);
+			List<IntervalTree.IntervalData<String>> ivalList = probeIDToNodes.get(chr);
 			treeTbl.put(chr, new IntervalTree<String>(ivalList));
 		}
 		return new ParsedAnnotation(probeAnnotTable, treeTbl);
@@ -133,16 +133,16 @@ public class AnnotateCis {
 
 	/*
 	static void example() {
-		List<IntervalData<String>> ll = new ArrayList<IntervalData<String>>();
-		ll.add(new IntervalData<String>(1, 4, "A"));
-		ll.add(new IntervalData<String>(5, 6, "A"));
-		ll.add(new IntervalData<String>(3, 8, "B"));
-		ll.add(new IntervalData<String>(5, 12, "C"));
-		ll.add(new IntervalData<String>(6, 10, "D"));
-		ll.add(new IntervalData<String>(11, 15, "E"));
-		ll.add(new IntervalData<String>(13, 18, "F"));
+		List<IntervalTree.IntervalData<String>> ll = new ArrayList<IntervalTree.IntervalData<String>>();
+		ll.add(new IntervalTree.IntervalData<String>(1, 4, "A"));
+		ll.add(new IntervalTree.IntervalData<String>(5, 6, "A"));
+		ll.add(new IntervalTree.IntervalData<String>(3, 8, "B"));
+		ll.add(new IntervalTree.IntervalData<String>(5, 12, "C"));
+		ll.add(new IntervalTree.IntervalData<String>(6, 10, "D"));
+		ll.add(new IntervalTree.IntervalData<String>(11, 15, "E"));
+		ll.add(new IntervalTree.IntervalData<String>(13, 18, "F"));
 		IntervalTree<String> tree = new IntervalTree<String>(ll);
-		IntervalData<String> result = tree.query(6);
+		IntervalTree.IntervalData<String> result = tree.query(6);
 		System.out.println(result.getSet());
 	}
 	//*/
@@ -162,7 +162,7 @@ public class AnnotateCis {
 			time1 = System.currentTimeMillis();
 			parsedAnnotTableExon = loadHuEx(args[1]);
 			time2 = System.currentTimeMillis();
-			System.out.println(args[0] + " annotation read " + (time2 - time1) + " ms");
+			System.out.println(args[1] + " annotation read " + (time2 - time1) + " ms");
 
 			reader = new CsvReader(args[2]);
 			reader.setTrimWhitespace(true);
@@ -175,7 +175,7 @@ public class AnnotateCis {
 					Map<String, Integer> colnamesToIdx = new HashMap<String, Integer>();
 					for (int i = 0; i < tokens.length; i++)
 						colnamesToIdx.put(tokens[i], i);
-					writer.println(reader.getRawRecord() + ",LongCis5MGene,LongCis5MExon");
+					writer.println(reader.getRawRecord() + ",LongCisChrGene,LongCisChrExon");
 					writer.flush();
 					continue; // Skip first line
 				}
