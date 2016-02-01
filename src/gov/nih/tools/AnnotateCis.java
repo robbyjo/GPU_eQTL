@@ -40,7 +40,7 @@ import com.csvreader.CsvReader;
  * @author Roby Joehanes
  */
 public class AnnotateCis {
-	static final long kLongCis = 5000000, kShortCis = 1000000;
+	static final long kLongCis = Long.MAX_VALUE, kShortCis = 1000000;
 	static class ParsedAnnotation {
 		public Map<String, IntervalTree<String>> probeIDToTree;
 		public Map<String, String[]> probeAnnotTable;
@@ -117,8 +117,8 @@ public class AnnotateCis {
 				ivalList = new ArrayList<IntervalTree.IntervalData<String>>();
 				probeIDToNodes.put(chr, ivalList);
 			}
-			long startPos = Long.parseLong(start);
-			IntervalTree.IntervalData<String> node = new IntervalTree.IntervalData<String>(startPos > kShortCis ? startPos - kShortCis : 0, startPos + kShortCis, probeid);
+			//long startPos = Long.parseLong(start);
+			IntervalTree.IntervalData<String> node = new IntervalTree.IntervalData<String>(0, kLongCis, probeid);
 			ivalList.add(node);
 		}
 		System.out.println(lineNo + " lines were read.");
