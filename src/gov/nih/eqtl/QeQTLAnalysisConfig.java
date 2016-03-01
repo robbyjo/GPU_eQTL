@@ -86,6 +86,18 @@ public class QeQTLAnalysisConfig {
 		return s == null ? true : Boolean.parseBoolean(s);
 	}
 
+	public boolean getSimplifyOutput()
+	{
+		String s =  mIni.get("simplify_output");  //$NON-NLS-1$
+		return s == null ? false : Boolean.parseBoolean(s);
+	}
+
+	public boolean getRSqOutput()
+	{
+		String s =  mIni.get("rsq_only");  //$NON-NLS-1$
+		return s == null ? false : Boolean.parseBoolean(s);
+	}
+
 	public String getGenotypeModel()
 	{
 		String s =  mIni.get("genotype_model");  //$NON-NLS-1$

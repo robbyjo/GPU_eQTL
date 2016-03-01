@@ -68,6 +68,7 @@ public class QeQTLAnalysis implements IJobOwner
 {
 	static ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() + 1);
 	static boolean DEBUG = false;
+	static boolean simplifyResult = false, rsqOnly = false;
 	static final double
 		kMB = 1024 * 1024,
 		kGB = 1024 * kMB,
@@ -280,7 +281,11 @@ public class QeQTLAnalysis implements IJobOwner
 		Writer fw = null;
 		try {
 			fw = new PrintWriter(new FileOutputStream(config.getOutputFilename()), true);
-			fw.write("Rs_ID,ProbesetID,RSq,Fx,T,log10P");
+			if (rsqOnly) {
+				fw.write("Rs_ID,ProbesetID,RSq,Dir");
+			} else {
+				fw.write("Rs_ID,ProbesetID,RSq,Fx,T,log10P");
+			}
 			fw.write(sLn);
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -508,6 +513,7 @@ public class QeQTLAnalysis implements IJobOwner
 
 	public static void main(String[] args)
 	{
+		long timea = System.currentTimeMillis();
 		System.out.println("GPU eQTL analysis software version 1.0. By: Roby Joehanes");
 		if (args == null || args.length < 1)
 			printUsage();
@@ -551,6 +557,8 @@ public class QeQTLAnalysis implements IJobOwner
 			covarFixed[] = config.getFixedCovariates(),
 			covarRandom[] = config.getRandomCovariates(),
 			covarFactor[] = config.getFactorCovariates();
+		simplifyResult = config.getSimplifyOutput();
+		rsqOnly = config.getRSqOutput();
 		double t0 = config.getThresholdValue();
 		boolean isAdditive = true;
 		int
@@ -765,6 +773,8 @@ public class QeQTLAnalysis implements IJobOwner
 		{
 			e.printStackTrace();
 		}
+		long timeb = System.currentTimeMillis();
+		System.out.println("Overall time (in seconds) = " + (timeb - timea) / 1000.0);
 		System.exit(kExitCodeNormal);
 	}
 }
