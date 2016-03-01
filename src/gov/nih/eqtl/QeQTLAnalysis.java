@@ -66,7 +66,7 @@ import static gov.nih.utils.QStringUtils.sLn;
  */
 public class QeQTLAnalysis implements IJobOwner
 {
-	static ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() + 1);
+	static ExecutorService threadPool;
 	static boolean DEBUG = false;
 	static boolean simplifyResult = false, rsqOnly = false;
 	static final double
@@ -249,6 +249,8 @@ public class QeQTLAnalysis implements IJobOwner
 		int globalBlockSize = config.getBlockSize();
 		int numThreads = config.getNumThreads();
 		System.out.println("Num threads = " + numThreads);
+		int maxNumThreads = Runtime.getRuntime().availableProcessors() + 1;
+		threadPool = Executors.newFixedThreadPool(numThreads > maxNumThreads ? maxNumThreads : numThreads);
 
 		//time1 = System.currentTimeMillis();
 		int
