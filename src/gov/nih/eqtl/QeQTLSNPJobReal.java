@@ -42,6 +42,8 @@ import gov.nih.opencl.QOCLContextPool;
 import gov.nih.parallel.IGenericParallelJob;
 import gov.nih.parallel.IJobOwner;
 import gov.nih.parallel.QSynchronizedCounter;
+import gov.nih.utils.QSystemUtils;
+
 import static java.lang.Math.log;
 import static java.lang.Math.log10;
 import static java.lang.Math.min;
@@ -243,7 +245,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 				}
 			}
 			xyResult = null;
-			//QSystemUtils.runGC();
+			QSystemUtils.runGC();
 			//time2 = System.currentTimeMillis();
 			//System.out.println("Post-processing time = " + (time2 - time1));
 		}
