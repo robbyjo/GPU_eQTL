@@ -940,7 +940,7 @@ class ASTBuilder {
 						String tok = node.getToken();
 						if (leftDt == DataType.STRING && !tok.equals("+"))
 							throw new RuntimeException("Subtraction cannot be used in strings " + node);
-						else if (leftDt != DataType.NUMERIC)
+						else if (leftDt != DataType.NUMERIC && leftDt != DataType.STRING)
 							throw new RuntimeException("Incompatible operation for " + node);
 					}
 				}
