@@ -208,7 +208,19 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 						RSq = rawEffect * rawEffect;
 					if (RSq >= RSq0)
 					{
-						if (!QeQTLAnalysis.rsqOnly) {
+						if (QeQTLAnalysis.rsqOnly) {
+							if (QeQTLAnalysis.simplifyResult) {
+								RSq = Math.round(RSq * 10000) / 10000.0;
+							}
+							synchronized(fw) {
+								try {
+									fw.write(snpID + "," + probesetID + "," + RSq + (rawEffect < 0 ? ",-" : ",+") + sLn);
+									fw.flush();
+								} catch (IOException e) {
+									e.printStackTrace();
+								}
+							}
+						} else {
 							double
 								realEffect = rawEffect * expSD[curETraitNo] / snpSD[curSNPNo],
 								t = sqrt(RSq*dfe / (1 - RSq)),
@@ -221,20 +233,12 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 							}
 							synchronized(fw) {
 								try {
-									fw.write(snpID + "," + probesetID + "," + RSq + "," + realEffect +
-										"," + (signum(rawEffect) * t) + "," + p + sLn);
-									fw.flush();
-								} catch (IOException e) {
-									e.printStackTrace();
-								}
-							}
-						} else {
-							if (QeQTLAnalysis.simplifyResult) {
-								RSq = Math.round(RSq * 10000) / 10000.0;
-							}
-							synchronized(fw) {
-								try {
-									fw.write(snpID + "," + probesetID + "," + RSq + (rawEffect < 0 ? ",-" : ",+") + sLn);
+									if (QeQTLAnalysis.pvalOnly) {
+										fw.write(p + sLn);
+									} else {
+										fw.write(snpID + "," + probesetID + "," + RSq + "," + realEffect +
+											"," + (signum(rawEffect) * t) + "," + p + sLn);
+									}
 									fw.flush();
 								} catch (IOException e) {
 									e.printStackTrace();

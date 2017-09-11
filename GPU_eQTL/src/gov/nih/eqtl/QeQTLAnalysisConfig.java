@@ -98,6 +98,12 @@ public class QeQTLAnalysisConfig {
 		return s == null ? false : Boolean.parseBoolean(s);
 	}
 
+	public boolean getPValOutput()
+	{
+		String s =  mIni.get("pval_only");  //$NON-NLS-1$
+		return s == null ? false : Boolean.parseBoolean(s);
+	}
+
 	public String getGenotypeModel()
 	{
 		String s =  mIni.get("genotype_model");  //$NON-NLS-1$

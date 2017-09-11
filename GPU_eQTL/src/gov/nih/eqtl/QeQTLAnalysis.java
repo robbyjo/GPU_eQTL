@@ -68,7 +68,7 @@ public class QeQTLAnalysis implements IJobOwner
 {
 	static ExecutorService threadPool;
 	static boolean DEBUG = false;
-	static boolean simplifyResult = false, rsqOnly = false;
+	static boolean simplifyResult = false, rsqOnly = false, pvalOnly = false;
 	static final double
 		kMB = 1024 * 1024,
 		kGB = 1024 * kMB,
@@ -285,6 +285,8 @@ public class QeQTLAnalysis implements IJobOwner
 			fw = new PrintWriter(new FileOutputStream(config.getOutputFilename()), true);
 			if (rsqOnly) {
 				fw.write("Rs_ID,ProbesetID,RSq,Dir");
+			} else if (pvalOnly){
+				fw.write("log10P");
 			} else {
 				fw.write("Rs_ID,ProbesetID,RSq,Fx,T,log10P");
 			}
@@ -561,6 +563,7 @@ public class QeQTLAnalysis implements IJobOwner
 			covarFactor[] = config.getFactorCovariates();
 		simplifyResult = config.getSimplifyOutput();
 		rsqOnly = config.getRSqOutput();
+		pvalOnly = config.getPValOutput();
 		double t0 = config.getThresholdValue();
 		boolean isAdditive = true;
 		int
