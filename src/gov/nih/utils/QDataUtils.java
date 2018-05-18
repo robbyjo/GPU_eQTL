@@ -460,7 +460,7 @@ public class QDataUtils
 			int numRows = valueRow.length;
 			Double[] stringRow = array[i] = new Double[numRows];
 			for (int j = 0; j < numRows; j++)
-				stringRow[j] = new Double(valueRow[j]);
+				stringRow[j] = Double.valueOf(valueRow[j]);
 		}
 		return array;
 	}
@@ -1841,7 +1841,7 @@ public class QDataUtils
 		Set<Integer> set = new HashSet<Integer>();
 		if (array != null)
 			for (int data: array)
-				set.add(new Integer(data));
+				set.add(Integer.valueOf(data));
 		return set;
 	}
 
@@ -1850,7 +1850,7 @@ public class QDataUtils
 		Set<Long> set = new HashSet<Long>();
 		if (array != null)
 			for (long data: array)
-				set.add(new Long(data));
+				set.add(Long.valueOf(data));
 		return set;
 	}
 
@@ -1859,7 +1859,7 @@ public class QDataUtils
 		Set<Double> set = new HashSet<Double>();
 		if (array != null)
 			for (double data: array)
-				set.add(new Double(data));
+				set.add(Double.valueOf(data));
 		return set;
 	}
 
@@ -1868,7 +1868,7 @@ public class QDataUtils
 		Set<Float> set = new HashSet<Float>();
 		if (array != null)
 			for (float data: array)
-				set.add(new Float(data));
+				set.add(Float.valueOf(data));
 		return set;
 	}
 

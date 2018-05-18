@@ -58,7 +58,7 @@ import static gov.nih.utils.QStringUtils.sLn;
  * new Class[] { ParamTypeClass1.class, ...}, new Object[]
  * {actualParam1, ...});</tt><br>Example:
  * <tt>String retval = (String) memoryBenchmark(myInstance, "myMethod",
- * new Class[] { int.class, String.class }, new Object[] { new Integer(1),
+ * new Class[] { int.class, String.class }, new Object[] { Integer.valueOf(1),
  * "duh" });</tt><br>
  * This one is for benchmarking the method <tt>String myMethod(int, String)</tt>
  * method of myInstance. So, instead of calling<br>
@@ -73,7 +73,7 @@ import static gov.nih.utils.QStringUtils.sLn;
  * This is similar to the first one except that this one is for static methods.
  * Example:<br>
  * <tt>String retval = (String) memoryBenchmark(MyClass.class, "myMethod",
- * new Class[] { int.class, String.class }, new Object[] { new Integer(1),
+ * new Class[] { int.class, String.class }, new Object[] { Integer.valueOf(1),
  * "duh" });</tt><br>
  * This is to benchmark the static method <tt>MyClass.myMethod(int, String)</tt>
  * </li>
