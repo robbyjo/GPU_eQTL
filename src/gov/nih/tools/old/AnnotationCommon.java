@@ -20,11 +20,9 @@
  */
 package gov.nih.tools.old;
 
-import gov.nih.tools.IntervalTree;
 import gov.nih.tools.IntervalTree.IntervalData;
 
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -279,76 +277,5 @@ public class AnnotationCommon {
 		if (type.equals("huex"))
 			return loadHuEx(filename);
 		throw new RuntimeException("Unknown annotation type " + type);
-	}
-
-	public static void main(String[] args) {
-		Map<String, IntervalTree<String>> probeIDToTree = new HashMap<String, IntervalTree<String>>();
-		PrintWriter writer = null;
-		int writtenNo = 0;
-		String temp[];
-		long time1, time2;
-		try {
-			temp = args[0].split(",");
-			time1 = System.currentTimeMillis();
-			ParsedAnnotation annot1 = parseAnnotation(temp[1], temp[0]);
-			time2 = System.currentTimeMillis();
-			System.out.println(temp[0] + " annotation read " + (time2 - time1) + " ms");
-
-			temp = args[1].split(",");
-			time1 = System.currentTimeMillis();
-			ParsedAnnotation annot2 = parseAnnotation(temp[1], temp[0]);
-			time2 = System.currentTimeMillis();
-			System.out.println(temp[0] + " annotation read " + (time2 - time1) + " ms");
-
-			// Construct tree for each chromosome
-			for(String key: annot2.probeIDToNodes.keySet())
-				probeIDToTree.put(key, new IntervalTree(annot2.probeIDToNodes.get(key)));
-			annot2.probeIDToNodes.clear();
-
-			time1 = System.currentTimeMillis();
-			writer = new PrintWriter(args[2]);
-			writer.println(annot1.header + "," + annot2.header);
-			writer.flush();
-			for(String key: annot1.probeIDToNodes.keySet()) {
-				IntervalTree<String> tree = probeIDToTree.get(key);
-				if (tree == null) // Unlikely
-					continue;
-				for (IntervalData<String> dt : annot1.probeIDToNodes.get(key)) {
-					IntervalData<String> overlap = tree.query(dt.getStart(), dt.getEnd());
-					if (overlap == null) // Not found
-						continue;
-					String probeid = dt.getSet().iterator().next();
-					String[] tokens = annot1.probeAnnotTable.get(probeid);
-					StringBuilder buf = new StringBuilder();
-					for (int i = 0; i < tokens.length; i++) {
-						if (i != 0) buf.append(",");
-						//buf.append("\"");
-						buf.append(tokens[i]);
-						//buf.append("\"");
-					}
-					String str = buf.toString();
-					for (String id : overlap.getSet()) {
-						buf.setLength(0);
-						//buf.trimToSize();
-						buf.append(str);
-						tokens = annot2.probeAnnotTable.get(id);
-						for (int i = 0; i < tokens.length; i++) {
-							//buf.append(",\"");
-							buf.append(",");
-							buf.append(tokens[i]);
-							//buf.append("\"");
-						}
-						writer.println(buf.toString());
-						writer.flush();
-						writtenNo++;
-					}
-				}
-			}
-			System.out.println(writtenNo + " lines were written.");
-			time2 = System.currentTimeMillis();
-			System.out.println("Annotation overlap time " + (time2 - time1) + " ms");
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
 	}
 }

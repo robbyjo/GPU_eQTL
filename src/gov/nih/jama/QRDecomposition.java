@@ -47,7 +47,7 @@ import static gov.nih.utils.matrix.QMatrixUtils.createSubVector;
  * <li>Bugfixes</li>
  * </ul>
  */
-public class QRDecomposition implements java.io.Serializable
+public class QRDecomposition
 {
 	private static final double kDefaultQRTolerance = 1e-6;
 	private static final int kInvalidColumnIndex = -1;

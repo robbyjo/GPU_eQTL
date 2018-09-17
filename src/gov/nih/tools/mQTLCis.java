@@ -87,7 +87,7 @@ public class mQTLCis {
 		}
 		// Construct tree for each chromosome
 		for(String key: probeIDToNodes.keySet())
-			probeIDToTree.put(key, new IntervalTree(probeIDToNodes.get(key)));
+			probeIDToTree.put(key, new IntervalTree(new ArrayList(probeIDToNodes.get(key))));
 		probeIDToNodes.clear();
 	}
 
