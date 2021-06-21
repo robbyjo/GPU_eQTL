@@ -492,7 +492,7 @@ public class QMatrixUtils
 		int rows, int cols, EMultiplicationMode mode)
 	{
 		long
-			numElements = rows * cols,
+			numElements = ((long) rows) * ((long) cols),
 			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
 		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
 		QSynchronizedCounter counter = new QSynchronizedCounter(0, rows);
