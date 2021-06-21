@@ -491,9 +491,11 @@ public class QMatrixUtils
 	public static final double[][] parallelMatrixMultiplication(double[][] X, double[][] Y, double[][] Z, double cons,
 		int rows, int cols, EMultiplicationMode mode)
 	{
+		System.out.println("Rows: " + rows + "; Cols: "+ cols);
 		long
 			numElements = ((long) rows) * ((long) cols),
 			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
+		System.out.println("numElements: " + numElements + "; numThreads: " + numThreads);
 		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
 		QSynchronizedCounter counter = new QSynchronizedCounter(0, rows);
 		double[][] result = new double[rows][cols];
