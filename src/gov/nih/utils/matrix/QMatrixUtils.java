@@ -494,7 +494,7 @@ public class QMatrixUtils
 		long
 			numElements = rows * cols,
 			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
-		ExecutorService threadPool = Executors.newFixedThreadPool((int) (numThreads + 1));
+		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
 		QSynchronizedCounter counter = new QSynchronizedCounter(0, rows);
 		double[][] result = new double[rows][cols];
 		assert (X[0].length == Y.length);
@@ -521,7 +521,7 @@ public class QMatrixUtils
 			cols = result[0].length,
 			numElements = rows * cols,
 			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
-		ExecutorService threadPool = Executors.newFixedThreadPool((int) (numThreads + 1));
+		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
 		QSynchronizedCounter counter = new QSynchronizedCounter(0, (int) rows);
 		assert (X[0].length == Y.length);
 
