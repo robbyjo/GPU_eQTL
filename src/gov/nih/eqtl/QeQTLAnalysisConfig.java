@@ -107,19 +107,19 @@ public class QeQTLAnalysisConfig {
 	public String[] getFixedCovariates()
 	{
 		String s = mIni.get("covariate_fixed"); //$NON-NLS-1$
-		return s == null ? null : s.split(" "); //$NON-NLS-1$
+		return s == null ? null : s.split("\\s+"); //$NON-NLS-1$
 	}
 
 	public String[] getRandomCovariates()
 	{
 		String s = mIni.get("covariate_random"); //$NON-NLS-1$
-		return s == null ? null : s.split(" "); //$NON-NLS-1$
+		return s == null ? null : s.split("\\s+"); //$NON-NLS-1$
 	}
 
 	public String[] getFactorCovariates()
 	{
 		String s = mIni.get("covariate_factor"); //$NON-NLS-1$
-		return s == null ? null : s.split(" "); //$NON-NLS-1$
+		return s == null ? null : s.split("\\s+"); //$NON-NLS-1$
 	}
 
 	public String getThresholdType()
@@ -127,7 +127,7 @@ public class QeQTLAnalysisConfig {
 		String thresholdType = mIni.get("threshold"); //$NON-NLS-1$
 		if (thresholdType == null)
 			return "none"; //$NON-NLS-1$
-		return thresholdType.split(" ")[0].trim(); //$NON-NLS-1$
+		return thresholdType.split("\\s+")[0].trim(); //$NON-NLS-1$
 	}
 
 	public double getThresholdValue()
@@ -135,7 +135,7 @@ public class QeQTLAnalysisConfig {
 		String thresholdType = mIni.get("threshold"); //$NON-NLS-1$
 		if (thresholdType == null)
 			return Double.NaN;
-		return Double.parseDouble(thresholdType.split(" ")[1].trim()); //$NON-NLS-1$
+		return Double.parseDouble(thresholdType.split("\\s+")[1].trim()); //$NON-NLS-1$
 	}
 
 	public int getDFOffset()
