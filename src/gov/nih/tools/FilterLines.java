@@ -49,7 +49,14 @@ import static java.lang.Math.*;
  */
 public class FilterLines {
 
+	// Compilation step (do it once):
+	// javac -cp .:javacsv.jar FilterLines.java
+
+	// How to call
+	// java -Xmx64G -cp .:javacsv.jar FilterLines "(Is_Cis == 1 && log10P <= -7) || (Is_Cis == 0 && log10P <= -14)" mqtl-results.txt mqtl-filtered-output.txt
+	// Or
 	// java -Xmx64G -cp .:javacsv.jar FilterLines "Rs_ID %% file('bpsnps-20130725.csv',8) || replaceAll(Marker,':[ACGT].*', '') %% file('bpsnps-20130725.csv',7)" eqtl-gene-1000g-result-p1e-4-reannot-irsq1-maf01-fdr.txt bpsnps-gene.txt
+
 	public static final void main(String[] args) {
 		if (ToolProvider.getSystemJavaCompiler() == null) {
 			System.err.println("Error! Compiler subsystem is not installed correctly! ToolProvider.getSystemJavaCompiler() returns null! Program aborted!");
