@@ -1,7 +1,7 @@
 # GPU eQTL
 
 ## What it is
-To compute trillions of association typically required for quantitative trait locus (QTL) analysis. The statistical model is linear model. This program uses graphical processing unit (GPU) to achieve dramatic speedups. Created in 2011.
+To compute trillions of association typically required for quantitative trait locus (QTL) analysis. The statistical model is linear model. This program uses graphical processing unit (GPU) to achieve dramatic speedups. Created in 2009.
 
 ## Requirements
 * Java version 7 or above
