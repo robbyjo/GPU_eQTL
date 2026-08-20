@@ -114,3 +114,38 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - AMD GPUs currently use JOCL/OpenCL. Native HIP/ROCm or rocBLAS support remains a future backend that needs an AMD test machine and the same CPU-reference tests.
 - Current Java releases may emit a restricted-native-access warning unless `--enable-native-access=ALL-UNNAMED` is supplied; Java 17 remains supported.
 - No representative end-to-end input/output fixture exists yet. The next recommended work remains deterministic reference fixtures plus sample/gene/SNP ID validation before categorical covariates, CLI replacement, or streaming loaders.
+
+## 2026-08-20T12:49:00.7068131-04:00 — Standalone Git repository migration
+
+### Baseline and goal
+
+- Combined-repository baseline: `7af8b27df2ab434ac33ec94168d7b7abd4276052` on `master`, with the working-tree root at `D:\git` and the old combined remote `ssh://robbyjo@desktop/c:/git`.
+- Project-only split baseline: `7202e53b45d9c2332787ad1a6f408d98438a9d19` (`Allow CUDA backend as well`).
+- Goal: separate NIH-Project from the multi-project repository and its corrupt unrelated `Analysis-Pipeline` index entry, preserve NIH-Project history and current files, and establish independent local and server repositories without deleting the old combined copy.
+
+### Decisions and changes
+
+- Confirmed that the combined repository had only `master` and no tags, then extracted the `NIH-Project` subtree into a project-rooted history. The split examined 2,697 combined commits and retained 31 project commits, beginning with `bfd4f88414467e0972eb1792ae7a401b66bdd894` (`Initial commit`).
+- Created the standalone bare remote at `D:\git\NIH-Project.git` on DESKTOP (`100.96.31.61`) and seeded its `master` branch through SSH.
+- Set the canonical remote URL to `robbyjo@desktop:D:/git/NIH-Project.git`. The SCP-style path is required because the `ssh://.../d:/...` spelling is interpreted with an invalid leading slash by the Windows SSH Git service.
+- Created the canonical standalone local checkout at `D:\projects\NIH-Project`. Its repository root is now the project directory itself, so Git operations no longer inspect the combined `D:\git` index.
+- Overlaid the previous `D:\git\NIH-Project` working files while excluding `.git`, `target`, and `bin`. After Git normalization, the overlay had no content differences from the split tip; the apparent modifications were LF/CRLF stat noise only.
+- Left the original `D:\git` working tree and the old `C:\git` combined remote unchanged as recovery copies. No old repository, branch, or project directory was deleted.
+- Source-tree change for this migration: appended this record to `SESSION_HISTORY.md`.
+
+### Verification
+
+- `git subtree split --prefix=NIH-Project --branch standalone-master master` in a temporary clone — successful; produced `7202e53b45d9c2332787ad1a6f408d98438a9d19` with 31 commits and project-relative root paths.
+- `ssh -o BatchMode=yes robbyjo@100.96.31.61 "git init --bare --initial-branch=master D:/git/NIH-Project.git"` — successful.
+- `git push 'robbyjo@desktop:D:/git/NIH-Project.git' standalone-master:master` — successful; created remote `master`.
+- `git clone 'robbyjo@desktop:D:/git/NIH-Project.git' 'D:\projects\NIH-Project'` — successful; the initial standalone checkout tracked `origin/master` and contained 31 commits.
+- `git diff --exit-code --ignore-space-at-eol` after overlay — exit code 0. Re-indexing produced no staged diff, confirming that current tracked content matched the split tip.
+- `.\mvnw.cmd clean package` in `D:\projects\NIH-Project` — successful; 87 production sources and 5 test sources compiled, 10 tests passed with 0 failures/errors/skips, and the shaded runnable jar was created.
+- `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` in the standalone checkout — exit code 0. Auto selected the NVIDIA GeForce RTX 2080 CUDA backend; driver API 13.3, CUDA Runtime 12.6, compute capability 7.5, FP64 available.
+
+### Known limitations, compatibility, and next step
+
+- Existing clones of the old combined repository are not automatically redirected. New clones should use `robbyjo@desktop:D:/git/NIH-Project.git`.
+- The old combined repository still contains its unrelated corrupt `Analysis-Pipeline` cache entry. Use `D:\projects\NIH-Project` for future NIH-Project development rather than `D:\git\NIH-Project`.
+- The migration preserved `master`; there were no other branches or tags to migrate.
+- Next: open `D:\projects\NIH-Project` as the Codex/Eclipse workspace and continue the correctness-first roadmap with deterministic end-to-end fixtures and ID validation.
