@@ -23,9 +23,11 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 ## GPU architecture and rules
 
 - Analysis code depends only on interfaces in `src/gov/nih/gpu`.
+- `auto` is the default backend. It prefers a usable CUDA device over the duplicate NVIDIA OpenCL device, while retaining distinct FP64 OpenCL devices from other vendors. Users can force `cuda` or `opencl` with the `eqtl.gpu.backend` system property.
 - JOCL-specific code belongs in `src/gov/nih/gpu/opencl` and must not leak JOCL handles into `gov.nih.eqtl`.
-- The current `opencl` backend uses JOCL 2.0.6 and the machine's OpenCL ICD. A usable device must be available, provide an OpenCL compiler, and support FP64.
-- NVIDIA, AMD, and Intel GPUs can use this backend when their installed vendor driver exposes OpenCL. A future native CUDA, HIP/ROCm, Vulkan-compute, or Level Zero implementation should implement `GpuBackend`, `GpuDevice`, and `GpuContext` instead of branching throughout the analysis code.
+- The `opencl` backend uses JOCL 2.0.6 and the machine's OpenCL ICD. A usable device must be available, provide an OpenCL compiler, and support FP64.
+- CUDA-specific code belongs in `src/gov/nih/gpu/cuda` and must not leak JCuda/cuBLAS handles into `gov.nih.eqtl`. The `cuda` backend uses JCuda 12.6.0 and cuBLAS DGEMM, requires a compatible system CUDA runtime, preserves `double`, and currently supports `eqtlReal` only.
+- NVIDIA GPUs can use CUDA or OpenCL. AMD and Intel GPUs currently use OpenCL when the installed driver exposes a usable FP64 GPU. A future native HIP/ROCm, Vulkan-compute, or Level Zero implementation must implement `GpuBackend`, `GpuDevice`, and `GpuContext` instead of branching throughout the analysis code.
 - Keep each `GpuContext` exclusive to one worker. Reserve it immediately before submission, release it in `finally`, and close the pool after workers finish.
 - Reuse device allocations where safe. For partial final tiles, submit only rounded active work dimensions; never read or interpret padded cells as results.
 - Kernel compilation and GPU API failures must stop the analysis. Never continue after merely logging such an error.

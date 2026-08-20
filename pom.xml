@@ -13,11 +13,22 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <jcuda.version>12.6.0</jcuda.version>
         <jocl.version>2.0.6</jocl.version>
         <junit.version>5.13.4</junit.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcuda</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcublas</artifactId>
+            <version>${jcuda.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.jocl</groupId>
             <artifactId>jocl</artifactId>

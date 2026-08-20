@@ -79,3 +79,38 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - Eclipse must include Maven Integration for Eclipse (m2e) and a Java 17 or newer JDK. An already-open workspace must run **Maven → Update Project…** (`Alt+F5`) once, followed by **Project → Clean…**, so Eclipse reloads the new nature and dependency container.
 - `src/gov/nih/exon` remains excluded because its external QGeneric/qstats/qplugin dependencies are still absent.
 - Next: refresh the project in Eclipse and confirm the Problems view is clean. If Maven Dependencies still does not appear, verify that m2e is installed and `JavaSE-17` is configured under Installed JREs.
+## 2026-08-20T12:20:05.8903634-04:00 — CUDA/cuBLAS backend and automatic multi-vendor selection
+
+### Baseline and goal
+
+- Baseline commit: `7cf681e1f4e76b74d773075911a210fcf4824420`.
+- Goal: determine whether native vendor GPU libraries are preferable to JOCL and add selectable, automatically detected backends for the available NVIDIA/Intel-oriented hardware without changing the double-precision real-valued eQTL interface.
+
+### Decisions and changes
+
+- Added JCuda and JCublas 12.6.0 Maven dependencies. The shaded jar includes their Java classes and platform JNI bindings; NVIDIA's driver, CUDA runtime, and cuBLAS remain system prerequisites.
+- Added `CudaGpuBackend`, `CudaGpuDevice`, and `CudaGpuContext` under `src/gov/nih/gpu/cuda`. The context maps the existing row-major `eqtlReal` matrix multiplication to full-double-precision cuBLAS DGEMM as `C^T = B^T A^T`, reuses device buffers, clears unused output capacity, and preserves the existing normalization and output stride.
+- Kept CUDA/cuBLAS types behind `GpuBackend`, `GpuDevice`, and `GpuContext`; no vendor handles leaked into `gov.nih.eqtl`.
+- Added `AutoGpuBackend` and made `auto` the default. It discovers CUDA first, suppresses only a matching usable NVIDIA OpenCL duplicate, and retains distinct OpenCL devices so mixed-vendor systems can use them together. Explicit `cuda`, `opencl`, and `jocl` selections remain available through `-Deqtl.gpu.backend=...`.
+- Kept JOCL as the AMD and Intel path. A native HIP/ROCm backend was not added because there is no AMD validation hardware in scope and the official rocBLAS/hipBLAS interfaces are native C/C++, requiring a separately tested Java bridge.
+- Added automatic-selection/fallback tests, expanded the production numerical integration test to exercise CUDA, OpenCL, and auto over multiple traits/SNPs with partial tile capacity, and added a manual transfer-inclusive backend benchmark.
+- Updated `pom.xml`, `README.md`, and `AGENTS.md` with backend requirements, selection commands, Intel FP64 limitations, and current compatibility.
+
+### Verification
+
+- `.\mvnw.cmd test` — successful; 10 tests passed, 0 failed, 0 errored, 0 skipped. The hardware suite ran the production `eqtlReal` operation through auto, CUDA/cuBLAS, and JOCL/OpenCL, and every checked matrix cell matched the CPU calculation within `1e-11`.
+- `.\mvnw.cmd clean package` — successful Java 17-targeted build; 10 tests passed and `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar` was created with the JCuda, JCublas, and JOCL JNI artifacts included.
+- `java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` — exit code 0; `auto` selected the CUDA representation and omitted the duplicate NVIDIA OpenCL representation.
+- `java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` — exit code 0; explicit CUDA selection succeeded.
+- `java '-Deqtl.gpu.backend=opencl' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` — exit code 0; explicit JOCL/OpenCL selection succeeded.
+- `java --enable-native-access=ALL-UNNAMED -cp 'target\test-classes;target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar' gov.nih.gpu.GpuBackendBenchmark` — exit code 0. Transfer-inclusive median CUDA/OpenCL times were 10.635/11.753 ms for 128 rows and a 2048x2048 tile, 6.617/6.662 ms for 512 rows and a 1024x1024 tile, and 6.227/6.488 ms for 2048 rows and a 512x512 tile. These microbenchmarks show only a modest, shape-dependent CUDA advantage and are not a promise for complete-analysis runtime.
+- Hardware: NVIDIA GeForce RTX 2080, compute capability 7.5, CUDA driver API 13.3, CUDA Runtime 12.6, CUDA maximum allocation reported as 8,589,606,912 bytes, and FP64 available. The same card's OpenCL path used NVIDIA driver 610.88, OpenCL 3.0 CUDA, maximum allocation 2,147,401,728 bytes, and FP64 available.
+
+### Known limitations, compatibility, and next step
+
+- The CUDA backend currently implements the active real-valued `eqtlReal` operation only. The legacy categorical-SNP branch remains deliberately blocked and would require a separately verified CUDA operation or explicit OpenCL selection after that path is repaired.
+- CUDA is not universally faster than OpenCL. Automatic discovery prefers CUDA for duplicate NVIDIA devices, but users can force OpenCL and should benchmark representative sample counts/tile sizes when throughput matters.
+- Most client Intel Iris Xe devices lack native FP64 and therefore cannot satisfy this project's scientific execution contract. They may appear in diagnostics but are filtered from analysis. No reduced-precision fallback was introduced.
+- AMD GPUs currently use JOCL/OpenCL. Native HIP/ROCm or rocBLAS support remains a future backend that needs an AMD test machine and the same CPU-reference tests.
+- Current Java releases may emit a restricted-native-access warning unless `--enable-native-access=ALL-UNNAMED` is supplied; Java 17 remains supported.
+- No representative end-to-end input/output fixture exists yet. The next recommended work remains deterministic reference fixtures plus sample/gene/SNP ID validation before categorical covariates, CLI replacement, or streaming loaders.

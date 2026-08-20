@@ -7,6 +7,7 @@
  */
 package gov.nih.gpu;
 
+import gov.nih.gpu.cuda.CudaGpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import java.util.ArrayList;
@@ -28,12 +29,18 @@ public final class GpuRuntime {
 	}
 
 	public static GpuRuntime createDefault() {
-		String requested = System.getProperty(BACKEND_PROPERTY, "opencl").trim();
-		if (requested.isEmpty() || "opencl".equalsIgnoreCase(requested) || "jocl".equalsIgnoreCase(requested)) {
+		String requested = System.getProperty(BACKEND_PROPERTY, "auto").trim();
+		if (requested.isEmpty() || "auto".equalsIgnoreCase(requested)) {
+			return new GpuRuntime(new AutoGpuBackend());
+		}
+		if ("cuda".equalsIgnoreCase(requested)) {
+			return new GpuRuntime(new CudaGpuBackend());
+		}
+		if ("opencl".equalsIgnoreCase(requested) || "jocl".equalsIgnoreCase(requested)) {
 			return new GpuRuntime(new JoclGpuBackend());
 		}
 		throw new GpuException("Unsupported GPU backend '" + requested
-			+ "'. Available backend: opencl (JOCL)");
+			+ "'. Available backends: auto, cuda, opencl (JOCL)");
 	}
 
 	public GpuBackend getBackend() {
