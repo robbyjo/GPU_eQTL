@@ -30,6 +30,7 @@ import java.util.zip.CRC32;
 
 import gov.nih.eqtl.QeQTLPreprocessor;
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
+import gov.nih.gpu.GpuPrecision;
 
 /** Indexed, reusable FP64 rows after alignment, residualization, and standardization. */
 public final class QBinaryMatrixCache implements AutoCloseable {
@@ -238,7 +239,8 @@ public final class QBinaryMatrixCache implements AutoCloseable {
 
     public static String analysisSignature(QBinaryMatrixCache genotype, QBinaryMatrixCache expression,
         int genotypeRows, int expressionRows, int degreesOfFreedomOffset,
-        int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify, boolean rSquaredOnly) {
+        int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify,
+        boolean rSquaredOnly, GpuPrecision precision) {
         MessageDigest digest = sha256();
         update(digest, "gpu-eqtl-checkpoint-v1");
         update(digest, genotype.signature());
@@ -250,6 +252,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         update(digest, Double.doubleToLongBits(rSquaredThreshold));
         update(digest, simplify ? 1 : 0);
         update(digest, rSquaredOnly ? 1 : 0);
+        update(digest, precision.optionName());
         return HexFormat.of().formatHex(digest.digest());
     }
 

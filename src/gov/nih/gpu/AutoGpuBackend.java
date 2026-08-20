@@ -21,7 +21,7 @@ import java.util.Set;
 /**
  * Discovers every usable vendor backend while avoiding duplicate NVIDIA
  * devices. CUDA is preferred over OpenCL for an NVIDIA device because the
- * CUDA implementation uses the vendor-tuned full-precision cuBLAS DGEMM.
+ * CUDA implementation uses vendor-tuned cuBLAS SGEMM/DGEMM.
  */
 public final class AutoGpuBackend implements GpuBackend {
 	private final List<GpuBackend> candidates;
@@ -87,7 +87,7 @@ public final class AutoGpuBackend implements GpuBackend {
 		}
 
 		String usable = usableBackends.isEmpty()
-			? "no FP64-capable GPU backend is currently usable"
+			? "no GPU backend is currently usable"
 			: "usable backend(s): " + String.join(", ", usableBackends);
 		runtimeDescription = "Automatic CUDA-first discovery; " + usable + ". " + String.join("; ", details);
 		devices = Collections.unmodifiableList(discovered);
@@ -95,7 +95,7 @@ public final class AutoGpuBackend implements GpuBackend {
 	}
 
 	private static boolean isUsable(GpuDevice device) {
-		return device.isAvailable() && device.isCompilerAvailable() && device.supportsDoublePrecision();
+		return device.isAvailable() && device.isCompilerAvailable();
 	}
 
 	private static String deviceKey(GpuDevice device) {

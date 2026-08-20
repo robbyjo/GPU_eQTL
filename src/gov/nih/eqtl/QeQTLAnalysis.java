@@ -50,7 +50,9 @@ import gov.nih.jama.QRDecomposition;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
 import gov.nih.gpu.GpuDevice;
+import gov.nih.gpu.GpuPrecision;
 import gov.nih.gpu.GpuRuntime;
+import gov.nih.gpu.GpuTuning;
 import gov.nih.parallel.IGenericParallelJob;
 import gov.nih.parallel.IJobOwner;
 import gov.nih.parallel.QSynchronizedCounter;
@@ -77,8 +79,7 @@ public class QeQTLAnalysis implements IJobOwner
 	static boolean simplifyResult = false, rsqOnly = false;
 	static final double
 		kMB = 1024 * 1024,
-		kGB = 1024 * kMB,
-		kLambda = 0.75;
+		kGB = 1024 * kMB;
 
 	static final int
 		kExitCodeNormal = 0,
@@ -99,7 +100,7 @@ public class QeQTLAnalysis implements IJobOwner
 	// Global variables
 	static GpuRuntime GPU_RUNTIME;
 	static GpuContext[] mContexts = null;
-	static long mMinAllocMemSize = 0;
+	static GpuPrecision gpuPrecision = GpuPrecision.FP64;
 	static QeQTLAnalysisConfig config = null;
 
 	public static final String eqtlCat =
@@ -157,7 +158,7 @@ public class QeQTLAnalysis implements IJobOwner
 	}
 
 	public void eSNPAnalysis(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[][] covarQ, double rsq0,
-		int dfo, int dfe, double lambda, boolean isAdditive)
+		int dfo, int dfe, boolean isAdditive)
 	{
 		//long mem1 = QSystemUtils.usedMemoryAfterGC();
 		double[][] expData = expDataTbl.getData();
@@ -211,15 +212,11 @@ public class QeQTLAnalysis implements IJobOwner
 		int colPereQTL = isCategoricalSNP ? (isAdditive ? 3 : 4) : 1;
 
 		time1 = System.currentTimeMillis();
-		final int
-			localBlockSize = 16,
-			sizeof_data = 8;
+		final int localBlockSize = 16;
 		String
 			program,
 			kernelName,
-			hdr = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn
-				+ "#if defined(cl_khr_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
-				+ "#elif defined(cl_amd_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + sLn + "#endif" + sLn;
+			hdr = kernelHeader(localBlockSize, gpuPrecision);
 
 		if (isCategoricalSNP) {
 			program = eqtlCat;
@@ -238,7 +235,7 @@ public class QeQTLAnalysis implements IJobOwner
 			for (int i = 0; i < numDevices; i++)
 			{
 				GpuContext ctx = gpuContexts.get(i);
-				ctx.compileKernel(hdr + program, kernelName);
+				ctx.compileKernel(hdr + program, kernelName, gpuPrecision);
 			}
 		} catch (RuntimeException e) {
 			gpuContextsPool.close();
@@ -248,31 +245,15 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Kernel compile time = " + (time2 - time1));
 
 		int globalBlockSize = config.getBlockSize();
-		int numThreads = config.getNumThreads();
+		int numThreads = min(config.getNumThreads(), Runtime.getRuntime().availableProcessors() + 1);
 		System.out.println("Num threads = " + numThreads);
-		int maxNumThreads = Runtime.getRuntime().availableProcessors() + 1;
-		threadPool = Executors.newFixedThreadPool(numThreads > maxNumThreads ? maxNumThreads : numThreads);
+		threadPool = Executors.newFixedThreadPool(numThreads);
 
 		//time1 = System.currentTimeMillis();
 		int
 			numETraitsPerBlock = globalBlockSize,
 			numESNPsPerBlock = globalBlockSize / colPereQTL,
 			nrow = roundUpNearestMultiple(numInds, localBlockSize);
-		System.out.println("Estimating buffer size");
-		long
-			reqdCacheSize = 4 * sizeof_data * numThreads * numETraitsPerBlock * nrow,
-			availMem = QSystemUtils.getMemoryStatistics(false).mAvailable,
-			mem = availMem - reqdCacheSize;
-
-		if (mem <= 0) {
-			System.err.println("WARNING: Not enough memory for storage. This program will fail at some point. Try reducing the values for num_threads and block_size.");
-			mem = availMem;
-		}
-
-		//System.out.println("Allocating memory");
-		//int numStoredETraitsPerESNP = 32; // (int) ceil((lambda * min(mem, availMem) * 0.5) / (numSNPs * (sizeof_data + 4)));
-		//System.out.println("Number stored e-traits per eSNP = " + numStoredETraitsPerESNP);
-
 		//int[] snpCounts = new int[numSNPs];
 		//int[][] eTraitIndices = new int[numSNPs][numStoredETraitsPerESNP];
 		//double[][][] snpResults = new double[numSNPs][numStoredETraitsPerESNP][];
@@ -307,7 +288,8 @@ public class QeQTLAnalysis implements IJobOwner
 			} else {
 				for (int i = 0; i < numThreads; i++)
 					jobs.add(threadPool.submit(new QeQTLSNPJobReal(popn, expDataTbl, expDataSD, snpDataSD, gpuContextsPool,
-						numETraitsPerBlock, numESNPsPerBlock, localBlockSize, dfo, dfe, rsq0, isAdditive, fw, counter)));
+						numETraitsPerBlock, numESNPsPerBlock, localBlockSize, dfo, dfe, rsq0,
+						isAdditive, gpuPrecision, fw, counter)));
 			}
 			threadPool.shutdown();
 			for (Future<?> job : jobs) {
@@ -348,7 +330,8 @@ public class QeQTLAnalysis implements IJobOwner
 			? Path.of(config.getOutputFilename() + ".checkpoint")
 			: Path.of(config.getCheckpointDirectory());
 		String analysisSignature = QBinaryMatrixCache.analysisSignature(genotypeCache, expressionCache,
-			genotypeRowsPerBlock, expressionRowsPerBlock, dfo, dfe, rsq0, simplifyResult, rsqOnly);
+			genotypeRowsPerBlock, expressionRowsPerBlock, dfo, dfe, rsq0,
+			simplifyResult, rsqOnly, gpuPrecision);
 		QAnalysisCheckpoint checkpoint;
 		try {
 			checkpoint = QAnalysisCheckpoint.open(checkpointDirectory, analysisSignature, totalBlocks,
@@ -369,15 +352,13 @@ public class QeQTLAnalysis implements IJobOwner
 			}
 		}
 
-		String header = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn
-			+ "#define N_MIN_1 " + (numInds - 1) + sLn
-			+ "#if defined(cl_khr_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
-			+ "#elif defined(cl_amd_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + sLn + "#endif" + sLn;
+		String header = kernelHeader(localBlockSize, gpuPrecision)
+			+ "#define N_MIN_1 " + (numInds - 1) + sLn;
 
 		GpuContextPool contextPool = new GpuContextPool(mContexts);
 		try {
 			for (GpuContext context : contextPool.getAllContexts())
-				context.compileKernel(header + eqtlReal, "eqtlReal");
+				context.compileKernel(header + eqtlReal, "eqtlReal", gpuPrecision);
 		} catch (RuntimeException e) {
 			contextPool.close();
 			throw e;
@@ -397,7 +378,7 @@ public class QeQTLAnalysis implements IJobOwner
 				QeQTLPreprocessor.PreparedBlock prepared = genotypeCache.readBlock(rowOffset, genotypeRowsPerBlock);
 				pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionCache,
 					checkpoint, blockNumber, contextPool, genotypeRowsPerBlock,
-					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0)));
+					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, gpuPrecision)));
 				if (pending.size() >= numThreads)
 					pending.removeFirst().get();
 			}
@@ -477,7 +458,7 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("GPU runtime: " + gpuRuntime.getBackend().getRuntimeDescription());
 		List<GpuDevice> devices;
 		try {
-			devices = gpuRuntime.getGpuDevices(true, true);
+			devices = gpuRuntime.getGpuDevices(true, gpuPrecision.requiresDoublePrecision());
 		} catch (Throwable e) {
 			System.err.println("Cannot initialize the GPU backend: " + e.getMessage());
 			System.exit(kExitCodeErrorInitOpenCLFailure);
@@ -485,9 +466,9 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 		int numDevices = devices.size();
 		if (numDevices == 0) {
-			System.err.println("Cannot find an available GPU with a compiler and double-precision support.");
+			System.err.println("Cannot find an available GPU supporting " + gpuPrecision.optionName() + ".");
 			List<GpuDevice> allGpuDevices = gpuRuntime.getGpuDevices(true, false);
-			if (!allGpuDevices.isEmpty()) {
+			if (gpuPrecision == GpuPrecision.FP64 && !allGpuDevices.isEmpty()) {
 				System.err.println("The following GPUs were detected but do not report double-precision support:");
 				for (GpuDevice device : allGpuDevices) {
 					System.err.println("  " + device.getName() + " (" + device.getComputeApiVersion() + ")");
@@ -501,7 +482,8 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Found " + numDevices + " suitable GPU" + (numDevices > 1 ? "s": "") + " in this machine:");
 		boolean hasHostUnifiedMemory = false;
 		for (GpuDevice device : devices) {
-			System.out.println(device.getName() + " [" + device.getVendor() + ", " + device.getComputeApiVersion() + "]");
+			System.out.println(device.getName() + " [" + device.getVendor() + ", " + device.getComputeApiVersion()
+				+ ", VRAM=" + String.format("%.2f GiB", device.getGlobalMemoryBytes() / kGB) + "]");
 			hasHostUnifiedMemory = hasHostUnifiedMemory | device.hasUnifiedMemory();
 		}
 		if (hasHostUnifiedMemory) {
@@ -527,18 +509,11 @@ public class QeQTLAnalysis implements IJobOwner
 			} else if (!devName.equalsIgnoreCase(dev.getName())) {
 				allDevicesTheSame = false;
 			}
-			if (mMinAllocMemSize == 0)
-				mMinAllocMemSize = dev.getMaxAllocationBytes();
-			else
-				mMinAllocMemSize = min(mMinAllocMemSize, dev.getMaxAllocationBytes());
 		}
 		if (!allDevicesTheSame) {
 			System.err.println("WARNING: The detected GPUs are not identical. Performance may be constrained by the weakest GPU.");
 		} else {
 			System.out.println("All the detected GPUs appear to be identical.");
-		}
-		if (mMinAllocMemSize <= 0 && config.getBlockSize() <= 0) {
-			System.err.println("WARNING: The GPU(s) do not report their maximum allocation sizes correctly. Specify block_size if automatic sizing fails.");
 		}
 	}
 
@@ -561,12 +536,55 @@ public class QeQTLAnalysis implements IJobOwner
 
 	static final int getDefaultBlockSize(int numInds, int numSNPs, int numETraits)
 	{
-		int
-			n = roundUpNearestMultiple(numInds, GpuRuntime.DEFAULT_ALIGNMENT),
-			n_snps = roundUpNearestMultiple(numSNPs, GpuRuntime.DEFAULT_ALIGNMENT),
-			n_etraits = roundUpNearestMultiple(numETraits, GpuRuntime.DEFAULT_ALIGNMENT);
-		n = roundDownNearestMultiple((int) (sqrt(n * n + mMinAllocMemSize / 2.0) - n), 512);
-		return min(n, min(n_snps, n_etraits));
+		if (mContexts == null || mContexts.length == 0)
+			throw new IllegalStateException("GPU contexts are required for automatic block sizing");
+		List<GpuDevice> devices = new ArrayList<GpuDevice>(mContexts.length);
+		for (GpuContext context : mContexts)
+			devices.add(context.getDevice());
+		GpuTuning.BlockRecommendation recommendation = GpuTuning.recommendBlockSize(
+			devices, numInds, numSNPs, numETraits, gpuPrecision);
+		System.out.println("Automatic block-size limiter: " + recommendation.limitingDevice()
+			+ "; estimated device buffers="
+			+ String.format("%.2f GiB", recommendation.estimatedDeviceBytes() / kGB));
+		return recommendation.blockSize();
+	}
+
+	private static int configureThreadCount(long requiredIterations, int numDevices, boolean streamed)
+	{
+		int threads = config.getNumThreads();
+		if (threads == 0) {
+			threads = GpuTuning.recommendThreadCount(QSystemUtils.kNumCPUCores,
+				numDevices, requiredIterations, streamed);
+			config.setNumThreads(threads);
+			System.out.println("The thread count was not specified; using " + threads
+				+ " (" + numDevices + " GPU context" + (numDevices == 1 ? "" : "s") + ")");
+		}
+		if (threads > QSystemUtils.kNumCPUCores)
+			System.err.println("WARNING: num_threads exceeds the available CPU cores ("
+				+ QSystemUtils.kNumCPUCores + ") and may reduce performance.");
+		if (threads < Math.min((long) numDevices, requiredIterations))
+			System.err.println("WARNING: num_threads is lower than the number of usable GPUs; some GPUs may remain idle.");
+		return threads;
+	}
+
+	private static String kernelHeader(int localBlockSize, GpuPrecision precision)
+	{
+		String header = "#define BLOCK_SIZE " + localBlockSize + sLn
+			+ "#define DATATYPE " + (precision == GpuPrecision.FP32 ? "float" : "double") + sLn;
+		if (precision == GpuPrecision.FP64)
+			header += "#if defined(cl_khr_fp64)" + sLn
+				+ "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
+				+ "#elif defined(cl_amd_fp64)" + sLn
+				+ "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + sLn + "#endif" + sLn;
+		return header;
+	}
+
+	private static void validateBlockCapacity(int blockSize)
+	{
+		if (blockSize < 16 || blockSize % 16 != 0)
+			throw new IllegalArgumentException("block_size must be a positive multiple of 16");
+		if ((long) blockSize * blockSize > Integer.MAX_VALUE)
+			throw new IllegalArgumentException("block_size is too large for a Java result array: " + blockSize);
 	}
 
 	static final void checkCovars(Set<String> allColNames, String[] covars)
@@ -636,6 +654,21 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Number of e-traits = " + numTraits);
 		System.out.println("Number of aligned individuals = " + numIndividuals);
 
+		int regressionDegreesOfFreedom = covariateRank + (isAdditive ? 1 : 2) - 1;
+		int errorDegreesOfFreedom = numIndividuals - regressionDegreesOfFreedom - 1;
+		if (errorDegreesOfFreedom - dfOffset <= 0)
+			throw new IllegalArgumentException("Non-positive residual degrees of freedom after df_offset");
+		System.out.println("Degrees of Freedom for Regression = " + regressionDegreesOfFreedom);
+		System.out.println("Degrees of Freedom for Errors = " + errorDegreesOfFreedom);
+		if (dfOffset != 0)
+			System.out.println("Degrees of Freedom for Offset = " + dfOffset);
+		if (config.getValidateOnly()) {
+			if (configuredBlockSize <= 0 || config.getNumThreads() == 0)
+				System.out.println("Automatic block/thread tuning is deferred until a real GPU analysis run.");
+			System.out.println("Validation completed successfully; --validate-only requested, so no analysis was run.");
+			return;
+		}
+
 		int globalBlockSize = configuredBlockSize;
 		if (globalBlockSize <= 0) {
 			globalBlockSize = getDefaultBlockSize(numIndividuals, numSnps, numTraits);
@@ -646,28 +679,26 @@ public class QeQTLAnalysis implements IJobOwner
 		} else {
 			System.out.println("Block size = " + globalBlockSize);
 		}
+		validateBlockCapacity(globalBlockSize);
 
-		int numRequiredIterations = (int) (ceil(numSnps * 1.0 / globalBlockSize)
-			* ceil(numTraits * 1.0 / globalBlockSize));
+		long numRequiredIterations = ((numSnps + (long) globalBlockSize - 1) / globalBlockSize)
+			* ((numTraits + (long) globalBlockSize - 1) / globalBlockSize);
 		System.out.println("Given the block size, " + numRequiredIterations + " iteration(s) are needed");
-		int recommendedThreads = min(QSystemUtils.kNumCPUCores, min(numRequiredIterations, numDevices * 2));
-		if (config.getNumThreads() == 0) {
-			config.setNumThreads(recommendedThreads);
-			System.out.println("The thread count was not specified; using " + recommendedThreads);
+		boolean stream = config.getGenotypeBlockRows() > 0 || config.getExpressionBlockRows() > 0;
+		int genotypeRows = 0;
+		int expressionRows = 0;
+		long schedulableJobs = numRequiredIterations;
+		if (stream) {
+			genotypeRows = config.getGenotypeBlockRows() > 0 ? config.getGenotypeBlockRows() : globalBlockSize;
+			expressionRows = config.getExpressionBlockRows() > 0 ? config.getExpressionBlockRows() : globalBlockSize;
+			genotypeRows = roundUpNearestMultiple(genotypeRows, 16);
+			expressionRows = roundUpNearestMultiple(expressionRows, 16);
+			if (genotypeRows > globalBlockSize || expressionRows > globalBlockSize)
+				throw new IllegalArgumentException("Streamed row blocks must not exceed block_size ("
+					+ globalBlockSize + ")");
+			schedulableJobs = (numSnps + (long) genotypeRows - 1) / genotypeRows;
 		}
-
-		int regressionDegreesOfFreedom = covariateRank + (isAdditive ? 1 : 2) - 1;
-		int errorDegreesOfFreedom = numIndividuals - regressionDegreesOfFreedom - 1;
-		if (errorDegreesOfFreedom - dfOffset <= 0)
-			throw new IllegalArgumentException("Non-positive residual degrees of freedom after df_offset");
-		System.out.println("Degrees of Freedom for Regression = " + regressionDegreesOfFreedom);
-		System.out.println("Degrees of Freedom for Errors = " + errorDegreesOfFreedom);
-		if (dfOffset != 0)
-			System.out.println("Degrees of Freedom for Offset = " + dfOffset);
-		if (config.getValidateOnly()) {
-			System.out.println("Validation completed successfully; --validate-only requested, so no analysis was run.");
-			return;
-		}
+		configureThreadCount(schedulableJobs, numDevices, stream);
 
 		double rSquaredThreshold = thresholdType.equals("none") ? 0.0 : threshold;
 		if (thresholdType.equals("pval")) {
@@ -678,15 +709,7 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 
 		long start = System.currentTimeMillis();
-		boolean stream = config.getGenotypeBlockRows() > 0 || config.getExpressionBlockRows() > 0;
 		if (stream) {
-			int genotypeRows = config.getGenotypeBlockRows() > 0 ? config.getGenotypeBlockRows() : globalBlockSize;
-			int expressionRows = config.getExpressionBlockRows() > 0 ? config.getExpressionBlockRows() : globalBlockSize;
-			genotypeRows = roundUpNearestMultiple(genotypeRows, 16);
-			expressionRows = roundUpNearestMultiple(expressionRows, 16);
-			if (genotypeRows > globalBlockSize || expressionRows > globalBlockSize)
-				throw new IllegalArgumentException("Streamed row blocks must not exceed block_size ("
-					+ globalBlockSize + ")");
 			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
 				+ " rows, expression blocks=" + expressionRows + " rows");
 			Path outputPath = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
@@ -723,7 +746,7 @@ public class QeQTLAnalysis implements IJobOwner
 			QGeneExpressionData expressionData = new QGeneExpressionData(expressionBlock.values(),
 				expressionBlock.rowIds(), canonicalSampleIds);
 			plugin.eSNPAnalysis(genotypeData, expressionData, covariateQ, rSquaredThreshold,
-				dfOffset, errorDegreesOfFreedom, kLambda, isAdditive);
+				dfOffset, errorDegreesOfFreedom, isAdditive);
 		}
 		System.out.println("Total analysis time (in seconds) = " + (System.currentTimeMillis() - start) / 1000.0);
 	}
@@ -780,10 +803,23 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 		if (commandLine.gpuBackend() != null)
 			System.setProperty("eqtl.gpu.backend", commandLine.gpuBackend());
+		config = commandLine.config();
+		try {
+			gpuPrecision = config.getGpuPrecision();
+		} catch (IllegalArgumentException e) {
+			System.err.println("ERROR: " + e.getMessage());
+			System.exit(kExitCodeErrorInvalidParam);
+			return;
+		}
 		if (commandLine.printGpuInfo())
 			dumpGPUInfo();
 		DEBUG = commandLine.debug();
-		config = commandLine.config();
+		System.out.println("GPU matrix-product precision = " + gpuPrecision.optionName());
+		if (gpuPrecision == GpuPrecision.FP32)
+			System.err.println("NOTE: FP32 is enabled explicitly. GPU matrix products are approximate; "
+				+ "preprocessing and statistical calculations remain FP64.");
+		if (config.get("lambda") != null)
+			System.err.println("NOTE: The obsolete lambda setting is ignored; automatic sizing uses GPU memory limits.");
 
 		if (!EPlatform.is64Bit()) {
 			System.err.println("ERROR: Your operating system / platform seems to be 32-bit, not 64-bit.");
@@ -991,22 +1027,12 @@ public class QeQTLAnalysis implements IJobOwner
 			} else {
 				System.out.println("Block size = " + globalBlockSize);
 			}
+			validateBlockCapacity(globalBlockSize);
 
-			int numReqdIter = (int) (ceil(numSNPs * 1.0 / globalBlockSize) * ceil(numETraits * 1.0 / globalBlockSize));
+			long numReqdIter = ((numSNPs + (long) globalBlockSize - 1) / globalBlockSize)
+				* ((numETraits + (long) globalBlockSize - 1) / globalBlockSize);
 			System.out.println("Given the block size, " + numReqdIter + " iteration(s) are needed");
-
-			int
-				recMaxNumThreads = min(QSystemUtils.kNumCPUCores, min(numReqdIter, numDevices * 2)),
-				numThreads = config.getNumThreads();
-			if (numThreads == 0) {
-				numThreads = recMaxNumThreads;
-				System.out.println("The num_threads parameter is not specified, trying " + numThreads);
-				config.setNumThreads(recMaxNumThreads);
-			}
-			if (numThreads > QSystemUtils.kNumCPUCores) {
-				System.err.println("WARNING: Specifying num_threads value that is greater than that is available will degrade performance."
-				+ "The number of cores available in the system is " + QSystemUtils.kNumCPUCores);
-			}
+			configureThreadCount(numReqdIter, numDevices, false);
 
 			int
 				dfr = covarRank + (isAdditive ? 1 : 2) - 1,
@@ -1038,7 +1064,7 @@ public class QeQTLAnalysis implements IJobOwner
 
 			// Analysis begins
 			time1 = System.currentTimeMillis();
-			plugin.eSNPAnalysis(snpData, exprData, covarMatrix, t0, dfOffset, dfe, kLambda, isAdditive);
+			plugin.eSNPAnalysis(snpData, exprData, covarMatrix, t0, dfOffset, dfe, isAdditive);
 			time2 = System.currentTimeMillis();
 			System.out.println("Total analysis time (in seconds) = " + (time2 - time1) / 1000.0);
 			//time1 = System.currentTimeMillis();

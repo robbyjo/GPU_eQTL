@@ -16,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import gov.nih.eqtl.QeQTLPreprocessor;
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.jama.QRDecomposition;
+import gov.nih.gpu.GpuPrecision;
 
 class QBinaryMatrixCacheTest {
     @Test
@@ -41,6 +42,10 @@ class QBinaryMatrixCacheTest {
             assertEquals(3, cache.rowCount());
             assertEquals(8, cache.sampleCount());
             cached = cache.readBlock(1, 2);
+            assertNotEquals(QBinaryMatrixCache.analysisSignature(cache, cache,
+                    16, 16, 0, 4, 0.0, false, false, GpuPrecision.FP64),
+                QBinaryMatrixCache.analysisSignature(cache, cache,
+                    16, 16, 0, 4, 0.0, false, false, GpuPrecision.FP32));
         }
         assertArrayEquals(new String[] { "rs2", "rs3" }, cached.rowIds());
 

@@ -19,6 +19,12 @@ public interface GpuContext extends AutoCloseable {
 
 	void compileKernel(String source, String kernelName);
 
+	default void compileKernel(String source, String kernelName, GpuPrecision precision) {
+		if (precision != GpuPrecision.FP64)
+			throw new UnsupportedOperationException("This GPU context does not implement FP32");
+		compileKernel(source, kernelName);
+	}
+
 	double[] executeDoubleKernel(
 		double[] inputA,
 		double[] inputB,
@@ -28,6 +34,18 @@ public interface GpuContext extends AutoCloseable {
 		int widthB,
 		long[] globalWorkSize,
 		long[] localWorkSize);
+
+	default float[] executeFloatKernel(
+		float[] inputA,
+		float[] inputB,
+		int outputElements,
+		long localMemoryBytes,
+		int widthA,
+		int widthB,
+		long[] globalWorkSize,
+		long[] localWorkSize) {
+		throw new UnsupportedOperationException("This GPU context does not implement FP32");
+	}
 
 	@Override
 	void close();

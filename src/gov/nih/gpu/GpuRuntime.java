@@ -97,6 +97,7 @@ public final class GpuRuntime {
 			text.append("  Compiler available: ").append(device.isCompilerAvailable()).append('\n');
 			text.append("  Double precision: ").append(device.supportsDoublePrecision()).append('\n');
 			text.append("  Unified host memory: ").append(device.hasUnifiedMemory()).append('\n');
+			text.append("  Global memory (bytes): ").append(device.getGlobalMemoryBytes()).append('\n');
 			text.append("  Maximum allocation (bytes): ").append(device.getMaxAllocationBytes()).append('\n');
 			text.append("  Maximum work-group size: ").append(device.getMaxWorkGroupSize()).append('\n');
 		}

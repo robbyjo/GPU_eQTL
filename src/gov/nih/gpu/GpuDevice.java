@@ -29,6 +29,8 @@ public interface GpuDevice {
 
 	boolean hasUnifiedMemory();
 
+	long getGlobalMemoryBytes();
+
 	long getMaxAllocationBytes();
 
 	long getMaxWorkGroupSize();

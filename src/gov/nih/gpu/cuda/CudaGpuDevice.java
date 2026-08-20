@@ -80,6 +80,9 @@ final class CudaGpuDevice implements GpuDevice {
 	public boolean hasUnifiedMemory() { return unifiedMemory; }
 
 	@Override
+	public long getGlobalMemoryBytes() { return totalGlobalMemory; }
+
+	@Override
 	public long getMaxAllocationBytes() { return totalGlobalMemory; }
 
 	@Override

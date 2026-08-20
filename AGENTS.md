@@ -4,7 +4,7 @@ This file applies to the entire `NIH-Project` subtree. Read `SESSION_HISTORY.md`
 
 ## Project purpose
 
-This is a Java application for GPU-accelerated eQTL and related QTL analyses. The scientific contract is more important than raw speed: changes must preserve double-precision results, sample ordering, degrees of freedom, thresholds, and output identifiers.
+This is a Java application for GPU-accelerated eQTL and related QTL analyses. The scientific contract is more important than raw speed: FP64 is the default and must preserve double-precision results, sample ordering, degrees of freedom, thresholds, and output identifiers. FP32 is an explicit approximate mode and must always be identified as such.
 
 ## Supported build
 
@@ -23,11 +23,12 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 ## GPU architecture and rules
 
 - Analysis code depends only on interfaces in `src/gov/nih/gpu`.
-- `auto` is the default backend. It prefers a usable CUDA device over the duplicate NVIDIA OpenCL device, while retaining distinct FP64 OpenCL devices from other vendors. Users can force `cuda` or `opencl` with the `eqtl.gpu.backend` system property.
+- `auto` is the default backend. It prefers a usable CUDA device over the duplicate NVIDIA OpenCL device, while retaining distinct OpenCL devices from other vendors and filtering them for the requested precision. Users can force `cuda` or `opencl` with the `eqtl.gpu.backend` system property.
 - JOCL-specific code belongs in `src/gov/nih/gpu/opencl` and must not leak JOCL handles into `gov.nih.eqtl`.
-- The `opencl` backend uses JOCL 2.0.6 and the machine's OpenCL ICD. A usable device must be available, provide an OpenCL compiler, and support FP64.
-- CUDA-specific code belongs in `src/gov/nih/gpu/cuda` and must not leak JCuda/cuBLAS handles into `gov.nih.eqtl`. The `cuda` backend uses JCuda 12.6.0 and cuBLAS DGEMM, requires a compatible system CUDA runtime, preserves `double`, and currently supports `eqtlReal` only.
-- NVIDIA GPUs can use CUDA or OpenCL. AMD and Intel GPUs currently use OpenCL when the installed driver exposes a usable FP64 GPU. A future native HIP/ROCm, Vulkan-compute, or Level Zero implementation must implement `GpuBackend`, `GpuDevice`, and `GpuContext` instead of branching throughout the analysis code.
+- The `opencl` backend uses JOCL 2.0.6 and the machine's OpenCL ICD. A usable device must be available and provide an OpenCL compiler; FP64 mode additionally requires native FP64 support.
+- CUDA-specific code belongs in `src/gov/nih/gpu/cuda` and must not leak JCuda/cuBLAS handles into `gov.nih.eqtl`. The `cuda` backend uses JCuda 12.6.0 and cuBLAS DGEMM/SGEMM, requires a compatible system CUDA runtime, and currently supports `eqtlReal` only.
+- NVIDIA GPUs can use CUDA or OpenCL. AMD and Intel GPUs currently use OpenCL when the installed driver exposes a usable GPU for the requested precision. A future native HIP/ROCm, Vulkan-compute, or Level Zero implementation must implement `GpuBackend`, `GpuDevice`, and `GpuContext` instead of branching throughout the analysis code.
+- `GpuTuning` owns automatic block and thread recommendations. Block sizing must account for both input allocations, the quadratic output allocation, numeric width, total VRAM, maximum allocation, and the least-capable selected GPU. Do not restore the obsolete `lambda` host-RAM saturation heuristic.
 - Keep each `GpuContext` exclusive to one worker. Reserve it immediately before submission, release it in `finally`, and close the pool after workers finish.
 - Reuse device allocations where safe. For partial final tiles, submit only rounded active work dimensions; never read or interpret padded cells as results.
 - Kernel compilation and GPU API failures must stop the analysis. Never continue after merely logging such an error.
@@ -37,7 +38,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 - Hardware-independent unit tests must run without a physical GPU. Hardware tests must skip cleanly when no suitable runtime/device is installed.
 - GPU numerical tests must compare against a CPU calculation with an explicit tolerance. Keep at least one test exercising the real production kernel.
 - Before changing matrix layout, padding, work sizes, covariate residualization, or statistical formulas, add a small deterministic reference dataset and compare identifiers, pair counts, R-squared values, p-values, and degrees of freedom.
-- Do not lower the computation from `double` to `float` without an explicit accuracy study and user approval.
+- FP32 must remain opt-in. Prepared caches and CPU statistical work stay FP64; checkpoint signatures must include precision. Any expansion of FP32 behavior requires an explicit accuracy study and user approval.
 - Treat missing, duplicated, reordered, or mismatched sample IDs as fatal unless an explicit alignment policy is selected and reported.
 
 ## Data and compatibility
@@ -47,6 +48,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 - `QCovariateTable` may bridge different genotype/expression ID columns, automatically encodes text covariates with a deterministic reference level, and rejects rank-deficient models before computation.
 - `genotype_block_rows` or `expression_block_rows` enables bounded-RAM CSV analysis. `QBinaryMatrixCache` stores aligned, residualized, standardized FP64 rows with an index and per-row checksum. Its signature must cover source metadata, sample ordering, and the covariate projection; never reuse a mismatched cache.
 - `QAnalysisCheckpoint` writes one atomic part per genotype block. Resume must validate the complete analysis signature, and final output must be assembled in genotype-block order. Never treat a `.partial` file as complete.
+- An omitted/zero `block_size` and `num_threads` selects the tested GPU-aware recommendations. Explicit values remain overrides. Preserve one exclusive context per discovered GPU so multi-GPU execution continues through `GpuContextPool`.
 - Prepared caches remove repeated CSV parsing and covariate preprocessing, but matrix cache blocks may still be reread for the cross-product schedule. Profile OS cache behavior, disk reads, and batching before claiming an overall speed improvement. Plain, gzip, and bzip2 CSV streams are supported.
 - `--validate-only` performs the metadata, ID-alignment, covariate, rank, and degrees-of-freedom checks without association computation.
 - Preserve the repository's GNU GPL version 3 headers and original author attribution.
@@ -56,7 +58,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 Use this dependency-aware order unless the user asks otherwise:
 
-Completed foundations: deterministic fixtures and ID validation/reordering; categorical-covariate encoding and rank checks; CLI plus legacy INI compatibility; bounded CSV blocks; reusable indexed prepared caches; and atomic checkpoint/resume with deterministic streamed output assembly.
+Completed foundations: deterministic fixtures and ID validation/reordering; categorical-covariate encoding and rank checks; CLI plus legacy INI compatibility; bounded CSV blocks; reusable indexed prepared caches; atomic checkpoint/resume with deterministic streamed output assembly; opt-in FP32; and device-aware block/thread recommendations with multi-GPU context pooling.
 
 The remaining ordered work is maintained in `TODO.md`. Profile the cache-backed schedule before kernel changes; add indexed VCF/BCF before forward selection; and treat categorical-SNP repair separately from categorical covariates.
 

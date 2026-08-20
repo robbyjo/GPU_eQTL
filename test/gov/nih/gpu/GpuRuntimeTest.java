@@ -90,6 +90,9 @@ class GpuRuntimeTest {
         public boolean hasUnifiedMemory() { return false; }
 
         @Override
+        public long getGlobalMemoryBytes() { return 1; }
+
+        @Override
         public long getMaxAllocationBytes() { return 1; }
 
         @Override

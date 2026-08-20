@@ -18,7 +18,7 @@
 package gov.nih.eqtl;
 
 import gov.nih.eqtl.io.QIniLoader;
-import gov.nih.utils.QSystemUtils;
+import gov.nih.gpu.GpuPrecision;
 
 import java.io.File;
 import java.io.FileReader;
@@ -183,7 +183,10 @@ public class QeQTLAnalysisConfig {
 		String str = mIni.get("block_size"); //$NON-NLS-1$
 		if (str == null)
 			return 0;
-		return Integer.parseInt(str);
+		int value = Integer.parseInt(str);
+		if (value < 0)
+			throw new IllegalArgumentException("block_size must not be negative");
+		return value;
 	}
 
 	public void setBlockSize(int s)
@@ -195,14 +198,20 @@ public class QeQTLAnalysisConfig {
 	{
 		String str = mIni.get("num_threads"); //$NON-NLS-1$
 		if (str == null)
-			return QSystemUtils.kNumCPUCores;
-		return Integer.parseInt(str);
+			return 0;
+		int value = Integer.parseInt(str);
+		if (value < 0)
+			throw new IllegalArgumentException("num_threads must not be negative");
+		return value;
 	}
 
 	public void setNumThreads(int s)
 	{
 		mIni.put("num_threads", String.valueOf(s)); //$NON-NLS-1$
 	}
+
+	public GpuPrecision getGpuPrecision()
+	{ return GpuPrecision.parse(mIni.get("precision")); }
 
 	public int getGenotypeBlockRows()
 	{ return getNonNegativeInt("genotype_block_rows"); }

@@ -19,6 +19,7 @@ import static org.jocl.CL.CL_DEVICE_DOUBLE_FP_CONFIG;
 import static org.jocl.CL.CL_DRIVER_VERSION;
 import static org.jocl.CL.CL_DEVICE_EXTENSIONS;
 import static org.jocl.CL.CL_DEVICE_HOST_UNIFIED_MEMORY;
+import static org.jocl.CL.CL_DEVICE_GLOBAL_MEM_SIZE;
 import static org.jocl.CL.CL_DEVICE_MAX_MEM_ALLOC_SIZE;
 import static org.jocl.CL.CL_DEVICE_MAX_WORK_GROUP_SIZE;
 import static org.jocl.CL.CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS;
@@ -41,6 +42,7 @@ final class JoclGpuDevice implements GpuDevice {
 	private final boolean compilerAvailable;
 	private final boolean doublePrecision;
 	private final boolean unifiedMemory;
+	private final long globalMemoryBytes;
 	private final long maxAllocationBytes;
 	private final long maxWorkGroupSize;
 	private final long[] maxWorkItemSizes;
@@ -70,6 +72,7 @@ final class JoclGpuDevice implements GpuDevice {
 			hostUnified = false;
 		}
 		unifiedMemory = hostUnified;
+		globalMemoryBytes = JoclGpuBackend.getDeviceLong(deviceId, CL_DEVICE_GLOBAL_MEM_SIZE);
 		maxAllocationBytes = JoclGpuBackend.getDeviceLong(deviceId, CL_DEVICE_MAX_MEM_ALLOC_SIZE);
 		maxWorkGroupSize = JoclGpuBackend.getDeviceSizeT(deviceId, CL_DEVICE_MAX_WORK_GROUP_SIZE);
 		int dimensions = JoclGpuBackend.getDeviceInt(deviceId, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS);
@@ -122,6 +125,9 @@ final class JoclGpuDevice implements GpuDevice {
 
 	@Override
 	public boolean hasUnifiedMemory() { return unifiedMemory; }
+
+	@Override
+	public long getGlobalMemoryBytes() { return globalMemoryBytes; }
 
 	@Override
 	public long getMaxAllocationBytes() { return maxAllocationBytes; }

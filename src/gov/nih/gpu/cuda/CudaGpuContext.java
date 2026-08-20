@@ -10,6 +10,7 @@ package gov.nih.gpu.cuda;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
 import gov.nih.gpu.GpuException;
+import gov.nih.gpu.GpuPrecision;
 
 import jcuda.Pointer;
 import jcuda.Sizeof;
@@ -24,10 +25,12 @@ import static jcuda.jcublas.cublasOperation.CUBLAS_OP_N;
 import static jcuda.runtime.cudaMemcpyKind.cudaMemcpyDeviceToHost;
 import static jcuda.runtime.cudaMemcpyKind.cudaMemcpyHostToDevice;
 
-/** CUDA execution context backed by full-double-precision cuBLAS DGEMM. */
+/** CUDA execution context backed by cuBLAS SGEMM/DGEMM. */
 final class CudaGpuContext implements GpuContext {
 	private static final Pattern N_MINUS_ONE = Pattern.compile(
 		"(?m)^\\s*#define\\s+N_MIN_1\\s+(\\d+)\\s*$");
+	private static final Pattern DATA_TYPE = Pattern.compile(
+		"(?m)^\\s*#define\\s+DATATYPE\\s+(float|double)\\s*$");
 
 	private final CudaGpuDevice device;
 	private cublasHandle handle;
@@ -38,6 +41,7 @@ final class CudaGpuContext implements GpuContext {
 	private long inputBCapacity;
 	private long outputCapacity;
 	private double normalization;
+	private GpuPrecision precision = GpuPrecision.FP64;
 	private boolean kernelReady;
 	private boolean closed;
 
@@ -60,7 +64,14 @@ final class CudaGpuContext implements GpuContext {
 
 	@Override
 	public synchronized void compileKernel(String source, String kernelName) {
+		compileKernel(source, kernelName, GpuPrecision.FP64);
+	}
+
+	@Override
+	public synchronized void compileKernel(String source, String kernelName, GpuPrecision precision) {
 		ensureOpen();
+		if (precision == null)
+			throw new IllegalArgumentException("precision must not be null");
 		if (!"eqtlReal".equals(kernelName)) {
 			throw new GpuException("The CUDA backend currently supports the production eqtlReal operation only; "
 				+ "select -Deqtl.gpu.backend=opencl for the legacy categorical-SNP kernel");
@@ -68,6 +79,10 @@ final class CudaGpuContext implements GpuContext {
 		if (source == null) {
 			throw new IllegalArgumentException("Kernel source must not be null");
 		}
+		Matcher dataType = DATA_TYPE.matcher(source);
+		String expectedType = precision == GpuPrecision.FP32 ? "float" : "double";
+		if (!dataType.find() || !expectedType.equals(dataType.group(1)))
+			throw new GpuException("Kernel DATATYPE does not match " + precision.optionName());
 		Matcher matcher = N_MINUS_ONE.matcher(source);
 		if (!matcher.find()) {
 			throw new GpuException("The eqtlReal operation is missing a positive N_MIN_1 definition");
@@ -82,6 +97,7 @@ final class CudaGpuContext implements GpuContext {
 			throw new GpuException("N_MIN_1 must be positive for the eqtlReal operation");
 		}
 		normalization = 1.0 / nMinusOne;
+		this.precision = precision;
 		kernelReady = true;
 	}
 
@@ -100,16 +116,14 @@ final class CudaGpuContext implements GpuContext {
 		if (!kernelReady) {
 			throw new GpuException("No CUDA eQTL operation has been prepared for " + device.getName());
 		}
-		validateArguments(inputA, inputB, outputElements, widthA, widthB, globalWorkSize, localWorkSize);
+		if (precision != GpuPrecision.FP64)
+			throw new GpuException("The CUDA operation was prepared for " + precision.optionName());
+		if (inputA == null || inputB == null)
+			throw new IllegalArgumentException("Kernel buffers must be non-null");
+		validateArguments(inputA.length, inputB.length, outputElements,
+			widthA, widthB, globalWorkSize, localWorkSize);
 		int activeSnpColumns = Math.toIntExact(globalWorkSize[0]);
 		int activeTraits = Math.toIntExact(globalWorkSize[1]);
-		long requiredInputA = Math.multiplyExact((long) activeTraits, widthA);
-		long requiredInputB = Math.multiplyExact((long) widthA, widthB);
-		long requiredOutput = Math.multiplyExact((long) activeTraits, widthB);
-		if (activeSnpColumns > widthB || requiredInputA > inputA.length
-				|| requiredInputB > inputB.length || requiredOutput > outputElements) {
-			throw new IllegalArgumentException("Work dimensions exceed the supplied eQTL matrix buffers");
-		}
 
 		long inputABytes = Math.multiplyExact((long) inputA.length, Sizeof.DOUBLE);
 		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.DOUBLE);
@@ -143,10 +157,61 @@ final class CudaGpuContext implements GpuContext {
 		}
 	}
 
-	private static void validateArguments(double[] inputA, double[] inputB, int outputElements,
+	@Override
+	public synchronized float[] executeFloatKernel(
+		float[] inputA,
+		float[] inputB,
+		int outputElements,
+		long localMemoryBytes,
+		int widthA,
+		int widthB,
+		long[] globalWorkSize,
+		long[] localWorkSize) {
+
+		ensureOpen();
+		if (!kernelReady)
+			throw new GpuException("No CUDA eQTL operation has been prepared for " + device.getName());
+		if (precision != GpuPrecision.FP32)
+			throw new GpuException("The CUDA operation was prepared for " + precision.optionName());
+		if (inputA == null || inputB == null)
+			throw new IllegalArgumentException("Kernel buffers must be non-null");
+		validateArguments(inputA.length, inputB.length, outputElements,
+			widthA, widthB, globalWorkSize, localWorkSize);
+		int activeSnpColumns = Math.toIntExact(globalWorkSize[0]);
+		int activeTraits = Math.toIntExact(globalWorkSize[1]);
+
+		long inputABytes = Math.multiplyExact((long) inputA.length, Sizeof.FLOAT);
+		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.FLOAT);
+		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.FLOAT);
+		try {
+			selectDevice();
+			ensureInputABuffer(inputABytes);
+			ensureInputBBuffer(inputBBytes);
+			ensureOutputBuffer(outputBytes);
+			JCuda.cudaMemcpy(inputABuffer, Pointer.to(inputA), inputABytes, cudaMemcpyHostToDevice);
+			JCuda.cudaMemcpy(inputBBuffer, Pointer.to(inputB), inputBBytes, cudaMemcpyHostToDevice);
+			JCuda.cudaMemset(outputBuffer, 0, outputBytes);
+
+			Pointer alpha = Pointer.to(new float[] { (float) normalization });
+			Pointer beta = Pointer.to(new float[] { 0.0f });
+			JCublas2.cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+				activeSnpColumns, activeTraits, widthA,
+				alpha, inputBBuffer, widthB,
+				inputABuffer, widthA,
+				beta, outputBuffer, widthB);
+
+			float[] output = new float[outputElements];
+			JCuda.cudaMemcpy(Pointer.to(output), outputBuffer, outputBytes, cudaMemcpyDeviceToHost);
+			return output;
+		} catch (RuntimeException | LinkageError e) {
+			throw new GpuException("CUDA/cuBLAS FP32 eQTL execution failed on " + device.getName(), e);
+		}
+	}
+
+	private static void validateArguments(int inputALength, int inputBLength, int outputElements,
 			int widthA, int widthB, long[] globalWorkSize, long[] localWorkSize) {
-		if (inputA == null || inputB == null || outputElements <= 0) {
-			throw new IllegalArgumentException("Kernel buffers must be non-null and non-empty");
+		if (inputALength <= 0 || inputBLength <= 0 || outputElements <= 0) {
+			throw new IllegalArgumentException("Kernel buffers must be non-empty");
 		}
 		if (widthA <= 0 || widthB <= 0) {
 			throw new IllegalArgumentException("Matrix widths must be positive");
@@ -159,6 +224,14 @@ final class CudaGpuContext implements GpuContext {
 				|| globalWorkSize[0] > Integer.MAX_VALUE || globalWorkSize[1] > Integer.MAX_VALUE) {
 			throw new IllegalArgumentException("Active work dimensions must be positive 32-bit values");
 		}
+		int activeSnpColumns = Math.toIntExact(globalWorkSize[0]);
+		int activeTraits = Math.toIntExact(globalWorkSize[1]);
+		long requiredInputA = Math.multiplyExact((long) activeTraits, widthA);
+		long requiredInputB = Math.multiplyExact((long) widthA, widthB);
+		long requiredOutput = Math.multiplyExact((long) activeTraits, widthB);
+		if (activeSnpColumns > widthB || requiredInputA > inputALength
+				|| requiredInputB > inputBLength || requiredOutput > outputElements)
+			throw new IllegalArgumentException("Work dimensions exceed the supplied eQTL matrix buffers");
 	}
 
 	private void ensureInputABuffer(long requiredBytes) {

@@ -234,3 +234,55 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - Checkpoint parts are atomic but do not yet carry independent content hashes. They protect against ordinary process interruption because `.partial` files are never accepted, while storage corruption outside that protocol is not independently detected.
 - Cache/checkpoint mode currently applies to the headered CSV bounded-RAM real-valued path. Full-memory runs, legacy headerless input, TPED, and the disabled categorical-SNP path do not gain resume support.
 - Next recommended work is the first section of `TODO.md`: profile and optimize the cache-backed schedule without changing results. Indexed VCF/VCF.gz/BCF support should precede forward selection; SNP interactions remain a separately verified statistical milestone.
+
+## 2026-08-20T17:35:46.5647026-04:00 — Optional FP32, VRAM-aware sizing, automatic workers, and multi-GPU preservation
+
+### Baseline and goal
+
+- Baseline commit: `eb85f6ac534617233b17211735b535a66f72f598` (`RAM optimization, adding checkpoint / resume`) in the canonical standalone checkout at `D:\projects\NIH-Project`.
+- Goal: add an explicitly selectable FP32 calculation, replace the obsolete `lambda`/RAM-saturation concept with GPU-memory-aware block sizing when `block_size` is omitted, choose a useful worker count when `num_threads` is omitted, and preserve use of every distinct compatible GPU.
+- User approval for an optional float calculation was explicit. FP64 remains the default; the FP32 accuracy study and its limitations are recorded below.
+
+### Decisions and files changed
+
+- Added `GpuPrecision` and the `precision = fp64|fp32` / `--precision fp64|fp32` setting. FP64 remains the default. FP32 converts only prepared input tiles to `float`; source parsing, sample alignment, covariate projection, residualization, standardization, cache storage, standard deviations, and downstream statistics remain `double`.
+- Extended `GpuContext` with precision-aware compilation and an FP32 execution method. `CudaGpuContext` now uses cuBLAS SGEMM for FP32 and DGEMM for FP64; `JoclGpuContext` uses the same production kernel with `DATATYPE float` or `double`. Both reuse precision-sized device buffers and fail when the compiled and requested precisions disagree.
+- FP32 mode allows available OpenCL GPUs without native FP64, including a compatible Intel Iris Xe driver/device. FP64 discovery still rejects non-FP64 devices. CUDA-first automatic discovery suppresses the duplicate NVIDIA OpenCL representation even when the NVIDIA device is usable only for FP32, while retaining distinct Intel/AMD OpenCL devices.
+- Added total global-memory reporting to `GpuDevice` and `--printgpuinfo`. `GpuTuning` calculates an automatic block size from the least-capable selected device, numeric width, padded sample count, two input buffers, quadratic output buffer, total VRAM, maximum single-allocation size, Java array limit, 12.5%/minimum-256-MiB VRAM headroom, and a 1-GiB target output allocation. Choices are rounded to the 16-row tile or 512-row large-block granularity. For the 2,005-sample, 250,000-SNP, 136,840-trait WHI dimensions and an 8-GiB RTX 2080, the tested recommendations are 11,264 rows for FP64 and 16,384 for FP32.
+- An omitted or zero `num_threads` now remains distinguishable from an explicit value. `GpuTuning` recommends up to one worker per GPU for bounded-RAM jobs and up to two per GPU for full-memory jobs, capped by schedulable jobs and all but one CPU core. Streamed recommendations use the number of genotype-block jobs rather than the larger cross-product iteration count. Explicit values are retained with warnings for CPU oversubscription or unused GPUs.
+- Preserved multi-GPU execution: initialization opens one context for every distinct precision-compatible device and `GpuContextPool` hands each exclusively to a worker. Mixed devices use the block size supported by the smallest device. No vendor handle was introduced into analysis code.
+- Removed the unused `kLambda` argument/constant and the legacy commented RAM-saturation calculation. Existing INI files containing `lambda` remain accepted but receive a notice that the setting is ignored; new configurations should omit it.
+- Added a finite/range check for GPU correlations. Tiny precision-dependent excursions above absolute one are clamped only within an explicit tolerance (`1e-4` for FP32, `1e-10` for FP64); larger or non-finite results stop the analysis.
+- Precision is included in the checkpoint analysis signature, so FP32 cannot resume FP64 parts or vice versa. Prepared matrix caches remain reusable FP64 data for either mode.
+- Added `GpuTuningTest`, expanded CUDA-first duplicate filtering, CLI/config, cache-signature, and production-kernel integration tests, and updated `README.md`, `AGENTS.md`, and `TODO.md`.
+
+### Verification
+
+- `.\mvnw.cmd clean package` — successful Java 17 build of 98 production sources and 13 test sources; 26 tests passed with 0 failures, errors, or skips; created `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`.
+- `\.\mvnw.cmd -Dtest=GpuKernelIntegrationTest test` — successful; six production-kernel tests exercised FP64 and FP32 through automatic, CUDA/cuBLAS, and JOCL/OpenCL paths. FP64 retained the existing `1e-11` tolerance; FP32 used an explicit `max(2e-5, |expected| * 5e-6)` CPU-reference tolerance.
+- Hardware-independent tuning tests verified 11,264-row FP64 and 16,384-row FP32 recommendations for an 8-GiB device at WHI dimensions, selection of 8,192 rows when a second device had a 512-MiB maximum allocation, and worker recommendations that use multiple GPUs without selecting every CPU core.
+- Synthetic FP64 command omitted block/thread settings: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --genotype test\resources\eqtl-reference\genotype.csv --expression test\resources\eqtl-reference\expression.csv --covariates test\resources\eqtl-reference\covariates.csv --fixed-covariates Age,Batch --genotype-id-column genotype_id --expression-id-column expression_id --threshold none 0 --output target\precision\fp64.csv` — successful; selected block size 16 and one worker automatically.
+- The same synthetic command with `--precision fp32` produced six matching identifier pairs. Maximum FP32-versus-FP64 absolute differences were `9.01e-8` in R-squared, `4.00e-8` in effect, `2.87e-7` in t, and `1.47e-7` in log10 p.
+- The synthetic FP32 bounded-RAM command added `--genotype-block-rows 16 --expression-block-rows 16 --cache-dir target\precision\cache --checkpoint-dir target\precision\checkpoint`; its output was byte-for-byte identical to the full-memory FP32 output, SHA-256 `6577B25E457DE30DE919DF0A27A5454BD8241A27292651F942C63A5DE2A75595`.
+- Explicit OpenCL application command: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend opencl --precision fp32 --genotype test\resources\eqtl-reference\genotype.csv --expression test\resources\eqtl-reference\expression.csv --covariates test\resources\eqtl-reference\covariates.csv --fixed-covariates Age,Batch --genotype-id-column genotype_id --expression-id-column expression_id --threshold none 0 --output target\precision\fp32-opencl.csv` — successful with automatic block size 16 and one worker. Its six identifiers matched CUDA FP32; maximum absolute R-squared difference between the backends was `6.89e-8`.
+- `java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --precision fp32 ... --validate-only` on the synthetic fixture with no block/thread settings — successful without GPU initialization or output creation; reported that tuning is deferred until a real GPU run.
+- Representative WHI FP64/FP32 commands used `--config D:\Research\topmed\sqtl\sqtl-whi\sqtl-chr1a.ini`, ignored 128-row genotype and expression subsets under `target\whi-precision`, explicit `--genotype-id-column NWDID --expression-id-column TORID`, `--threshold none 0 --block-size 64 --threads 1`, and outputs `fp64.csv`/`fp32.csv`; the FP32 command additionally used `--precision fp32`. Both runs completed 16,384 associations with identical identifiers, zero sample reorders, covariate rank 28, error degrees of freedom 1976, and offset 7.
+- Across those 16,384 WHI associations, FP32 versus FP64 maximum/RMS absolute differences were: R-squared `5.59e-9` / `2.25e-10`; effect `1.03e-8` / `8.66e-10`; t `9.70e-7` / `1.76e-7`; log10 p `2.51e-6` / `1.29e-7`. Both modes classified exactly 11 associations at p <= `1e-4`, with zero classification differences.
+- `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` — successful; reported NVIDIA GeForce RTX 2080, 8,589,606,912 global/max-allocation bytes, CUDA driver API 13.3, CUDA Runtime 12.6, compute capability 7.5, and FP64 support. OpenCL testing used the same RTX 2080 through NVIDIA OpenCL 3.0 CUDA / driver 610.88.
+- Final shaded-jar SHA-256: `1CE25488BF7E94DCB8CE3D3A086027A18E1BBF5C117544468A0380BA6D16B2E8`.
+
+### Known limitations, compatibility, and next step
+
+- FP32 is approximate. The representative study was stable at p <= `1e-4`, but associations near any reporting threshold can change inclusion; important borderline findings should be rerun in FP64. FP32 is not enabled automatically.
+- FP32 reduces GPU and packed host tile width, but prepared binary caches remain FP64 and retain the same disk footprint. FP32 does not repair or enable the categorical-SNP branch.
+- Automatic block sizing uses reported total VRAM and maximum allocation, not live free VRAM. Other GPU processes, driver reservations, JVM heap limits, or unusual drivers can still require an explicit smaller `block_size`. The 1-GiB output target is a conservative deterministic heuristic, not yet an end-to-end performance optimum.
+- Only one physical RTX 2080 was available. CUDA and OpenCL FP32 were hardware-tested, but Intel Iris Xe, AMD, and actual multi-GPU throughput remain unverified. Multi-device selection, least-capacity sizing, thread recommendations, and exclusive context pooling are covered by hardware-independent tests.
+- Automatic full-memory mode permits two workers per GPU for overlap; bounded-RAM mode uses one. Representative profiling should confirm these choices and tune them only with end-to-end evidence.
+- Next: perform the cache/scheduler profiling in `TODO.md`, including FP32/FP64 throughput, real mixed/multi-GPU systems, and Intel Iris Xe OpenCL validation before considering further backend work.
+
+### 2026-08-20T17:38:06.9713754-04:00 verification addendum
+
+- Corrected command spelling for the targeted kernel suite: `.\mvnw.cmd -Dtest=GpuKernelIntegrationTest test`.
+- Added a final backend safety guard requiring the declared kernel `DATATYPE` to match the requested precision before CUDA or OpenCL execution.
+- `.\mvnw.cmd clean package` after that guard — successful; all 26 tests passed with 0 failures, errors, or skips.
+- Superseding final shaded-jar SHA-256: `827AF86985C5A193949EE0C23B35EC5EF2916E5FCFBC205883DD37F971AC1EB3`.

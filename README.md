@@ -1,6 +1,6 @@
 # GPU eQTL
 
-GPU-accelerated Java software for eQTL and related QTL analyses. This codebase originated in 2011–2013 and is being modernized incrementally while preserving its double-precision statistical behavior.
+GPU-accelerated Java software for eQTL and related QTL analyses. This codebase originated in 2011–2013 and is being modernized incrementally. FP64 remains the default scientific mode; FP32 is available as an explicit performance/compatibility choice.
 
 ## Current status
 
@@ -9,12 +9,12 @@ The application targets Java 17 and now has selectable GPU backends behind a ven
 | Setting | Implementation | Intended hardware |
 | --- | --- | --- |
 | `auto` (default) | CUDA-first discovery plus OpenCL fallback | Mixed machines; avoids running the same NVIDIA card twice |
-| `cuda` | JCuda 12.6.0 and full-double-precision cuBLAS DGEMM | NVIDIA GPUs |
-| `opencl` | JOCL 2.0.6 and the production OpenCL C kernel | NVIDIA, AMD, or Intel GPUs whose driver exposes OpenCL with FP64 |
+| `cuda` | JCuda 12.6.0 and cuBLAS DGEMM/SGEMM | NVIDIA GPUs |
+| `opencl` | JOCL 2.0.6 and the production OpenCL C kernel | NVIDIA, AMD, or Intel GPUs exposed by an OpenCL driver |
 
-Automatic discovery uses CUDA for a usable NVIDIA device and also includes distinct FP64 OpenCL devices from other vendors. If CUDA cannot initialize, NVIDIA OpenCL remains available as a fallback. A native HIP/ROCm backend is not included yet; AMD cards currently use JOCL/OpenCL.
+Automatic discovery uses CUDA for a usable NVIDIA device and also includes distinct OpenCL devices from other vendors. It filters those devices for the requested precision. If CUDA cannot initialize, NVIDIA OpenCL remains available as a fallback. A native HIP/ROCm backend is not included yet; AMD cards currently use JOCL/OpenCL.
 
-The real-valued eQTL calculation remains double precision and has been validated through both CUDA and OpenCL on an NVIDIA GeForce RTX 2080 against the same CPU reference. Most client Intel Iris Xe GPUs do not provide the native FP64 capability required by this analysis, so they may be reported by `--printgpuinfo` but are excluded from execution. The legacy categorical-SNP path remains disabled; the CUDA backend currently implements `eqtlReal` only.
+The real-valued eQTL calculation defaults to FP64 and is validated through both CUDA and OpenCL against the same CPU reference. `precision = fp32` or `--precision fp32` converts only the prepared GPU input tiles to single precision and uses SGEMM/a `float` OpenCL kernel; covariate adjustment, standardization, cache values, effects, test statistics, and p-values remain FP64. This permits OpenCL execution on Intel Iris Xe devices that lack native FP64, provided their installed driver exposes a usable OpenCL GPU. The legacy categorical-SNP path remains disabled; the CUDA backend currently implements `eqtlReal` only.
 
 The legacy INI format remains supported, and every analysis setting now also has a command-line form. Headered CSV matrices are validated before computation: blank or duplicate row/sample IDs are fatal, genotype and expression samples are explicitly reordered, and a covariate table may bridge different ID namespaces. Text covariates are automatically one-hot encoded using the lexicographically first level as the reference; numeric-looking factors can be forced with `--factor-covariates`. Rank-deficient covariate models stop before analysis.
 
@@ -38,7 +38,7 @@ On Linux or macOS:
 
 The runnable jar is `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar`. It includes the Java dependencies and the JCuda/JOCL JNI bindings; it does not bundle GPU drivers or vendor runtimes. The CUDA backend needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation. The OpenCL backend needs the vendor's OpenCL ICD.
 
-Hardware-independent tests always run. CUDA and OpenCL numerical tests skip cleanly when their respective FP64 runtime/device is unavailable.
+Hardware-independent tests always run. CUDA and OpenCL FP64/FP32 numerical tests skip cleanly when their respective runtime/device is unavailable.
 
 ## Eclipse
 
@@ -84,6 +84,28 @@ A manual, transfer-inclusive comparison is available after the build. Its result
 java --enable-native-access=ALL-UNNAMED -cp 'target\test-classes;target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar' gov.nih.gpu.GpuBackendBenchmark
 ```
 
+## Precision, automatic sizing, and multiple GPUs
+
+FP64 is the default. Select FP32 explicitly in an INI file or on the command line:
+
+```ini
+precision = fp32
+```
+
+```powershell
+  --precision fp32
+```
+
+FP32 changes results slightly and should not be substituted silently for an established FP64 pipeline. On the representative 128-SNP by 128-trait WHI subset (2,005 samples; 16,384 associations), CUDA FP32 versus FP64 had maximum absolute differences of `5.59e-9` in R-squared, `1.03e-8` in effect, `9.70e-7` in t, and `2.51e-6` in log10 p. Both modes selected the same 11 associations at p <= `1e-4`. This is a bounded accuracy study, not a guarantee for every matrix or threshold; revalidate important borderline associations in FP64.
+
+When `block_size`/`--block-size` is omitted or zero, the application reads total VRAM and maximum-allocation limits from every selected GPU. It chooses one block size supported by the least-capable device, accounting for both input tiles, the quadratic result tile, FP32 versus FP64 element size, VRAM headroom, the per-allocation limit, and Java's array-size limit. It also caps the target result allocation at 1 GiB because consuming all available VRAM with one quadratic tile is usually slower and much harder on host memory. The choice is rounded to the GPU tile/granularity and printed before computation; an explicit block size remains an override.
+
+When `num_threads`/`--threads` is omitted or zero, bounded-RAM mode uses up to one worker per GPU, while full-memory mode may use up to two workers per GPU to overlap packing and post-processing. The recommendation is also capped by required iterations and leaves one CPU core free. Explicit values remain supported, with a warning if they leave GPUs idle or exceed available CPU cores.
+
+All distinct usable GPUs are opened, with one exclusive context per device. Jobs reserve contexts from a shared pool, so a multi-GPU system uses multiple devices concurrently. Automatic discovery suppresses only the duplicate OpenCL representation of an NVIDIA device already selected through CUDA. On mixed-capacity systems, automatic block sizing follows the smallest selected GPU. Use `--gpu-backend cuda` or `opencl` when you intentionally want only one backend family.
+
+The old `lambda` INI setting no longer controls memory or result storage and is ignored with a compatibility notice. It should be removed from new configurations.
+
 ## Run an analysis
 
 With automatic backend selection:
@@ -111,9 +133,10 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
   --output results.csv `
   --fixed-covariates Age,Batch,PC1,PC2 `
   --threshold pval 1e-4 `
-  --block-size 10240 `
-  --threads 4
+  --precision fp64
 ```
+
+Omitting `--block-size` and `--threads` in this example enables the device-aware recommendations described above.
 
 If genotype and expression headers use different identifiers, the program searches for covariate columns whose unique values exactly match each header. Ambiguous cases must be resolved explicitly:
 
@@ -156,7 +179,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
   --resume
 ```
 
-The default directory is `<output-file>.checkpoint`. `--checkpoint-dir DIR` selects a different location, and `--keep-checkpoints` retains completed parts after successful assembly. Resume is rejected when input/cache signatures, thresholds, degrees of freedom, block sizes, or output modes do not match. The corresponding INI keys are `cache_dir`, `rebuild_cache`, `checkpoint_dir`, `resume`, and `keep_checkpoints`.
+The default directory is `<output-file>.checkpoint`. `--checkpoint-dir DIR` selects a different location, and `--keep-checkpoints` retains completed parts after successful assembly. Resume is rejected when input/cache signatures, precision, thresholds, degrees of freedom, block sizes, or output modes do not match. The corresponding INI keys are `cache_dir`, `rebuild_cache`, `checkpoint_dir`, `resume`, and `keep_checkpoints`.
 
 Run `--help` for the complete argument list. See `TODO.md` for the remaining modernization work. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
 

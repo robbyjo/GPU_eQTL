@@ -29,6 +29,7 @@ import gov.nih.eqtl.datastructure.QGeneticSNPData;
 import gov.nih.eqtl.datastructure.QSNPData;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
+import gov.nih.gpu.GpuPrecision;
 import gov.nih.parallel.IGenericParallelJob;
 import gov.nih.parallel.IJobOwner;
 import gov.nih.parallel.QSynchronizedCounter;
@@ -50,11 +51,12 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 	protected QGeneExpressionData expDataTbl;
 	protected GpuContextPool contextPool;
 	protected double expData[][], expSD[], snpSD[], flatETraits[], flatSNPs[], RSq0;
+	protected float flatETraits32[], flatSNPs32[];
 	protected int numETraitsPerBlock, numETraits, numSNPsPerBlock, numSNPs, numInds, nrow, blockSize, snpCol;
 	protected int dfo, dfe, netdfe;
 	protected boolean isAdditive;
+	protected GpuPrecision precision;
 	protected QSynchronizedCounter counter;
-	static final int sizeof_data = 8;
 	protected Writer fw;
 
 	/**
@@ -72,7 +74,8 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 
 	public QeQTLSNPJobReal(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[] expSD, double[] snpSD, GpuContextPool contextPool,
 		int numETraitsPerBlock, int numSNPsPerBlock, int blockSize,
-		int dfo, int dfe, double RSq0, boolean isAdditive, Writer fw, QSynchronizedCounter ct)
+		int dfo, int dfe, double RSq0, boolean isAdditive, GpuPrecision precision,
+		Writer fw, QSynchronizedCounter ct)
 	{
 		this.popn = popn;
 		this.expDataTbl = expDataTbl;
@@ -81,6 +84,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		this.numETraitsPerBlock = numETraitsPerBlock;
 		this.numSNPsPerBlock = numSNPsPerBlock;
 		this.isAdditive = isAdditive;
+		this.precision = precision;
 		this.expSD = expSD;
 		this.snpSD = snpSD;
 		this.dfe = dfe;
@@ -93,8 +97,13 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		snpCol = numSNPsPerBlock;
 		nrow = roundUpNearestMultiple(numInds, DEFAULT_ALIGNMENT);
 		this.blockSize = blockSize;
-		flatETraits = new double[numETraitsPerBlock * nrow];
-		flatSNPs = new double[snpCol * nrow];
+		if (precision == GpuPrecision.FP32) {
+			flatETraits32 = new float[numETraitsPerBlock * nrow];
+			flatSNPs32 = new float[snpCol * nrow];
+		} else {
+			flatETraits = new double[numETraitsPerBlock * nrow];
+			flatSNPs = new double[snpCol * nrow];
+		}
 		this.RSq0 = RSq0;
 		counter = ct;
 	}
@@ -119,19 +128,29 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 			//curSNPCol = 4 * curNumSNPs,
 			//curSNPColAligned = roundUpNearestMultiple(curSNPCol, kDefaultAlignment);
 		long nElems = numETraitsPerBlock * snpCol;
-		if (curNumSNPs < numSNPsPerBlock)
-			Arrays.fill(flatSNPs, 0);
+		if (curNumSNPs < numSNPsPerBlock) {
+			if (precision == GpuPrecision.FP32)
+				Arrays.fill(flatSNPs32, 0);
+			else
+				Arrays.fill(flatSNPs, 0);
+		}
 
 		//long time1, time2;
 		//time1 = System.currentTimeMillis();
 		List<QSNPData> snpList = popn.getSNPs();
 		String[] geneID = expDataTbl.getGeneIDs();
-		double[] xyResult;
+		double[] xyResult = null;
+		float[] xyResult32 = null;
 		for (int k = 0; k < curNumSNPs; k++)
 		{
 			double[] snps = snpList.get(curSNPOffset+k).getSNPValues();
-			for (int l = 0; l < numInds; l++)
-				flatSNPs[l * snpCol + k] = snps[l] - 1;
+			for (int l = 0; l < numInds; l++) {
+				int offset = l * snpCol + k;
+				if (precision == GpuPrecision.FP32)
+					flatSNPs32[offset] = (float) (snps[l] - 1);
+				else
+					flatSNPs[offset] = snps[l] - 1;
+			}
 		}
 		//time2 = System.currentTimeMillis();
 		//System.out.println("SNP filling time = " + (time2 - time1));
@@ -143,27 +162,36 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 			int
 				curNumETraits = min(numETraitsPerBlock, numETraits - curETraitOffset);
 				//curNumETraitsAligned = roundUpNearestMultiple(curNumETraits, kDefaultAlignment);
-			if (curNumETraits < numETraitsPerBlock)
-				Arrays.fill(flatETraits, 0);
+			if (curNumETraits < numETraitsPerBlock) {
+				if (precision == GpuPrecision.FP32)
+					Arrays.fill(flatETraits32, 0);
+				else
+					Arrays.fill(flatETraits, 0);
+			}
 			//System.out.println("curSNPCol = " + curSNPCol + ", curNumETraits = " + curNumETraits + ", numInds = " + numInds + ", nrow = " + nrow + ", blockSize = " + blockSize);
-			for (int k = 0; k < curNumETraits; k++)
-				System.arraycopy(expData[curETraitOffset+k], 0, flatETraits, nrow * k, numInds);
+			for (int k = 0; k < curNumETraits; k++) {
+				if (precision == GpuPrecision.FP32) {
+					for (int sample = 0; sample < numInds; sample++)
+						flatETraits32[nrow * k + sample] = (float) expData[curETraitOffset + k][sample];
+				} else {
+					System.arraycopy(expData[curETraitOffset+k], 0, flatETraits, nrow * k, numInds);
+				}
+			}
 			//eTraitOffset[deviceNo] = i;
 			//snpOffset[deviceNo] = j;
 			GpuContext gpuContext = contextPool.reserveContext();
 			try {
-				long localMemoryBytes = (long) (blockSize + 1) * (4L * blockSize) * sizeof_data;
+				long localMemoryBytes = (long) (blockSize + 1) * (4L * blockSize) * precision.bytes();
 				int activeSnpColumns = roundUpNearestMultiple(curNumSNPs, blockSize);
 				int activeETraits = roundUpNearestMultiple(curNumETraits, blockSize);
-				xyResult = gpuContext.executeDoubleKernel(
-					flatETraits,
-					flatSNPs,
-					(int) nElems,
-					localMemoryBytes,
-					nrow,
-					snpCol,
-					new long[] { activeSnpColumns, activeETraits },
-					new long[] { blockSize, blockSize });
+				if (precision == GpuPrecision.FP32)
+					xyResult32 = gpuContext.executeFloatKernel(flatETraits32, flatSNPs32,
+						(int) nElems, localMemoryBytes, nrow, snpCol,
+						new long[] { activeSnpColumns, activeETraits }, new long[] { blockSize, blockSize });
+				else
+					xyResult = gpuContext.executeDoubleKernel(flatETraits, flatSNPs,
+						(int) nElems, localMemoryBytes, nrow, snpCol,
+						new long[] { activeSnpColumns, activeETraits }, new long[] { blockSize, blockSize });
 			} finally {
 				contextPool.releaseContext(gpuContext);
 			}
@@ -182,7 +210,8 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 						curETraitNo = eTraitNo + curETraitOffset;
 					String probesetID = geneID[curETraitNo];
 					double
-						rawEffect = xyResult[curOffset],
+						rawEffect = QeQTLStatistics.validateCorrelation(
+							precision == GpuPrecision.FP32 ? xyResult32[curOffset] : xyResult[curOffset], precision),
 						RSq = rawEffect * rawEffect;
 					if (RSq >= RSq0)
 					{
@@ -223,6 +252,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 				}
 			}
 			xyResult = null;
+			xyResult32 = null;
 			QSystemUtils.runGC();
 			//time2 = System.currentTimeMillis();
 			//System.out.println("Post-processing time = " + (time2 - time1));

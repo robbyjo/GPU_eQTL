@@ -20,6 +20,7 @@ import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
+import gov.nih.gpu.GpuPrecision;
 
 /** One bounded-RAM genotype block, paired with sequential expression blocks. */
 final class QeQTLStreamedJobReal implements Runnable {
@@ -36,11 +37,13 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final int errorDegreesOfFreedom;
     private final int degreesOfFreedomOffset;
     private final double rSquaredThreshold;
+    private final GpuPrecision precision;
 
     QeQTLStreamedJobReal(PreparedBlock genotype, QBinaryMatrixCache expressionCache,
         QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
-        int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold) {
+        int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold,
+        GpuPrecision precision) {
         this.genotype = genotype;
         this.expressionCache = expressionCache;
         this.checkpoint = checkpoint;
@@ -52,6 +55,7 @@ final class QeQTLStreamedJobReal implements Runnable {
         this.degreesOfFreedomOffset = degreesOfFreedomOffset;
         this.errorDegreesOfFreedom = errorDegreesOfFreedom;
         this.rSquaredThreshold = rSquaredThreshold;
+        this.precision = precision;
     }
 
     @Override
@@ -66,35 +70,63 @@ final class QeQTLStreamedJobReal implements Runnable {
     private void runWithWriter(Writer writer) throws IOException {
         int sampleCount = genotype.values()[0].length;
         int paddedSampleCount = roundUp(sampleCount, DEFAULT_ALIGNMENT);
-        double[] flattenedGenotypes = new double[genotypeCapacity * paddedSampleCount];
-        for (int snp = 0; snp < genotype.values().length; snp++)
-            for (int sample = 0; sample < sampleCount; sample++)
-                flattenedGenotypes[sample * genotypeCapacity + snp] = genotype.values()[snp][sample] - 1;
+        double[] flattenedGenotypes = precision == GpuPrecision.FP64
+            ? new double[genotypeCapacity * paddedSampleCount] : null;
+        float[] flattenedGenotypes32 = precision == GpuPrecision.FP32
+            ? new float[genotypeCapacity * paddedSampleCount] : null;
+        for (int snp = 0; snp < genotype.values().length; snp++) {
+            for (int sample = 0; sample < sampleCount; sample++) {
+                int destination = sample * genotypeCapacity + snp;
+                double value = genotype.values()[snp][sample] - 1;
+                if (precision == GpuPrecision.FP32)
+                    flattenedGenotypes32[destination] = (float) value;
+                else
+                    flattenedGenotypes[destination] = value;
+            }
+        }
 
         for (long offset = 0; offset < expressionCache.rowCount(); offset += expressionCapacity) {
             PreparedBlock expression = expressionCache.readBlock(offset, expressionCapacity);
-            executePair(genotype, expression, flattenedGenotypes, paddedSampleCount, writer);
+            executePair(genotype, expression, flattenedGenotypes, flattenedGenotypes32,
+                paddedSampleCount, writer);
         }
     }
 
     private void executePair(PreparedBlock snps, PreparedBlock traits, double[] flattenedGenotypes,
-        int paddedSampleCount, Writer writer) {
+        float[] flattenedGenotypes32, int paddedSampleCount, Writer writer) {
         System.out.println(snps.rowOffset() + "," + traits.rowOffset());
-        double[] flattenedTraits = new double[expressionCapacity * paddedSampleCount];
-        for (int trait = 0; trait < traits.values().length; trait++)
-            System.arraycopy(traits.values()[trait], 0, flattenedTraits,
-                paddedSampleCount * trait, traits.values()[trait].length);
+        double[] flattenedTraits = precision == GpuPrecision.FP64
+            ? new double[expressionCapacity * paddedSampleCount] : null;
+        float[] flattenedTraits32 = precision == GpuPrecision.FP32
+            ? new float[expressionCapacity * paddedSampleCount] : null;
+        for (int trait = 0; trait < traits.values().length; trait++) {
+            int destination = paddedSampleCount * trait;
+            if (precision == GpuPrecision.FP32) {
+                for (int sample = 0; sample < traits.values()[trait].length; sample++)
+                    flattenedTraits32[destination + sample] = (float) traits.values()[trait][sample];
+            } else {
+                System.arraycopy(traits.values()[trait], 0, flattenedTraits,
+                    destination, traits.values()[trait].length);
+            }
+        }
 
-        double[] products;
+        double[] products = null;
+        float[] products32 = null;
         GpuContext context = contextPool.reserveContext();
         try {
-            long localMemoryBytes = (long) (localBlockSize + 1) * (4L * localBlockSize) * Double.BYTES;
+            long localMemoryBytes = (long) (localBlockSize + 1) * (4L * localBlockSize) * precision.bytes();
             int activeSnps = roundUp(snps.values().length, localBlockSize);
             int activeTraits = roundUp(traits.values().length, localBlockSize);
-            products = context.executeDoubleKernel(flattenedTraits, flattenedGenotypes,
-                expressionCapacity * genotypeCapacity, localMemoryBytes, paddedSampleCount,
-                genotypeCapacity, new long[] { activeSnps, activeTraits },
-                new long[] { localBlockSize, localBlockSize });
+            if (precision == GpuPrecision.FP32)
+                products32 = context.executeFloatKernel(flattenedTraits32, flattenedGenotypes32,
+                    expressionCapacity * genotypeCapacity, localMemoryBytes, paddedSampleCount,
+                    genotypeCapacity, new long[] { activeSnps, activeTraits },
+                    new long[] { localBlockSize, localBlockSize });
+            else
+                products = context.executeDoubleKernel(flattenedTraits, flattenedGenotypes,
+                    expressionCapacity * genotypeCapacity, localMemoryBytes, paddedSampleCount,
+                    genotypeCapacity, new long[] { activeSnps, activeTraits },
+                    new long[] { localBlockSize, localBlockSize });
         } finally {
             contextPool.releaseContext(context);
         }
@@ -102,7 +134,9 @@ final class QeQTLStreamedJobReal implements Runnable {
         StringBuilder output = new StringBuilder(Math.min(OUTPUT_BUFFER_CHARACTERS, 64 * 1024));
         for (int snp = 0; snp < snps.values().length; snp++) {
             for (int trait = 0; trait < traits.values().length; trait++) {
-                double correlation = products[trait * genotypeCapacity + snp];
+                int resultOffset = trait * genotypeCapacity + snp;
+                double correlation = QeQTLStatistics.validateCorrelation(
+                    precision == GpuPrecision.FP32 ? products32[resultOffset] : products[resultOffset], precision);
                 double rSquared = correlation * correlation;
                 if (rSquared < rSquaredThreshold)
                     continue;
@@ -112,7 +146,10 @@ final class QeQTLStreamedJobReal implements Runnable {
             }
         }
         flush(output, writer);
-        Arrays.fill(products, 0);
+        if (products != null)
+            Arrays.fill(products, 0);
+        if (products32 != null)
+            Arrays.fill(products32, 0);
     }
 
     private void appendResult(StringBuilder output, PreparedBlock snps, PreparedBlock traits,

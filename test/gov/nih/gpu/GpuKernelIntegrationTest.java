@@ -34,6 +34,21 @@ class GpuKernelIntegrationTest {
 		assertRealEqtlOperation(new JoclGpuBackend());
 	}
 
+	@Test
+	void automaticBackendFp32MatchesCpuReferenceWhenGpuIsPresent() {
+		assertRealEqtlOperationFp32(new AutoGpuBackend());
+	}
+
+	@Test
+	void cudaBackendFp32MatchesCpuReferenceWhenAvailable() {
+		assertRealEqtlOperationFp32(new CudaGpuBackend());
+	}
+
+	@Test
+	void openClBackendFp32MatchesCpuReferenceWhenAvailable() {
+		assertRealEqtlOperationFp32(new JoclGpuBackend());
+	}
+
 	private static void assertRealEqtlOperation(GpuBackend backend) {
 		List<GpuDevice> devices;
 		try {
@@ -99,6 +114,57 @@ class GpuKernelIntegrationTest {
 			}
 			assertEquals(0.0, result[actualSnps], 0.0);
 			assertEquals(0.0, result[actualTraits * capacity], 0.0);
+		}
+	}
+
+	private static void assertRealEqtlOperationFp32(GpuBackend backend) {
+		List<GpuDevice> devices;
+		try {
+			devices = new GpuRuntime(backend).getGpuDevices(true, false);
+		} catch (RuntimeException | LinkageError e) {
+			Assumptions.abort("No usable " + backend.getName() + " runtime: " + e.getMessage());
+			return;
+		}
+		Assumptions.assumeFalse(devices.isEmpty(), "No available FP32 device for " + backend.getName());
+
+		int blockSize = 16;
+		int rows = 64;
+		int capacity = 32;
+		int actualTraits = 3;
+		int actualSnps = 5;
+		float[] expression = new float[capacity * rows];
+		float[] snps = new float[rows * capacity];
+		for (int trait = 0; trait < actualTraits; trait++)
+			for (int row = 0; row < rows; row++)
+				expression[trait * rows + row] = (float) ((row - 31.5) * (trait + 1) + (row % (trait + 3)));
+		for (int row = 0; row < rows; row++)
+			for (int snp = 0; snp < actualSnps; snp++)
+				snps[row * capacity + snp] = (float) ((row % (snp + 4)) - (snp + 1.5));
+
+		String line = System.lineSeparator();
+		String source = "#define BLOCK_SIZE 16" + line
+			+ "#define DATATYPE float" + line
+			+ "#define N_MIN_1 63" + line
+			+ QeQTLAnalysis.eqtlReal;
+
+		try (GpuContext context = devices.get(0).openContext()) {
+			context.compileKernel(source, "eqtlReal", GpuPrecision.FP32);
+			long localMemoryBytes = (long) (blockSize + 1) * (4L * blockSize) * Float.BYTES;
+			float[] result = context.executeFloatKernel(expression, snps, capacity * capacity,
+				localMemoryBytes, rows, capacity,
+				new long[] { blockSize, blockSize }, new long[] { blockSize, blockSize });
+
+			for (int trait = 0; trait < actualTraits; trait++) {
+				for (int snp = 0; snp < actualSnps; snp++) {
+					double expected = 0.0;
+					for (int row = 0; row < rows; row++)
+						expected += (double) expression[trait * rows + row] * snps[row * capacity + snp];
+					expected /= rows - 1.0;
+					double tolerance = Math.max(2e-5, Math.abs(expected) * 5e-6);
+					assertEquals(expected, result[trait * capacity + snp], tolerance,
+						backend.getName() + " FP32 trait " + trait + ", SNP " + snp);
+				}
+			}
 		}
 	}
 }

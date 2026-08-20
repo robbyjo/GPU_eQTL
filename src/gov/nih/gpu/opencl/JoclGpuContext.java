@@ -10,6 +10,7 @@ package gov.nih.gpu.opencl;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
 import gov.nih.gpu.GpuException;
+import gov.nih.gpu.GpuPrecision;
 
 import org.jocl.Pointer;
 import org.jocl.Sizeof;
@@ -21,6 +22,8 @@ import org.jocl.cl_mem;
 import org.jocl.cl_program;
 
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.jocl.CL.CL_MEM_READ_ONLY;
 import static org.jocl.CL.CL_MEM_WRITE_ONLY;
@@ -47,6 +50,8 @@ import static org.jocl.CL.clSetKernelArg;
 
 /** JOCL implementation with reusable device buffers for repeated matrix blocks. */
 final class JoclGpuContext implements GpuContext {
+	private static final Pattern DATA_TYPE = Pattern.compile(
+		"(?m)^\\s*#define\\s+DATATYPE\\s+(float|double)\\s*$");
 	private final JoclGpuDevice device;
 	private cl_context context;
 	private cl_command_queue queue;
@@ -58,6 +63,7 @@ final class JoclGpuContext implements GpuContext {
 	private long inputACapacity;
 	private long inputBCapacity;
 	private long outputCapacity;
+	private GpuPrecision precision = GpuPrecision.FP64;
 	private boolean closed;
 
 	JoclGpuContext(JoclGpuDevice device) {
@@ -82,7 +88,20 @@ final class JoclGpuContext implements GpuContext {
 
 	@Override
 	public synchronized void compileKernel(String source, String kernelName) {
+		compileKernel(source, kernelName, GpuPrecision.FP64);
+	}
+
+	@Override
+	public synchronized void compileKernel(String source, String kernelName, GpuPrecision precision) {
 		ensureOpen();
+		if (precision == null)
+			throw new IllegalArgumentException("precision must not be null");
+		if (source == null)
+			throw new IllegalArgumentException("Kernel source must not be null");
+		Matcher dataType = DATA_TYPE.matcher(source);
+		String expectedType = precision == GpuPrecision.FP32 ? "float" : "double";
+		if (!dataType.find() || !expectedType.equals(dataType.group(1)))
+			throw new GpuException("Kernel DATATYPE does not match " + precision.optionName());
 		releaseProgramAndKernel();
 		int[] status = new int[1];
 		program = clCreateProgramWithSource(context, 1, new String[] { source }, null, status);
@@ -97,6 +116,7 @@ final class JoclGpuContext implements GpuContext {
 		}
 		kernel = clCreateKernel(program, kernelName, status);
 		JoclGpuBackend.check(status[0], "clCreateKernel");
+		this.precision = precision;
 	}
 
 	@Override
@@ -114,6 +134,8 @@ final class JoclGpuContext implements GpuContext {
 		if (kernel == null) {
 			throw new GpuException("No GPU kernel has been compiled for " + device.getName());
 		}
+		if (precision != GpuPrecision.FP64)
+			throw new GpuException("The OpenCL kernel was compiled for " + precision.optionName());
 		if (inputA == null || inputB == null || outputElements <= 0) {
 			throw new IllegalArgumentException("Kernel buffers must be non-null and non-empty");
 		}
@@ -148,6 +170,60 @@ final class JoclGpuContext implements GpuContext {
 		JoclGpuBackend.check(clFinish(queue), "clFinish");
 
 		double[] output = new double[outputElements];
+		JoclGpuBackend.check(clEnqueueReadBuffer(queue, outputBuffer, CL_TRUE, 0, outputBytes,
+			Pointer.to(output), 0, null, null), "clEnqueueReadBuffer");
+		return output;
+	}
+
+	@Override
+	public synchronized float[] executeFloatKernel(
+		float[] inputA,
+		float[] inputB,
+		int outputElements,
+		long localMemoryBytes,
+		int widthA,
+		int widthB,
+		long[] globalWorkSize,
+		long[] localWorkSize) {
+
+		ensureOpen();
+		if (kernel == null)
+			throw new GpuException("No GPU kernel has been compiled for " + device.getName());
+		if (precision != GpuPrecision.FP32)
+			throw new GpuException("The OpenCL kernel was compiled for " + precision.optionName());
+		if (inputA == null || inputB == null || outputElements <= 0)
+			throw new IllegalArgumentException("Kernel buffers must be non-null and non-empty");
+		if (globalWorkSize == null || localWorkSize == null
+				|| globalWorkSize.length != 2 || localWorkSize.length != 2)
+			throw new IllegalArgumentException("The eQTL kernel requires two-dimensional work sizes");
+
+		long inputABytes = Math.multiplyExact((long) inputA.length, Sizeof.cl_float);
+		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.cl_float);
+		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.cl_float);
+		inputABuffer = ensureBuffer(inputABuffer, inputABytes, inputACapacity, CL_MEM_READ_ONLY);
+		inputACapacity = Math.max(inputACapacity, inputABytes);
+		inputBBuffer = ensureBuffer(inputBBuffer, inputBBytes, inputBCapacity, CL_MEM_READ_ONLY);
+		inputBCapacity = Math.max(inputBCapacity, inputBBytes);
+		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_WRITE_ONLY);
+		outputCapacity = Math.max(outputCapacity, outputBytes);
+
+		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputABuffer, CL_TRUE, 0, inputABytes,
+			Pointer.to(inputA), 0, null, null), "clEnqueueWriteBuffer(inputA)");
+		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputBBuffer, CL_TRUE, 0, inputBBytes,
+			Pointer.to(inputB), 0, null, null), "clEnqueueWriteBuffer(inputB)");
+
+		JoclGpuBackend.check(clSetKernelArg(kernel, 0, Sizeof.cl_mem, Pointer.to(outputBuffer)), "clSetKernelArg(0)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 1, Sizeof.cl_mem, Pointer.to(inputABuffer)), "clSetKernelArg(1)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 2, Sizeof.cl_mem, Pointer.to(inputBBuffer)), "clSetKernelArg(2)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 3, localMemoryBytes, null), "clSetKernelArg(3)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 4, localMemoryBytes, null), "clSetKernelArg(4)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 5, Sizeof.cl_int, Pointer.to(new int[] { widthA })), "clSetKernelArg(5)");
+		JoclGpuBackend.check(clSetKernelArg(kernel, 6, Sizeof.cl_int, Pointer.to(new int[] { widthB })), "clSetKernelArg(6)");
+		JoclGpuBackend.check(clEnqueueNDRangeKernel(queue, kernel, 2, null, globalWorkSize, localWorkSize,
+			0, null, null), "clEnqueueNDRangeKernel");
+		JoclGpuBackend.check(clFinish(queue), "clFinish");
+
+		float[] output = new float[outputElements];
 		JoclGpuBackend.check(clEnqueueReadBuffer(queue, outputBuffer, CL_TRUE, 0, outputBytes,
 			Pointer.to(output), 0, null, null), "clEnqueueReadBuffer");
 		return output;

@@ -19,6 +19,7 @@ import static java.lang.Math.log10;
 import static java.lang.Math.sqrt;
 
 import net.sourceforge.jdistlib.T;
+import gov.nih.gpu.GpuPrecision;
 
 /** Production eQTL statistics derived from the standardized matrix product. */
 public final class QeQTLStatistics {
@@ -28,6 +29,16 @@ public final class QeQTLStatistics {
     public record Result(double rSquared, double effect, double tStatistic, double log10P) { }
 
     private QeQTLStatistics() { }
+
+    public static double validateCorrelation(double correlation, GpuPrecision precision) {
+        if (!Double.isFinite(correlation))
+            throw new IllegalArgumentException("GPU returned a non-finite correlation");
+        double tolerance = precision == GpuPrecision.FP32 ? 1e-4 : 1e-10;
+        double absolute = Math.abs(correlation);
+        if (absolute > 1 + tolerance)
+            throw new IllegalArgumentException("GPU returned an invalid correlation " + correlation);
+        return absolute > 1 ? Math.copySign(1.0, correlation) : correlation;
+    }
 
     public static Result calculate(double correlation, double expressionStandardDeviation,
         double genotypeStandardDeviation, int errorDegreesOfFreedom, int degreesOfFreedomOffset) {

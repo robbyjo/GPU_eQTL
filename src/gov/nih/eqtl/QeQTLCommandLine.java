@@ -45,6 +45,7 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--df-offset", "df_offset");
         VALUE_OPTIONS.put("--block-size", "block_size");
         VALUE_OPTIONS.put("--threads", "num_threads");
+        VALUE_OPTIONS.put("--precision", "precision");
         VALUE_OPTIONS.put("--genotype-block-rows", "genotype_block_rows");
         VALUE_OPTIONS.put("--expression-block-rows", "expression_block_rows");
         VALUE_OPTIONS.put("--cache-dir", "cache_dir");
@@ -174,6 +175,7 @@ public final class QeQTLCommandLine {
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
               --expression-id-column NAME      Covariate column containing expression sample IDs
               --threshold {none|pval|rsq} VALUE
+              --precision {fp64|fp32}         GPU matrix-product precision (default: fp64)
               --df-offset N  --block-size N  --threads N
               --genotype-block-rows N          Enable bounded-RAM CSV analysis
               --expression-block-rows N        Enable bounded-RAM CSV analysis

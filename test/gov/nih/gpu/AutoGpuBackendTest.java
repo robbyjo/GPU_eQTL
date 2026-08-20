@@ -49,6 +49,18 @@ class AutoGpuBackendTest {
 	}
 
 	@Test
+	void fp32CudaStillReplacesItsNonFp64OpenClDuplicate() {
+		FakeDevice cudaNvidia = new FakeDevice("cuda", "NVIDIA Corporation", "old RTX", false);
+		FakeDevice openclNvidia = new FakeDevice("opencl", "NVIDIA Corporation", "old RTX", false);
+		AutoGpuBackend backend = new AutoGpuBackend(List.of(
+			new FakeBackend("cuda", List.of(cudaNvidia), null),
+			new FakeBackend("opencl", List.of(openclNvidia), null)));
+
+		assertEquals(List.of(cudaNvidia), backend.discoverGpuDevices());
+		assertEquals(List.of(cudaNvidia), new GpuRuntime(backend).getGpuDevices(true, false));
+	}
+
+	@Test
 	void systemPropertySelectsEachConcreteBackend() {
 		String previous = System.getProperty("eqtl.gpu.backend");
 		try {
@@ -133,6 +145,9 @@ class AutoGpuBackendTest {
 
 		@Override
 		public boolean hasUnifiedMemory() { return false; }
+
+		@Override
+		public long getGlobalMemoryBytes() { return 1; }
 
 		@Override
 		public long getMaxAllocationBytes() { return 1; }

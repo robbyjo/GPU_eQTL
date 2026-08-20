@@ -1,13 +1,14 @@
 # GPU eQTL modernization to-do list
 
-This list contains work remaining after the correctness, CLI, bounded-RAM cache, and checkpoint milestones. Preserve the scientific and verification rules in `AGENTS.md`.
+This list contains work remaining after the correctness, CLI, bounded-RAM cache, checkpoint, optional FP32, and device-aware tuning milestones. Preserve the scientific and verification rules in `AGENTS.md`.
 
 ## Next priority: profile and optimize the cache-backed schedule
 
 - Measure metadata scanning, first-run cache creation, cache reads, host packing, GPU transfer, kernel/cuBLAS time, CPU post-processing, and final output assembly on representative sample and block sizes.
 - Measure whether repeated prepared-block reads are satisfied by the operating-system file cache. If not, batch genotype jobs so one expression cache block can feed several GPU submissions, or add a bounded shared expression-block cache.
-- Compare block sizes and worker counts without exceeding GPU allocation limits. Include partial final tiles and multiple GPUs.
-- Reduce legacy residualization thread/log overhead for small blocks and buffer output without changing double-precision results.
+- Benchmark the new device-aware block and worker recommendations against representative end-to-end workloads; tune the 1-GiB output-tile target only with evidence. Include partial final tiles and real multi-GPU machines.
+- Benchmark FP32 versus FP64 throughput on NVIDIA, Intel, and AMD hardware and expand the accuracy study beyond the representative WHI subset, especially around reporting thresholds.
+- Reduce legacy residualization thread/log overhead for small blocks and buffer output without changing FP64 results.
 - Add cache inspection and safe stale-cache pruning commands; never delete caches merely because they are not used by the current run.
 
 ## Input and output formats
@@ -25,5 +26,5 @@ This list contains work remaining after the correctness, CLI, bounded-RAM cache,
 ## GPU backends and release work
 
 - Validate on AMD FP64 hardware before considering a native HIP/ROCm backend; retain JOCL/OpenCL as the current AMD path.
-- Reassess Intel Level Zero only on Intel hardware with scientifically usable FP64.
+- Validate the JOCL FP32 path on an Intel Iris Xe and reassess Level Zero only if it materially improves a verified FP32 workflow or supports scientifically usable FP64 hardware.
 - Consolidate shaded-jar metadata warnings, document supported driver/runtime combinations, and prepare reproducible release artifacts and checksums.
