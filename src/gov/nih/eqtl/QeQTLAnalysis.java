@@ -41,6 +41,7 @@ import gov.nih.eqtl.datastructure.QSNPData;
 import gov.nih.eqtl.datastructure.QSNPDataInt;
 import gov.nih.eqtl.io.QPlinkLoader;
 import gov.nih.eqtl.io.QCovariateTable;
+import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.eqtl.io.QDelimitedMatrixSource;
 import gov.nih.eqtl.io.QSampleAlignment;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
@@ -333,12 +334,41 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 	}
 
-	public void eSNPAnalysisStreamed(QDelimitedMatrixSource genotypeSource, int[] genotypeColumnOrder,
-		QDelimitedMatrixSource expressionSource, int[] expressionColumnOrder, double[][] covarQ,
-		double rsq0, int dfo, int dfe, int genotypeRowsPerBlock, int expressionRowsPerBlock)
+	public void eSNPAnalysisStreamed(QBinaryMatrixCache genotypeCache,
+		QBinaryMatrixCache expressionCache, double rsq0, int dfo, int dfe,
+		int genotypeRowsPerBlock, int expressionRowsPerBlock)
 	{
 		final int localBlockSize = 16;
-		int numInds = genotypeSource.metadata().columnCount();
+		int numInds = genotypeCache.sampleCount();
+		if (expressionCache.sampleCount() != numInds)
+			throw new IllegalArgumentException("Prepared cache sample counts differ");
+		int totalBlocks = (int) ceil(genotypeCache.rowCount() * 1.0 / genotypeRowsPerBlock);
+		Path outputPath = Path.of(config.getOutputFilename());
+		Path checkpointDirectory = config.getCheckpointDirectory() == null
+			? Path.of(config.getOutputFilename() + ".checkpoint")
+			: Path.of(config.getCheckpointDirectory());
+		String analysisSignature = QBinaryMatrixCache.analysisSignature(genotypeCache, expressionCache,
+			genotypeRowsPerBlock, expressionRowsPerBlock, dfo, dfe, rsq0, simplifyResult, rsqOnly);
+		QAnalysisCheckpoint checkpoint;
+		try {
+			checkpoint = QAnalysisCheckpoint.open(checkpointDirectory, analysisSignature, totalBlocks,
+				config.getResume(), config.getKeepCheckpoints());
+		} catch (IOException e) {
+			throw new RuntimeException("Cannot initialize analysis checkpoint", e);
+		}
+		int completedAtStart = checkpoint.completedCount();
+		if (completedAtStart > 0)
+			System.out.println("Completed checkpoint blocks found: " + completedAtStart + " / " + totalBlocks);
+		String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir" : "Rs_ID,ProbesetID,RSq,Fx,T,log10P";
+		if (completedAtStart == totalBlocks) {
+			try {
+				checkpoint.assemble(outputPath, outputHeader);
+				return;
+			} catch (IOException e) {
+				throw new RuntimeException("Cannot assemble completed checkpoint", e);
+			}
+		}
+
 		String header = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn
 			+ "#define N_MIN_1 " + (numInds - 1) + sLn
 			+ "#if defined(cl_khr_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
@@ -358,29 +388,25 @@ public class QeQTLAnalysis implements IJobOwner
 		int numThreads = min(requestedThreads, maxThreads);
 		System.out.println("Num threads = " + numThreads);
 		threadPool = Executors.newFixedThreadPool(numThreads);
-		Writer output = null;
 		try {
-			output = new PrintWriter(new FileOutputStream(config.getOutputFilename()), true);
-			output.write(rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir" : "Rs_ID,ProbesetID,RSq,Fx,T,log10P");
-			output.write(sLn);
 			Deque<Future<?>> pending = new ArrayDeque<Future<?>>();
-			try (QDelimitedMatrixSource.BlockReader genotypeReader = genotypeSource.open(genotypeColumnOrder)) {
-				QDelimitedMatrixSource.Block rawGenotypes;
-				while ((rawGenotypes = genotypeReader.readBlock(genotypeRowsPerBlock)) != null) {
-					QeQTLPreprocessor.PreparedBlock prepared = QeQTLPreprocessor.prepare(rawGenotypes, covarQ, "Genotype");
-					pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionSource,
-						expressionColumnOrder, covarQ, contextPool, genotypeRowsPerBlock,
-						expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, output)));
-					if (pending.size() >= numThreads)
-						pending.removeFirst().get();
-				}
+			for (int blockNumber = 0; blockNumber < totalBlocks; blockNumber++) {
+				if (checkpoint.isComplete(blockNumber))
+					continue;
+				long rowOffset = (long) blockNumber * genotypeRowsPerBlock;
+				QeQTLPreprocessor.PreparedBlock prepared = genotypeCache.readBlock(rowOffset, genotypeRowsPerBlock);
+				pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionCache,
+					checkpoint, blockNumber, contextPool, genotypeRowsPerBlock,
+					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0)));
+				if (pending.size() >= numThreads)
+					pending.removeFirst().get();
 			}
 			while (!pending.isEmpty())
 				pending.removeFirst().get();
 			threadPool.shutdown();
 			if (!threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS))
 				throw new RuntimeException("Timed out while waiting for streamed eQTL workers");
-			output.flush();
+			checkpoint.assemble(outputPath, outputHeader);
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			threadPool.shutdownNow();
@@ -390,11 +416,6 @@ public class QeQTLAnalysis implements IJobOwner
 			throw new RuntimeException("Streamed eQTL worker failed", e);
 		} finally {
 			contextPool.close();
-			if (output != null)
-				try {
-					output.close();
-				} catch (IOException e) {
-				}
 		}
 	}
 
@@ -668,10 +689,23 @@ public class QeQTLAnalysis implements IJobOwner
 					+ globalBlockSize + ")");
 			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
 				+ " rows, expression blocks=" + expressionRows + " rows");
-			System.out.println("Expression CSV is reread once per genotype block; uncompressed local storage is recommended.");
-			plugin.eSNPAnalysisStreamed(genotypeSource, alignment.genotypeColumnOrder(), expressionSource,
-				alignment.expressionColumnOrder(), covariateQ, rSquaredThreshold, dfOffset,
-				errorDegreesOfFreedom, genotypeRows, expressionRows);
+			Path outputPath = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
+			Path cacheDirectory = config.getCacheDirectory() == null
+				? outputPath.getParent().resolve(".gpu-eqtl-cache")
+				: Path.of(config.getCacheDirectory());
+			String genotypeSignature = QBinaryMatrixCache.signature("Genotype", genotypeSource,
+				alignment.genotypeColumnOrder(), covariateQ);
+			String expressionSignature = QBinaryMatrixCache.signature("Expression", expressionSource,
+				alignment.expressionColumnOrder(), covariateQ);
+			try (QBinaryMatrixCache genotypeCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
+				"Genotype", genotypeSignature, genotypeSource, alignment.genotypeColumnOrder(), covariateQ,
+				genotypeRows, config.getRebuildCache());
+				QBinaryMatrixCache expressionCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
+				"Expression", expressionSignature, expressionSource, alignment.expressionColumnOrder(), covariateQ,
+				expressionRows, config.getRebuildCache())) {
+				plugin.eSNPAnalysisStreamed(genotypeCache, expressionCache, rSquaredThreshold, dfOffset,
+					errorDegreesOfFreedom, genotypeRows, expressionRows);
+			}
 		} else {
 			System.out.println("Loading aligned matrices into RAM (set --genotype-block-rows or --expression-block-rows to stream).");
 			QDelimitedMatrixSource.Block genotypeBlock;

@@ -45,7 +45,9 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 - The positional legacy INI interface remains supported. `QeQTLCommandLine` also supports `--config` plus overrides or an argument-only run; keep both paths covered by compatibility tests.
 - Headered CSV input goes through `QDelimitedMatrixSource`, which scans metadata and identifiers before exposing reordered row blocks. Blank/duplicate identifiers and mismatched field counts are fatal.
 - `QCovariateTable` may bridge different genotype/expression ID columns, automatically encodes text covariates with a deterministic reference level, and rejects rank-deficient models before computation.
-- `genotype_block_rows` or `expression_block_rows` enables bounded-RAM CSV analysis. The current scheduler rereads and reprocesses expression blocks once per genotype block; profile this before claiming an overall speed improvement. Plain, gzip, and bzip2 CSV streams are supported.
+- `genotype_block_rows` or `expression_block_rows` enables bounded-RAM CSV analysis. `QBinaryMatrixCache` stores aligned, residualized, standardized FP64 rows with an index and per-row checksum. Its signature must cover source metadata, sample ordering, and the covariate projection; never reuse a mismatched cache.
+- `QAnalysisCheckpoint` writes one atomic part per genotype block. Resume must validate the complete analysis signature, and final output must be assembled in genotype-block order. Never treat a `.partial` file as complete.
+- Prepared caches remove repeated CSV parsing and covariate preprocessing, but matrix cache blocks may still be reread for the cross-product schedule. Profile OS cache behavior, disk reads, and batching before claiming an overall speed improvement. Plain, gzip, and bzip2 CSV streams are supported.
 - `--validate-only` performs the metadata, ID-alignment, covariate, rank, and degrees-of-freedom checks without association computation.
 - Preserve the repository's GNU GPL version 3 headers and original author attribution.
 - Avoid unrelated reformatting in legacy source files; mixed historical line endings can otherwise obscure reviews.
@@ -54,13 +56,9 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 Use this dependency-aware order unless the user asks otherwise:
 
-1. Add deterministic end-to-end reference fixtures, sample/gene/SNP ID validation, duplicate detection, and explicit reordering rules.
-2. Add categorical-covariate parsing and automatic reference-level one-hot encoding, with rank/collinearity checks. Repair and test the currently disabled categorical-SNP path separately.
-3. Replace the INI-only entry point with full command-line arguments, while supporting `--config` for the old files during migration.
-4. Introduce block readers for SNP and expression matrices, then stream blocks through the existing GPU scheduler without changing result ordering.
-5. Profile transfers, packing, kernel occupancy, partial tiles, multi-GPU load balancing, and output writing before making further performance changes.
-6. Add SNP interaction analysis with explicit model/degree-of-freedom tests and bounded block-pair scheduling.
-7. Add forward selection on top of an indexed/re-readable genotype source; do not require retaining every SNP in RAM.
+Completed foundations: deterministic fixtures and ID validation/reordering; categorical-covariate encoding and rank checks; CLI plus legacy INI compatibility; bounded CSV blocks; reusable indexed prepared caches; and atomic checkpoint/resume with deterministic streamed output assembly.
+
+The remaining ordered work is maintained in `TODO.md`. Profile the cache-backed schedule before kernel changes; add indexed VCF/BCF before forward selection; and treat categorical-SNP repair separately from categorical covariates.
 
 ## Session records
 

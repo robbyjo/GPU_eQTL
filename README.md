@@ -18,7 +18,7 @@ The real-valued eQTL calculation remains double precision and has been validated
 
 The legacy INI format remains supported, and every analysis setting now also has a command-line form. Headered CSV matrices are validated before computation: blank or duplicate row/sample IDs are fatal, genotype and expression samples are explicitly reordered, and a covariate table may bridge different ID namespaces. Text covariates are automatically one-hot encoded using the lexicographically first level as the reference; numeric-looking factors can be forced with `--factor-covariates`. Rank-deficient covariate models stop before analysis.
 
-Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. This saves heap space but currently rereads the expression CSV once per genotype block, so it trades disk I/O and repeated expression preprocessing for lower memory use. SNP interactions, forward selection, and indexed VCF/BCF input remain on the roadmap.
+Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. The first run creates indexed FP64 cache files after validation, reordering, covariate residualization, and standardization. Later runs with the same source metadata, sample order, and covariate projection reuse those prepared rows instead of reparsing or reprocessing the CSV. Each cache row has an integrity checksum. SNP interactions, forward selection, and indexed VCF/BCF input remain on the roadmap.
 
 ## Build and test
 
@@ -136,6 +136,28 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
 
 The same settings can be added to an INI file as `genotype_block_rows` and `expression_block_rows`. ID bridge columns are `genotype_id_column` and `expression_id_column`. Plain CSV, `.csv.gz`, and `.csv.bz2` sources are supported by the metadata/block reader. CSV headers and a first-column row identifier are required for validation and streaming; legacy headerless genotype CSV files continue through the old full-memory loader.
 
-Run `--help` for the complete argument list. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
+By default, caches are placed in `.gpu-eqtl-cache` beside the output file. Choose another location, preferably fast local SSD storage, with:
+
+```powershell
+  --cache-dir D:\eqtl-cache
+```
+
+Use `--rebuild-cache` after an intentional forced rebuild. Cache signatures include the input path, size, modification time, row/sample metadata, column permutation, and covariate projection. A changed signature creates a different cache rather than silently reusing incompatible prepared values. Old cache versions are not automatically deleted. For the complete WHI chromosome example, allow roughly 6–7 GB of additional uncompressed cache storage.
+
+### Checkpoint and resume
+
+Bounded-RAM analyses write one atomic result part per genotype block. Only a completely written part is considered finished, and final output is assembled in genotype-block order. On success the temporary checkpoint directory is removed. If execution stops, rerun the identical command with `--resume`:
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --config path\to\analysis.ini `
+  --genotype-block-rows 10240 `
+  --expression-block-rows 10240 `
+  --resume
+```
+
+The default directory is `<output-file>.checkpoint`. `--checkpoint-dir DIR` selects a different location, and `--keep-checkpoints` retains completed parts after successful assembly. Resume is rejected when input/cache signatures, thresholds, degrees of freedom, block sizes, or output modes do not match. The corresponding INI keys are `cache_dir`, `rebuild_cache`, `checkpoint_dir`, `resume`, and `keep_checkpoints`.
+
+Run `--help` for the complete argument list. See `TODO.md` for the remaining modernization work. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
 
 See `AGENTS.md` for contributor constraints and the ordered roadmap. See `SESSION_HISTORY.md` for timestamped changes, verification, and known limitations.

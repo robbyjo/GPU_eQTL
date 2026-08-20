@@ -20,12 +20,20 @@ class QeQTLCommandLineTest {
 
         QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
             "--config", ini.toString(), "--threads", "7", "--genotype-block-rows", "64",
-            "--fixed-covariates", "Age,Batch", "--gpu-backend", "cuda" });
+            "--fixed-covariates", "Age,Batch", "--gpu-backend", "cuda",
+            "--cache-dir", directory.resolve("cache").toString(),
+            "--checkpoint-dir", directory.resolve("checkpoint").toString(),
+            "--rebuild-cache", "--resume", "--keep-checkpoints" });
         assertEquals(7, result.config().getNumThreads());
         assertEquals(64, result.config().getGenotypeBlockRows());
         assertArrayEquals(new String[] { "Age", "Batch" }, result.config().getFixedCovariates());
         assertEquals("cuda", result.gpuBackend());
         assertTrue(result.config().getGenotypeFilename().startsWith(directory.toString()));
+        assertTrue(result.config().getCacheDirectory().startsWith(directory.toString()));
+        assertTrue(result.config().getCheckpointDirectory().startsWith(directory.toString()));
+        assertTrue(result.config().getRebuildCache());
+        assertTrue(result.config().getResume());
+        assertTrue(result.config().getKeepCheckpoints());
     }
 
     @Test

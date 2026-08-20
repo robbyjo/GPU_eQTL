@@ -216,6 +216,27 @@ public class QeQTLAnalysisConfig {
 	public String getExpressionIdColumn()
 	{ return mIni.get("expression_id_column"); }
 
+	public String getCacheDirectory()
+	{ return expandPath(mIni.get("cache_dir"), getIniPath()); }
+
+	public boolean getRebuildCache()
+	{ return getBoolean("rebuild_cache"); }
+
+	public String getCheckpointDirectory()
+	{ return expandPath(mIni.get("checkpoint_dir"), getIniPath()); }
+
+	public boolean getResume()
+	{ return getBoolean("resume"); }
+
+	public boolean getKeepCheckpoints()
+	{ return getBoolean("keep_checkpoints"); }
+
+	private boolean getBoolean(String key)
+	{
+		String value = mIni.get(key);
+		return value != null && Boolean.parseBoolean(value);
+	}
+
 	private int getNonNegativeInt(String key)
 	{
 		String value = mIni.get(key);

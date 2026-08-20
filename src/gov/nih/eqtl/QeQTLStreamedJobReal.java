@@ -17,7 +17,7 @@ import java.io.Writer;
 import java.util.Arrays;
 
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
-import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
 
@@ -26,9 +26,9 @@ final class QeQTLStreamedJobReal implements Runnable {
     private static final int OUTPUT_BUFFER_CHARACTERS = 1024 * 1024;
 
     private final PreparedBlock genotype;
-    private final QDelimitedMatrixSource expressionSource;
-    private final int[] expressionColumnOrder;
-    private final double[][] covariateQ;
+    private final QBinaryMatrixCache expressionCache;
+    private final QAnalysisCheckpoint checkpoint;
+    private final int genotypeBlockNumber;
     private final GpuContextPool contextPool;
     private final int genotypeCapacity;
     private final int expressionCapacity;
@@ -36,16 +36,15 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final int errorDegreesOfFreedom;
     private final int degreesOfFreedomOffset;
     private final double rSquaredThreshold;
-    private final Writer writer;
 
-    QeQTLStreamedJobReal(PreparedBlock genotype, QDelimitedMatrixSource expressionSource,
-        int[] expressionColumnOrder, double[][] covariateQ, GpuContextPool contextPool,
+    QeQTLStreamedJobReal(PreparedBlock genotype, QBinaryMatrixCache expressionCache,
+        QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
-        int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold, Writer writer) {
+        int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold) {
         this.genotype = genotype;
-        this.expressionSource = expressionSource;
-        this.expressionColumnOrder = expressionColumnOrder.clone();
-        this.covariateQ = covariateQ;
+        this.expressionCache = expressionCache;
+        this.checkpoint = checkpoint;
+        this.genotypeBlockNumber = genotypeBlockNumber;
         this.contextPool = contextPool;
         this.genotypeCapacity = genotypeCapacity;
         this.expressionCapacity = expressionCapacity;
@@ -53,11 +52,18 @@ final class QeQTLStreamedJobReal implements Runnable {
         this.degreesOfFreedomOffset = degreesOfFreedomOffset;
         this.errorDegreesOfFreedom = errorDegreesOfFreedom;
         this.rSquaredThreshold = rSquaredThreshold;
-        this.writer = writer;
     }
 
     @Override
     public void run() {
+        try {
+            checkpoint.writeBlock(genotypeBlockNumber, this::runWithWriter);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed genotype checkpoint block " + genotypeBlockNumber, e);
+        }
+    }
+
+    private void runWithWriter(Writer writer) throws IOException {
         int sampleCount = genotype.values()[0].length;
         int paddedSampleCount = roundUp(sampleCount, DEFAULT_ALIGNMENT);
         double[] flattenedGenotypes = new double[genotypeCapacity * paddedSampleCount];
@@ -65,19 +71,14 @@ final class QeQTLStreamedJobReal implements Runnable {
             for (int sample = 0; sample < sampleCount; sample++)
                 flattenedGenotypes[sample * genotypeCapacity + snp] = genotype.values()[snp][sample] - 1;
 
-        try (QDelimitedMatrixSource.BlockReader expressionReader = expressionSource.open(expressionColumnOrder)) {
-            QDelimitedMatrixSource.Block rawExpression;
-            while ((rawExpression = expressionReader.readBlock(expressionCapacity)) != null) {
-                PreparedBlock expression = QeQTLPreprocessor.prepare(rawExpression, covariateQ, "Expression");
-                executePair(genotype, expression, flattenedGenotypes, paddedSampleCount);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Cannot stream expression matrix", e);
+        for (long offset = 0; offset < expressionCache.rowCount(); offset += expressionCapacity) {
+            PreparedBlock expression = expressionCache.readBlock(offset, expressionCapacity);
+            executePair(genotype, expression, flattenedGenotypes, paddedSampleCount, writer);
         }
     }
 
     private void executePair(PreparedBlock snps, PreparedBlock traits, double[] flattenedGenotypes,
-        int paddedSampleCount) {
+        int paddedSampleCount, Writer writer) {
         System.out.println(snps.rowOffset() + "," + traits.rowOffset());
         double[] flattenedTraits = new double[expressionCapacity * paddedSampleCount];
         for (int trait = 0; trait < traits.values().length; trait++)
@@ -107,10 +108,10 @@ final class QeQTLStreamedJobReal implements Runnable {
                     continue;
                 appendResult(output, snps, traits, snp, trait, correlation);
                 if (output.length() >= OUTPUT_BUFFER_CHARACTERS)
-                    flush(output);
+                    flush(output, writer);
             }
         }
-        flush(output);
+        flush(output, writer);
         Arrays.fill(products, 0);
     }
 
@@ -141,16 +142,13 @@ final class QeQTLStreamedJobReal implements Runnable {
         }
     }
 
-    private void flush(StringBuilder output) {
+    private void flush(StringBuilder output, Writer writer) {
         if (output.length() == 0)
             return;
-        synchronized (writer) {
-            try {
-                writer.write(output.toString());
-                writer.flush();
-            } catch (IOException e) {
-                throw new RuntimeException("Cannot write eQTL results", e);
-            }
+        try {
+            writer.write(output.toString());
+        } catch (IOException e) {
+            throw new RuntimeException("Cannot write eQTL results", e);
         }
         output.setLength(0);
     }
