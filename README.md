@@ -16,7 +16,9 @@ Automatic discovery uses CUDA for a usable NVIDIA device and also includes disti
 
 The real-valued eQTL calculation remains double precision and has been validated through both CUDA and OpenCL on an NVIDIA GeForce RTX 2080 against the same CPU reference. Most client Intel Iris Xe GPUs do not provide the native FP64 capability required by this analysis, so they may be reported by `--printgpuinfo` but are excluded from execution. The legacy categorical-SNP path remains disabled; the CUDA backend currently implements `eqtlReal` only.
 
-The run configuration is still the legacy INI format. Matrix streaming, input-ID alignment, categorical covariate encoding, SNP interactions, and forward selection remain on the modernization roadmap in `AGENTS.md` and `SESSION_HISTORY.md`.
+The legacy INI format remains supported, and every analysis setting now also has a command-line form. Headered CSV matrices are validated before computation: blank or duplicate row/sample IDs are fatal, genotype and expression samples are explicitly reordered, and a covariate table may bridge different ID namespaces. Text covariates are automatically one-hot encoded using the lexicographically first level as the reference; numeric-looking factors can be forced with `--factor-covariates`. Rank-deficient covariate models stop before analysis.
+
+Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. This saves heap space but currently rereads the expression CSV once per genotype block, so it trades disk I/O and repeated expression preprocessing for lower memory use. SNP interactions, forward selection, and indexed VCF/BCF input remain on the roadmap.
 
 ## Build and test
 
@@ -54,7 +56,14 @@ Automatic selection is the default:
 java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
 ```
 
-Force CUDA or OpenCL in PowerShell (quote the `-D` argument):
+Force CUDA or OpenCL with the application argument:
+
+```powershell
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend cuda --printgpuinfo
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend opencl --printgpuinfo
+```
+
+The equivalent system property remains supported in PowerShell (quote the `-D` argument):
 
 ```powershell
 java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
@@ -83,6 +92,50 @@ With automatic backend selection:
 java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar path\to\analysis.ini
 ```
 
-To force a backend, place the quoted `-Deqtl.gpu.backend=...` option before `-jar`, as shown above. The existing INI keys and input formats are unchanged. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
+The equivalent migration form is `--config`; command-line options override values read from the INI file:
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --config path\to\analysis.ini `
+  --gpu-backend cuda `
+  --threads 4
+```
+
+A run no longer needs an INI file:
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --genotype genotype.csv `
+  --expression expression.csv `
+  --covariates covariates.csv `
+  --output results.csv `
+  --fixed-covariates Age,Batch,PC1,PC2 `
+  --threshold pval 1e-4 `
+  --block-size 10240 `
+  --threads 4
+```
+
+If genotype and expression headers use different identifiers, the program searches for covariate columns whose unique values exactly match each header. Ambiguous cases must be resolved explicitly:
+
+```powershell
+  --genotype-id-column NWDID --expression-id-column TORID
+```
+
+Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode covariates, check model rank, and report degrees of freedom without running the association analysis.
+
+### Bounded-RAM CSV mode
+
+Set either block-row option to enable the streamed path; an omitted block-row value falls back to `--block-size`. Values are rounded up to the 16-row GPU tile boundary.
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --config path\to\analysis.ini `
+  --genotype-block-rows 10240 `
+  --expression-block-rows 10240
+```
+
+The same settings can be added to an INI file as `genotype_block_rows` and `expression_block_rows`. ID bridge columns are `genotype_id_column` and `expression_id_column`. Plain CSV, `.csv.gz`, and `.csv.bz2` sources are supported by the metadata/block reader. CSV headers and a first-column row identifier are required for validation and streaming; legacy headerless genotype CSV files continue through the old full-memory loader.
+
+Run `--help` for the complete argument list. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
 
 See `AGENTS.md` for contributor constraints and the ordered roadmap. See `SESSION_HISTORY.md` for timestamped changes, verification, and known limitations.

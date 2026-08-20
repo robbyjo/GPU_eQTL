@@ -22,8 +22,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.BitSet;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -37,7 +40,11 @@ import gov.nih.eqtl.datastructure.QGeneticSNPData;
 import gov.nih.eqtl.datastructure.QSNPData;
 import gov.nih.eqtl.datastructure.QSNPDataInt;
 import gov.nih.eqtl.io.QPlinkLoader;
+import gov.nih.eqtl.io.QCovariateTable;
+import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QSampleAlignment;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
+import gov.nih.eqtl.datastructure.QSNPDataReal;
 import gov.nih.jama.QRDecomposition;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
@@ -89,7 +96,7 @@ public class QeQTLAnalysis implements IJobOwner
 		kExitCodeErrorAnalysisFailure = -13;
 
 	// Global variables
-	static final GpuRuntime GPU_RUNTIME = GpuRuntime.createDefault();
+	static GpuRuntime GPU_RUNTIME;
 	static GpuContext[] mContexts = null;
 	static long mMinAllocMemSize = 0;
 	static QeQTLAnalysisConfig config = null;
@@ -326,6 +333,71 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 	}
 
+	public void eSNPAnalysisStreamed(QDelimitedMatrixSource genotypeSource, int[] genotypeColumnOrder,
+		QDelimitedMatrixSource expressionSource, int[] expressionColumnOrder, double[][] covarQ,
+		double rsq0, int dfo, int dfe, int genotypeRowsPerBlock, int expressionRowsPerBlock)
+	{
+		final int localBlockSize = 16;
+		int numInds = genotypeSource.metadata().columnCount();
+		String header = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn
+			+ "#define N_MIN_1 " + (numInds - 1) + sLn
+			+ "#if defined(cl_khr_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
+			+ "#elif defined(cl_amd_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + sLn + "#endif" + sLn;
+
+		GpuContextPool contextPool = new GpuContextPool(mContexts);
+		try {
+			for (GpuContext context : contextPool.getAllContexts())
+				context.compileKernel(header + eqtlReal, "eqtlReal");
+		} catch (RuntimeException e) {
+			contextPool.close();
+			throw e;
+		}
+
+		int requestedThreads = config.getNumThreads();
+		int maxThreads = Runtime.getRuntime().availableProcessors() + 1;
+		int numThreads = min(requestedThreads, maxThreads);
+		System.out.println("Num threads = " + numThreads);
+		threadPool = Executors.newFixedThreadPool(numThreads);
+		Writer output = null;
+		try {
+			output = new PrintWriter(new FileOutputStream(config.getOutputFilename()), true);
+			output.write(rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir" : "Rs_ID,ProbesetID,RSq,Fx,T,log10P");
+			output.write(sLn);
+			Deque<Future<?>> pending = new ArrayDeque<Future<?>>();
+			try (QDelimitedMatrixSource.BlockReader genotypeReader = genotypeSource.open(genotypeColumnOrder)) {
+				QDelimitedMatrixSource.Block rawGenotypes;
+				while ((rawGenotypes = genotypeReader.readBlock(genotypeRowsPerBlock)) != null) {
+					QeQTLPreprocessor.PreparedBlock prepared = QeQTLPreprocessor.prepare(rawGenotypes, covarQ, "Genotype");
+					pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionSource,
+						expressionColumnOrder, covarQ, contextPool, genotypeRowsPerBlock,
+						expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, output)));
+					if (pending.size() >= numThreads)
+						pending.removeFirst().get();
+				}
+			}
+			while (!pending.isEmpty())
+				pending.removeFirst().get();
+			threadPool.shutdown();
+			if (!threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS))
+				throw new RuntimeException("Timed out while waiting for streamed eQTL workers");
+			output.flush();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			threadPool.shutdownNow();
+			throw new RuntimeException("Interrupted while waiting for streamed eQTL workers", e);
+		} catch (Exception e) {
+			threadPool.shutdownNow();
+			throw new RuntimeException("Streamed eQTL worker failed", e);
+		} finally {
+			contextPool.close();
+			if (output != null)
+				try {
+					output.close();
+				} catch (IOException e) {
+				}
+		}
+	}
+
 	@Override
 	public void reportCompletion(IGenericParallelJob job)
 	{ }
@@ -379,11 +451,12 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static final void initGPUs()
 	{
-		System.out.println("GPU backend: " + GPU_RUNTIME.getBackend().getName());
-		System.out.println("GPU runtime: " + GPU_RUNTIME.getBackend().getRuntimeDescription());
+		GpuRuntime gpuRuntime = getGpuRuntime();
+		System.out.println("GPU backend: " + gpuRuntime.getBackend().getName());
+		System.out.println("GPU runtime: " + gpuRuntime.getBackend().getRuntimeDescription());
 		List<GpuDevice> devices;
 		try {
-			devices = GPU_RUNTIME.getGpuDevices(true, true);
+			devices = gpuRuntime.getGpuDevices(true, true);
 		} catch (Throwable e) {
 			System.err.println("Cannot initialize the GPU backend: " + e.getMessage());
 			System.exit(kExitCodeErrorInitOpenCLFailure);
@@ -392,7 +465,7 @@ public class QeQTLAnalysis implements IJobOwner
 		int numDevices = devices.size();
 		if (numDevices == 0) {
 			System.err.println("Cannot find an available GPU with a compiler and double-precision support.");
-			List<GpuDevice> allGpuDevices = GPU_RUNTIME.getGpuDevices(true, false);
+			List<GpuDevice> allGpuDevices = gpuRuntime.getGpuDevices(true, false);
 			if (!allGpuDevices.isEmpty()) {
 				System.err.println("The following GPUs were detected but do not report double-precision support:");
 				for (GpuDevice device : allGpuDevices) {
@@ -450,16 +523,19 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static final void printUsage()
 	{
-		System.err.println("ERROR: No parameters specified!");
-		System.err.println("Usage: (program_name) --printgpuinfo will print GPU information installed in this machine.");
-		System.err.println("(program_name) (inifile) will run the eQTL analysis with parameters specified in the inifile.");
-		System.exit(kExitCodeErrorInvalidParam);
+		System.err.print(QeQTLCommandLine.usage());
 	}
-
 	private static final void dumpGPUInfo()
 	{
-		System.out.println(GPU_RUNTIME.describeGpuDevices());
+		System.out.println(getGpuRuntime().describeGpuDevices());
 		System.exit(kExitCodeNormal);
+	}
+
+	private static GpuRuntime getGpuRuntime()
+	{
+		if (GPU_RUNTIME == null)
+			GPU_RUNTIME = GpuRuntime.createDefault();
+		return GPU_RUNTIME;
 	}
 
 	static final int getDefaultBlockSize(int numInds, int numSNPs, int numETraits)
@@ -490,21 +566,190 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 	}
 
+	private static void runCsvAnalysis(QeQTLAnalysis plugin, String genotypeFilename,
+		String expressionFilename, String covariateFilename, String[] fixedCovariates,
+		String[] factorCovariates, String thresholdType, double threshold, int dfOffset,
+		boolean isAdditive, int configuredBlockSize, int numDevices) throws Exception
+	{
+		System.out.println("Scanning matrix metadata and identifiers...");
+		QDelimitedMatrixSource genotypeSource = new QDelimitedMatrixSource(
+			Path.of(genotypeFilename), cCommonDelimiter, "#");
+		QDelimitedMatrixSource expressionSource = new QDelimitedMatrixSource(
+			Path.of(expressionFilename), cCommonDelimiter, "#");
+		long genotypeRowCount = genotypeSource.metadata().rowCount();
+		long expressionRowCount = expressionSource.metadata().rowCount();
+		if (genotypeRowCount > Integer.MAX_VALUE || expressionRowCount > Integer.MAX_VALUE)
+			throw new IllegalArgumentException("This release supports at most " + Integer.MAX_VALUE + " rows per matrix");
+
+		QSampleAlignment alignment;
+		double[][] covariateQ = null;
+		int covariateRank = 1;
+		if (covariateFilename != null) {
+			System.out.println("Loading and validating covariate data...");
+			QCovariateTable covariates = QCovariateTable.load(Path.of(covariateFilename), cCommonDelimiter, "#");
+			alignment = covariates.align(genotypeSource.metadata().sampleIds(),
+				expressionSource.metadata().sampleIds(), config.getGenotypeIdColumn(), config.getExpressionIdColumn());
+			QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(fixedCovariates, factorCovariates);
+			if (model.automaticFactors().length > 0)
+				System.out.println("Automatically categorical covariates: " + String.join(", ", model.automaticFactors()));
+			System.out.println("Covariate model columns: " + String.join(", ", model.columnNames()));
+			QRDecomposition decomposition = new QRDecomposition(model.values());
+			if (!decomposition.isFullRank())
+				throw new IllegalArgumentException("Covariate model is rank deficient: rank "
+					+ decomposition.getRank() + " for " + decomposition.getNumColumns() + " columns");
+			covariateRank = decomposition.getRank();
+			covariateQ = decomposition.getQ().getArray();
+		} else {
+			alignment = QCovariateTable.alignDirectly(genotypeSource.metadata().sampleIds(),
+				expressionSource.metadata().sampleIds());
+		}
+
+		int numIndividuals = alignment.sampleCount();
+		int numSnps = (int) genotypeRowCount;
+		int numTraits = (int) expressionRowCount;
+		System.out.println("Sample alignment: genotype via " + alignment.genotypeIdColumn()
+			+ ", expression via " + alignment.expressionIdColumn());
+		System.out.println("Samples reordered: genotype=" + alignment.genotypeReorderedCount()
+			+ ", expression=" + alignment.expressionReorderedCount());
+		System.out.println("Number of SNPs = " + numSnps);
+		System.out.println("Number of e-traits = " + numTraits);
+		System.out.println("Number of aligned individuals = " + numIndividuals);
+
+		int globalBlockSize = configuredBlockSize;
+		if (globalBlockSize <= 0) {
+			globalBlockSize = getDefaultBlockSize(numIndividuals, numSnps, numTraits);
+			if (globalBlockSize <= 0)
+				throw new IllegalArgumentException("Cannot infer a positive block size; specify --block-size");
+			config.setBlockSize(globalBlockSize);
+			System.out.println("The block size was not specified; using " + globalBlockSize);
+		} else {
+			System.out.println("Block size = " + globalBlockSize);
+		}
+
+		int numRequiredIterations = (int) (ceil(numSnps * 1.0 / globalBlockSize)
+			* ceil(numTraits * 1.0 / globalBlockSize));
+		System.out.println("Given the block size, " + numRequiredIterations + " iteration(s) are needed");
+		int recommendedThreads = min(QSystemUtils.kNumCPUCores, min(numRequiredIterations, numDevices * 2));
+		if (config.getNumThreads() == 0) {
+			config.setNumThreads(recommendedThreads);
+			System.out.println("The thread count was not specified; using " + recommendedThreads);
+		}
+
+		int regressionDegreesOfFreedom = covariateRank + (isAdditive ? 1 : 2) - 1;
+		int errorDegreesOfFreedom = numIndividuals - regressionDegreesOfFreedom - 1;
+		if (errorDegreesOfFreedom - dfOffset <= 0)
+			throw new IllegalArgumentException("Non-positive residual degrees of freedom after df_offset");
+		System.out.println("Degrees of Freedom for Regression = " + regressionDegreesOfFreedom);
+		System.out.println("Degrees of Freedom for Errors = " + errorDegreesOfFreedom);
+		if (dfOffset != 0)
+			System.out.println("Degrees of Freedom for Offset = " + dfOffset);
+		if (config.getValidateOnly()) {
+			System.out.println("Validation completed successfully; --validate-only requested, so no analysis was run.");
+			return;
+		}
+
+		double rSquaredThreshold = thresholdType.equals("none") ? 0.0 : threshold;
+		if (thresholdType.equals("pval")) {
+			double tValue = T.quantile(threshold / 2.0, errorDegreesOfFreedom - dfOffset, false, false);
+			tValue *= tValue;
+			rSquaredThreshold = tValue / (errorDegreesOfFreedom + tValue);
+			System.out.println("P-value of " + threshold + " corresponds to R^2 of " + rSquaredThreshold);
+		}
+
+		long start = System.currentTimeMillis();
+		boolean stream = config.getGenotypeBlockRows() > 0 || config.getExpressionBlockRows() > 0;
+		if (stream) {
+			int genotypeRows = config.getGenotypeBlockRows() > 0 ? config.getGenotypeBlockRows() : globalBlockSize;
+			int expressionRows = config.getExpressionBlockRows() > 0 ? config.getExpressionBlockRows() : globalBlockSize;
+			genotypeRows = roundUpNearestMultiple(genotypeRows, 16);
+			expressionRows = roundUpNearestMultiple(expressionRows, 16);
+			if (genotypeRows > globalBlockSize || expressionRows > globalBlockSize)
+				throw new IllegalArgumentException("Streamed row blocks must not exceed block_size ("
+					+ globalBlockSize + ")");
+			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
+				+ " rows, expression blocks=" + expressionRows + " rows");
+			System.out.println("Expression CSV is reread once per genotype block; uncompressed local storage is recommended.");
+			plugin.eSNPAnalysisStreamed(genotypeSource, alignment.genotypeColumnOrder(), expressionSource,
+				alignment.expressionColumnOrder(), covariateQ, rSquaredThreshold, dfOffset,
+				errorDegreesOfFreedom, genotypeRows, expressionRows);
+		} else {
+			System.out.println("Loading aligned matrices into RAM (set --genotype-block-rows or --expression-block-rows to stream).");
+			QDelimitedMatrixSource.Block genotypeBlock;
+			QDelimitedMatrixSource.Block expressionBlock;
+			try (QDelimitedMatrixSource.BlockReader reader = genotypeSource.open(alignment.genotypeColumnOrder())) {
+				genotypeBlock = reader.readBlock(numSnps);
+			}
+			try (QDelimitedMatrixSource.BlockReader reader = expressionSource.open(alignment.expressionColumnOrder())) {
+				expressionBlock = reader.readBlock(numTraits);
+			}
+			validateFinite(genotypeBlock, "Genotype");
+			validateFinite(expressionBlock, "Expression");
+			QGeneticSNPData genotypeData = toGenotypeData(genotypeBlock);
+			String[] canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
+			QGeneExpressionData expressionData = new QGeneExpressionData(expressionBlock.values(),
+				expressionBlock.rowIds(), canonicalSampleIds);
+			plugin.eSNPAnalysis(genotypeData, expressionData, covariateQ, rSquaredThreshold,
+				dfOffset, errorDegreesOfFreedom, kLambda, isAdditive);
+		}
+		System.out.println("Total analysis time (in seconds) = " + (System.currentTimeMillis() - start) / 1000.0);
+	}
+
+	private static QGeneticSNPData toGenotypeData(QDelimitedMatrixSource.Block block)
+	{
+		QGeneticSNPData result = new QGeneticSNPData();
+		for (int row = 0; row < block.rowCount(); row++) {
+			QSNPDataReal snp = new QSNPDataReal();
+			snp.setID(block.rowIds()[row]);
+			snp.setSNPValues(block.values()[row]);
+			result.addSNP(snp);
+		}
+		return result;
+	}
+
+	private static void validateFinite(QDelimitedMatrixSource.Block block, String matrixName)
+	{
+		for (int row = 0; row < block.rowCount(); row++)
+			for (double value : block.values()[row])
+				if (value == gov.nih.utils.QDataUtils.kUndefinedValue || !Double.isFinite(value))
+					throw new IllegalArgumentException(matrixName + " row '" + block.rowIds()[row]
+						+ "' contains a missing or non-finite value");
+	}
+
+	private static String[] reorder(String[] values, int[] order)
+	{
+		String[] result = new String[order.length];
+		for (int i = 0; i < order.length; i++)
+			result[i] = values[order[i]];
+		return result;
+	}
 	public static void main(String[] args)
 	{
 		long timea = System.currentTimeMillis();
 		System.out.println("GPU eQTL analysis software version 2.0. By: Roby Joehanes");
-		if (args == null || args.length < 1)
+		if (args == null || args.length < 1) {
 			printUsage();
+			System.exit(kExitCodeErrorInvalidParam);
+		}
 
-		List<String> params = new ArrayList<String>();
-		for (int i = 0; i < args.length; i++)
-			params.add(args[i]);
-		if (params.contains("--printgpuinfo"))
+		QeQTLCommandLine.Result commandLine;
+		try {
+			commandLine = QeQTLCommandLine.parse(args);
+		} catch (Exception e) {
+			System.err.println("ERROR: " + e.getMessage());
+			printUsage();
+			System.exit(kExitCodeErrorInvalidParam);
+			return;
+		}
+		if (commandLine.help()) {
+			System.out.print(QeQTLCommandLine.usage());
+			return;
+		}
+		if (commandLine.gpuBackend() != null)
+			System.setProperty("eqtl.gpu.backend", commandLine.gpuBackend());
+		if (commandLine.printGpuInfo())
 			dumpGPUInfo();
-
-		if (params.contains("--debug"))
-			DEBUG = true;
+		DEBUG = commandLine.debug();
+		config = commandLine.config();
 
 		if (!EPlatform.is64Bit()) {
 			System.err.println("ERROR: Your operating system / platform seems to be 32-bit, not 64-bit.");
@@ -514,15 +759,15 @@ public class QeQTLAnalysis implements IJobOwner
 			System.exit(kExitCodeErrorPlatformNot64Bit);
 		}
 
-		try {
-			config = QeQTLAnalysisConfig.loadConfig(args[0]);
-		} catch (Exception e) {
-			System.err.println("ERROR: Failed to load the input configuration file!");
-			System.exit(kExitCodeErrorCantLoadFile);
+		int numDevices;
+		if (config.getValidateOnly()) {
+			numDevices = 1;
+			System.out.println("Validation-only mode: GPU initialization is skipped.");
+		} else {
+			System.out.println("Initializing GPUs...");
+			initGPUs();
+			numDevices = mContexts.length;
 		}
-		System.out.println("Initializing GPUs...");
-		initGPUs();
-		int numDevices = mContexts.length;
 		String
 			famFilename = config.getFamilyFilename(),
 			genoFilename = config.getGenotypeFilename(),
@@ -531,6 +776,7 @@ public class QeQTLAnalysis implements IJobOwner
 			pedigreeFilename = config.getPedigreeFilename(),
 			outputFilename = config.getOutputFilename(),
 			genoFileformat = config.getGenotypeFileFormat(),
+			exprFileformat = config.getExpressionFileFormat(),
 			genoModel = config.getGenotypeModel(),
 			thresholdType = config.getThresholdType(),
 			covarFixed[] = config.getFixedCovariates(),
@@ -608,6 +854,26 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Available memory (MB) = " + String.format("%5.2f", (availMem / kMB)));
 
 		QeQTLAnalysis plugin = new QeQTLAnalysis();
+		if (genoFileformat.equalsIgnoreCase("csv") && exprFileformat.equalsIgnoreCase("csv")
+			&& config.getGenotypeFileHeader()) {
+			try {
+				runCsvAnalysis(plugin, genoFilename, exprFilename, covarFilename, covarFixed,
+					covarFactor, thresholdType, t0, dfOffset, isAdditive, globalBlockSize, numDevices);
+			} catch (Exception e) {
+				e.printStackTrace();
+				System.exit(kExitCodeErrorAnalysisFailure);
+				return;
+			}
+			long timeb = System.currentTimeMillis();
+			System.out.println("Overall time (in seconds) = " + (timeb - timea) / 1000.0);
+			System.exit(kExitCodeNormal);
+			return;
+		}
+		if (config.getValidateOnly()) {
+			System.err.println("ERROR: --validate-only requires headered CSV genotype and expression matrices.");
+			System.exit(kExitCodeErrorInvalidParam);
+			return;
+		}
 		double[][] covarMatrix =  null;
 		int covarRank = 1; // At least we have the intercept
 		BitSet missing = null;

@@ -42,8 +42,11 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 ## Data and compatibility
 
-- The current run interface is a legacy INI file. Keep it working until the command-line replacement has compatibility tests and a documented deprecation path.
-- The current loaders materialize the genotype and expression matrices in RAM. New loaders should expose metadata separately from block iteration so validation can happen before computation.
+- The positional legacy INI interface remains supported. `QeQTLCommandLine` also supports `--config` plus overrides or an argument-only run; keep both paths covered by compatibility tests.
+- Headered CSV input goes through `QDelimitedMatrixSource`, which scans metadata and identifiers before exposing reordered row blocks. Blank/duplicate identifiers and mismatched field counts are fatal.
+- `QCovariateTable` may bridge different genotype/expression ID columns, automatically encodes text covariates with a deterministic reference level, and rejects rank-deficient models before computation.
+- `genotype_block_rows` or `expression_block_rows` enables bounded-RAM CSV analysis. The current scheduler rereads and reprocesses expression blocks once per genotype block; profile this before claiming an overall speed improvement. Plain, gzip, and bzip2 CSV streams are supported.
+- `--validate-only` performs the metadata, ID-alignment, covariate, rank, and degrees-of-freedom checks without association computation.
 - Preserve the repository's GNU GPL version 3 headers and original author attribution.
 - Avoid unrelated reformatting in legacy source files; mixed historical line endings can otherwise obscure reviews.
 

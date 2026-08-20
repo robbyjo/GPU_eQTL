@@ -1,0 +1,9 @@
+subject_id,genotype_id,expression_id,Age,Batch
+S1,G1,T1,20,A
+S2,G2,T2,22,A
+S3,G3,T3,25,B
+S4,G4,T4,27,B
+S5,G5,T5,30,A
+S6,G6,T6,33,B
+S7,G7,T7,36,A
+S8,G8,T8,40,B

@@ -23,6 +23,7 @@ import gov.nih.utils.QSystemUtils;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -35,7 +36,7 @@ public class QeQTLAnalysisConfig {
 	private Map<String, String> mIni = null;
 	
 	public QeQTLAnalysisConfig(Map<String, String> ini)
-	{	mIni = ini; }
+	{	mIni = new LinkedHashMap<String, String>(ini); }
 
 	private static final String expandPath(String filename, String path)
 	{
@@ -43,9 +44,23 @@ public class QeQTLAnalysisConfig {
 			return null;
 		File f = new File(filename);
 		if (!f.isAbsolute())
-			filename = path + filename;
+			filename = (path == null ? "" : path) + filename;
 		return filename;
 	}
+
+	public String get(String key)
+	{ return mIni.get(key); }
+
+	public void set(String key, String value)
+	{
+		if (value == null)
+			mIni.remove(key);
+		else
+			mIni.put(key, value);
+	}
+
+	public Map<String, String> asMap()
+	{ return new LinkedHashMap<String, String>(mIni); }
 
 	public String getIniPath()
 	{	return mIni.get("ini.path"); } //$NON-NLS-1$
@@ -80,6 +95,12 @@ public class QeQTLAnalysisConfig {
 		return s == null ? "tped" : s.toLowerCase(Locale.ENGLISH);  //$NON-NLS-1$
 	}
 
+	public String getExpressionFileFormat()
+	{
+		String s = mIni.get("expression_format");
+		return s == null ? "csv" : s.toLowerCase(Locale.ENGLISH);
+	}
+
 	public boolean getGenotypeFileHeader()
 	{
 		String s =  mIni.get("genotype_file_header");  //$NON-NLS-1$
@@ -96,6 +117,12 @@ public class QeQTLAnalysisConfig {
 	{
 		String s =  mIni.get("rsq_only");  //$NON-NLS-1$
 		return s == null ? false : Boolean.parseBoolean(s);
+	}
+
+	public boolean getValidateOnly()
+	{
+		String s = mIni.get("validate_only");
+		return s != null && Boolean.parseBoolean(s);
 	}
 
 	public String getGenotypeModel()
@@ -148,7 +175,7 @@ public class QeQTLAnalysisConfig {
 
 	public void setDFOffset(int df)
 	{
-		mIni.put("block_size", String.valueOf(df)); //$NON-NLS-1$
+		mIni.put("df_offset", String.valueOf(df)); //$NON-NLS-1$
 	}
 
 	public int getBlockSize()
@@ -175,6 +202,29 @@ public class QeQTLAnalysisConfig {
 	public void setNumThreads(int s)
 	{
 		mIni.put("num_threads", String.valueOf(s)); //$NON-NLS-1$
+	}
+
+	public int getGenotypeBlockRows()
+	{ return getNonNegativeInt("genotype_block_rows"); }
+
+	public int getExpressionBlockRows()
+	{ return getNonNegativeInt("expression_block_rows"); }
+
+	public String getGenotypeIdColumn()
+	{ return mIni.get("genotype_id_column"); }
+
+	public String getExpressionIdColumn()
+	{ return mIni.get("expression_id_column"); }
+
+	private int getNonNegativeInt(String key)
+	{
+		String value = mIni.get(key);
+		if (value == null)
+			return 0;
+		int parsed = Integer.parseInt(value);
+		if (parsed < 0)
+			throw new IllegalArgumentException(key + " must not be negative");
+		return parsed;
 	}
 
 	public static final QeQTLAnalysisConfig loadConfig(String iniFilename) throws IOException

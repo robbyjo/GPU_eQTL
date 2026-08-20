@@ -149,3 +149,48 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - The old combined repository still contains its unrelated corrupt `Analysis-Pipeline` cache entry. Use `D:\projects\NIH-Project` for future NIH-Project development rather than `D:\git\NIH-Project`.
 - The migration preserved `master`; there were no other branches or tags to migrate.
 - Next: open `D:\projects\NIH-Project` as the Codex/Eclipse workspace and continue the correctness-first roadmap with deterministic end-to-end fixtures and ID validation.
+
+## 2026-08-20T14:57:31.0343291-04:00 — ID-safe CSV analysis, categorical covariates, CLI, and bounded-RAM blocks
+
+### Baseline and goal
+
+- Baseline commit: `d5b2d49428ddb7dfc3507111f91a4eaa43438544` (`Document standalone repository migration`) in the canonical checkout at `D:\projects\NIH-Project`.
+- Goal: implement roadmap items 1–3—deterministic scientific fixtures and ID validation, automatic categorical-covariate encoding, and a full command-line interface—plus partial genotype/expression loading for CSV while preserving the legacy INI invocation and double-precision production results.
+- The supplied WHI files under `D:\Research\topmed\sqtl\sqtl-whi` were used read-only for schema and validation checks. No participant data, identifiers, or WHI-derived output was copied into the repository.
+
+### Decisions and changes
+
+- Added `QDelimitedMatrixSource`, a metadata-first, re-readable row-block source for headered plain/gzip/bzip2 delimited matrices. It validates field counts and rejects blank or duplicate sample and row identifiers before computation. Column permutations are applied while parsing each numeric block.
+- Added `QCovariateTable` and `QSampleAlignment`. Genotype and expression headers may use different ID namespaces; matching covariate columns are inferred only when their unique value sets exactly equal the matrix headers, or selected explicitly with `genotype_id_column` / `expression_id_column`. Missing, duplicate, unmatched, or ambiguous IDs are fatal. Covariate-row order is the canonical sample order and reordering counts are reported.
+- Replaced the headered-CSV covariate path with mixed-type parsing. Non-numeric selected covariates are automatically categorical, the lexicographically first level is the reference, and the remaining levels are one-hot encoded. `covariate_factor` / `--factor-covariates` forces numeric-looking categories. Interactions between encoded covariates are supported, missing values are fatal, and a rank-deficient design matrix stops before analysis.
+- Added `QeQTLCommandLine`. A positional INI file remains valid; `--config` permits command-line overrides; and argument-only runs default to CSV. Added file, covariate, ID bridge, threshold, model, block, thread, output, backend, debug, validation, and streamed-row options. `--gpu-backend auto|cuda|opencl` is applied before lazy GPU runtime creation. Fixed `QeQTLAnalysisConfig.setDFOffset`, which incorrectly wrote `block_size`.
+- Added `--validate-only`, which performs complete metadata/identifier scans, alignment, covariate encoding, rank checking, and degree-of-freedom calculation without initializing a GPU or writing analysis results.
+- Added `QeQTLPreprocessor`, `QeQTLStatistics`, and `QeQTLStreamedJobReal`. Supplying `genotype_block_rows` or `expression_block_rows` enables a bounded-RAM real-valued CSV path. Each block uses the same covariate residualization, sample standardization, FP64 kernel/cuBLAS operation, threshold, effect, t, p-value, and output identifier formulas as the full-memory path. Source block capacities are rounded to the 16-row GPU tile boundary, GPU contexts remain worker-exclusive, queued genotype blocks are bounded by worker count, and output failures terminate the analysis.
+- Added the synthetic `test/resources/eqtl-reference` fixture with intentionally permuted and differently named genotype/expression samples plus a text categorical covariate. Added tests for duplicate identifiers, exact bridging/permutations, automatic one-hot encoding, full rank, INI/CLI compatibility, and fixed reference identifiers, pair count, degrees of freedom, R-squared, effects, t statistics, and log10 p-values.
+- Updated `README.md` and `AGENTS.md` with the current CLI, validation rules, categorical behavior, compression support, bounded-RAM settings, compatibility path, and performance caveat.
+
+### Verification
+
+- `.\mvnw.cmd clean package` — successful Java 17 build of 94 production sources; 17 tests passed with 0 failures, errors, or skips; created `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar`.
+- The hardware integration tests exercised `eqtlReal` through auto, CUDA/cuBLAS, and JOCL/OpenCL; all production-kernel cells matched the CPU calculation within `1e-11`.
+- Argument-only full-memory fixture run: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --genotype test\resources\eqtl-reference\genotype.csv --expression test\resources\eqtl-reference\expression.csv --covariates test\resources\eqtl-reference\covariates.csv --fixed-covariates Age,Batch --genotype-id-column genotype_id --expression-id-column expression_id --output target\reference-full.csv --threshold none 0 --block-size 16 --threads 1` — successful; six association rows.
+- Bounded-RAM fixture run with the same arguments plus `--genotype-block-rows 16 --expression-block-rows 16` and output `target\reference-stream.csv` — successful. Full and streamed output files were byte-for-byte identical, SHA-256 `70FF175A10C5B006BD5458A6947EC8B6960A4D54A6BD239FAFAE8E809F9939AB`.
+- `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend cuda --printgpuinfo` — successful; the new application argument selected CUDA before discovery.
+- `java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar ... --validate-only` on the synthetic fixture — successful without GPU initialization and without creating the requested output.
+- `java --enable-native-access=ALL-UNNAMED -jar D:\projects\NIH-Project\target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --config sqtl-chr1a.ini --validate-only` from the WHI data directory — successful in 49.718 seconds. Reported 250,000 SNPs, 136,840 expression traits, and 2,005 aligned samples; inferred genotype `NWDID` and expression `TORID`; both matrices already had canonical covariate order; covariate rank was 28; regression/error/offset degrees of freedom were 28/1976/7.
+- Hardware: NVIDIA GeForce RTX 2080, driver 610.88, compute capability 7.5, CUDA driver API 13.3, CUDA Runtime 12.6, plus the same card's NVIDIA OpenCL FP64 path.
+- `git diff --check` — clean apart from Git's informational LF-to-CRLF warnings on existing Windows-oriented files.
+
+### Known limitations, compatibility, and next step
+
+- A positional headered-CSV INI run remains compatible but now performs a complete metadata/ID scan before loading or streaming. Headerless legacy genotype CSV and TPED continue through the old full-memory path and do not receive the new ID validation; `--validate-only` requires headered CSV matrices.
+- The bounded-RAM scheduler rereads and residualizes the expression CSV once per genotype block. This strictly bounds matrix RAM but can increase disk and CPU work substantially, especially for gzip/bzip2 input. It should be profiled on representative data before being selected solely for speed.
+- With multiple workers, result chunks retain the legacy scheduler's worker-interleaved ordering. The byte-identical full/stream verification used one worker; identifiers and statistics are invariant, but a deterministic global sort is not yet imposed.
+- Modern alignment currently covers genotype, expression, and covariate tables. Family/pedigree identifier validation remains in the legacy path. The categorical-SNP execution branch remains disabled; automatic categorical covariates do not repair that separate model.
+- The next recommended work is representative profiling of CSV scans, repeated expression reads/residualization, packing, GPU transfer/occupancy, and output writing. Based on those measurements, add an indexed reusable binary cache or indexed VCF/BCF genotype source before interactions or forward selection.
+
+### 2026-08-20T14:59:50.4033764-04:00 verification addendum
+
+- Added a final safety check requiring rounded streamed row capacities not to exceed `block_size`, preventing an oversized host/device result allocation.
+- `.\mvnw.cmd test` — successful after that check; 17 tests passed with 0 failures, errors, or skips, including all three available GPU integration backends.
+- `.\mvnw.cmd -q -DskipTests package` — successful; refreshed the shaded runnable jar with the final verified sources.
