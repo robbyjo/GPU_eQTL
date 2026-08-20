@@ -29,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import jdistlib.rng.RandomEngine;
+import net.sourceforge.jdistlib.rng.RandomEngine;
 import gov.nih.parallel.QSynchronizedCounter;
 import gov.nih.utils.QStringUtils;
 import gov.nih.utils.QSystemUtils;

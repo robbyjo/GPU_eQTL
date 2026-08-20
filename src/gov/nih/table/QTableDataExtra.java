@@ -21,8 +21,6 @@ import java.util.Iterator;
 
 import gov.nih.utils.QDataUtils;
 
-import static qplugin.QPluginConstants.sDefaultDataName;
-
 /**
  * The same as QTableData except it allows multiple row and column names
  * @author Roby Joehanes
@@ -30,6 +28,7 @@ import static qplugin.QPluginConstants.sDefaultDataName;
  */
 public class QTableDataExtra implements IViewableDataExtra
 {
+	private static final String sDefaultDataName = "UNKNOWN";
 	class QTableDataIterator implements IDataIterator<double[]>
 	{
 		protected int mIdx = 0;

@@ -19,26 +19,16 @@ package gov.nih.eqtl;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.nio.DoubleBuffer;
 import java.util.Arrays;
 import java.util.List;
 
-import jdistlib.T;
-
-import org.bridj.Pointer;
-
-import com.nativelibs4java.opencl.CLBuffer;
-import com.nativelibs4java.opencl.CLContext;
-import com.nativelibs4java.opencl.CLEvent;
-import com.nativelibs4java.opencl.CLKernel;
-import com.nativelibs4java.opencl.CLMem;
-import com.nativelibs4java.opencl.CLQueue;
+import net.sourceforge.jdistlib.T;
 
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.eqtl.datastructure.QGeneticSNPData;
 import gov.nih.eqtl.datastructure.QSNPData;
-import gov.nih.opencl.QOCLContext;
-import gov.nih.opencl.QOCLContextPool;
+import gov.nih.gpu.GpuContext;
+import gov.nih.gpu.GpuContextPool;
 import gov.nih.parallel.IGenericParallelJob;
 import gov.nih.parallel.IJobOwner;
 import gov.nih.parallel.QSynchronizedCounter;
@@ -49,7 +39,7 @@ import static java.lang.Math.log10;
 import static java.lang.Math.min;
 import static java.lang.Math.signum;
 import static java.lang.Math.sqrt;
-import static gov.nih.opencl.QOpenCL.kDefaultAlignment;
+import static gov.nih.gpu.GpuRuntime.DEFAULT_ALIGNMENT;
 import static gov.nih.utils.QStringUtils.sLn;
 
 public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
@@ -58,11 +48,9 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		logOf10 = log(10);
 	protected QGeneticSNPData popn;
 	protected QGeneExpressionData expDataTbl;
-	protected QOCLContextPool contextPool;
-	protected CLEvent gpuEvents;
+	protected GpuContextPool contextPool;
 	protected double expData[][], expSD[], snpSD[], flatETraits[], flatSNPs[], RSq0;
 	protected int numETraitsPerBlock, numETraits, numSNPsPerBlock, numSNPs, numInds, nrow, blockSize, snpCol;
-	protected CLBuffer<Double> bufferA = null, bufferB = null, bufferC = null;
 	protected int dfo, dfe, netdfe;
 	protected boolean isAdditive;
 	protected QSynchronizedCounter counter;
@@ -82,7 +70,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		return number;
 	}
 
-	public QeQTLSNPJobReal(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[] expSD, double[] snpSD, QOCLContextPool contextPool,
+	public QeQTLSNPJobReal(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[] expSD, double[] snpSD, GpuContextPool contextPool,
 		int numETraitsPerBlock, int numSNPsPerBlock, int blockSize,
 		int dfo, int dfe, double RSq0, boolean isAdditive, Writer fw, QSynchronizedCounter ct)
 	{
@@ -103,7 +91,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		numInds = popn.getNumIndividuals();
 		numETraits = expData.length;
 		snpCol = numSNPsPerBlock;
-		nrow = roundUpNearestMultiple(numInds, kDefaultAlignment);
+		nrow = roundUpNearestMultiple(numInds, DEFAULT_ALIGNMENT);
 		this.blockSize = blockSize;
 		flatETraits = new double[numETraitsPerBlock * nrow];
 		flatSNPs = new double[snpCol * nrow];
@@ -162,33 +150,23 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 				System.arraycopy(expData[curETraitOffset+k], 0, flatETraits, nrow * k, numInds);
 			//eTraitOffset[deviceNo] = i;
 			//snpOffset[deviceNo] = j;
-			QOCLContext oclContext = contextPool.reserveContext();
-			synchronized (oclContext) {
-				CLContext context = oclContext.getContext();
-				CLKernel kernel = oclContext.getKernel();
-				CLQueue queue = oclContext.getQueue();
-				bufferA = context.createDoubleBuffer(CLMem.Usage.Input, DoubleBuffer.wrap(flatETraits), true);
-				bufferB = context.createDoubleBuffer(CLMem.Usage.Input, DoubleBuffer.wrap(flatSNPs), true);
-				bufferC = context.createDoubleBuffer(CLMem.Usage.Output, nElems);
-				queue.finish();
-				kernel.setArg(0,  bufferC);
-				kernel.setArg(1,  bufferA);
-				kernel.setArg(2,  bufferB);
-				kernel.setLocalArg(3, (blockSize+1) * (4*blockSize) * sizeof_data);
-				kernel.setLocalArg(4, (blockSize+1) * (4*blockSize) * sizeof_data);
-				kernel.setArg(5, nrow);
-				kernel.setArg(6, snpCol);
-				gpuEvents = kernel.enqueueNDRange(queue, new int[] { snpCol, numETraitsPerBlock }, new int[] {blockSize, blockSize});
-				queue.flush();
-				queue.finish();
-				Pointer<Double> outBuffer = bufferC.read(queue, gpuEvents);
-				queue.finish();
-				xyResult = outBuffer.getDoubles();
-				bufferA.release();
-				bufferB.release();
-				bufferC.release();
+			GpuContext gpuContext = contextPool.reserveContext();
+			try {
+				long localMemoryBytes = (long) (blockSize + 1) * (4L * blockSize) * sizeof_data;
+				int activeSnpColumns = roundUpNearestMultiple(curNumSNPs, blockSize);
+				int activeETraits = roundUpNearestMultiple(curNumETraits, blockSize);
+				xyResult = gpuContext.executeDoubleKernel(
+					flatETraits,
+					flatSNPs,
+					(int) nElems,
+					localMemoryBytes,
+					nrow,
+					snpCol,
+					new long[] { activeSnpColumns, activeETraits },
+					new long[] { blockSize, blockSize });
+			} finally {
+				contextPool.releaseContext(gpuContext);
 			}
-			contextPool.releaseContext(oclContext);
 			//time2 = System.currentTimeMillis();
 			//System.out.println("GPU run time = " + (time2 - time1));
 

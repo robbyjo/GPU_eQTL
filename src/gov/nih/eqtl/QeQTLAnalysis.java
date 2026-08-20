@@ -29,22 +29,20 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import org.bridj.BridJ;
-
-import com.nativelibs4java.opencl.CLDevice;
-
-import jdistlib.T;
+import net.sourceforge.jdistlib.T;
 import gov.nih.eqtl.datastructure.QGeneticSNPData;
 import gov.nih.eqtl.datastructure.QSNPData;
 import gov.nih.eqtl.datastructure.QSNPDataInt;
 import gov.nih.eqtl.io.QPlinkLoader;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.jama.QRDecomposition;
-import gov.nih.opencl.QOCLContext;
-import gov.nih.opencl.QOCLContextPool;
-import gov.nih.opencl.QOpenCL;
+import gov.nih.gpu.GpuContext;
+import gov.nih.gpu.GpuContextPool;
+import gov.nih.gpu.GpuDevice;
+import gov.nih.gpu.GpuRuntime;
 import gov.nih.parallel.IGenericParallelJob;
 import gov.nih.parallel.IJobOwner;
 import gov.nih.parallel.QSynchronizedCounter;
@@ -87,10 +85,12 @@ public class QeQTLAnalysis implements IJobOwner
 		kExitCodeErrorNumIndGenoCovarNotMatch = -9,
 		kExitCodeErrorNumIndGenoExprNotMatch = -10,
 		kExitCodeErrorCovarMissingValues = -11,
-		kExitCodeErrorGenoMissingValues = -12;
+		kExitCodeErrorGenoMissingValues = -12,
+		kExitCodeErrorAnalysisFailure = -13;
 
 	// Global variables
-	static QOCLContext[] mContexts = null;
+	static final GpuRuntime GPU_RUNTIME = GpuRuntime.createDefault();
+	static GpuContext[] mContexts = null;
 	static long mMinAllocMemSize = 0;
 	static QeQTLAnalysisConfig config = null;
 
@@ -209,7 +209,9 @@ public class QeQTLAnalysis implements IJobOwner
 		String
 			program,
 			kernelName,
-			hdr = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn;
+			hdr = "#define BLOCK_SIZE " + localBlockSize + sLn + "#define DATATYPE double" + sLn
+				+ "#if defined(cl_khr_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + sLn
+				+ "#elif defined(cl_amd_fp64)" + sLn + "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + sLn + "#endif" + sLn;
 
 		if (isCategoricalSNP) {
 			program = eqtlCat;
@@ -221,27 +223,18 @@ public class QeQTLAnalysis implements IJobOwner
 			hdr += "#define N_MIN_1 " + (numInds - 1) + sLn;
 		}
 
-		QOCLContextPool gpuContextsPool = new QOCLContextPool(mContexts);
-		List<QOCLContext> gpuContexts = gpuContextsPool.getAllContexts();
+		GpuContextPool gpuContextsPool = new GpuContextPool(mContexts);
+		List<GpuContext> gpuContexts = gpuContextsPool.getAllContexts();
 		int numDevices = gpuContexts.size();
-		for (int i = 0; i < numDevices; i++)
-		{
-			try {
-				QOCLContext ctx = gpuContexts.get(i);
-				String
-					dblExt = ctx.getDoubleExtensionHeader(),
-					temp = hdr;
-				if (dblExt != null) {
-					temp += "#pragma OPENCL EXTENSION " + dblExt + //$NON-NLS-1$
-						": enable" + sLn; //$NON-NLS-1$
-				} else {
-					// Should never happen
-					throw new RuntimeException("ERROR: GPU not capable of double precision!");
-				}
-				ctx.setKernelFromProgram(temp + program, kernelName);
-			} catch (Exception e) {
-				e.printStackTrace();
+		try {
+			for (int i = 0; i < numDevices; i++)
+			{
+				GpuContext ctx = gpuContexts.get(i);
+				ctx.compileKernel(hdr + program, kernelName);
 			}
+		} catch (RuntimeException e) {
+			gpuContextsPool.close();
+			throw e;
 		}
 		time2 = System.currentTimeMillis();
 		System.out.println("Kernel compile time = " + (time2 - time1));
@@ -290,31 +283,41 @@ public class QeQTLAnalysis implements IJobOwner
 			}
 			fw.write(sLn);
 		} catch (Exception e) {
-			e.printStackTrace();
-		} finally {
+			threadPool.shutdownNow();
+			gpuContextsPool.close();
+			throw new RuntimeException("Cannot open the analysis output file", e);
 		}
 
 		try {
 			int numIters = (int) ceil(numSNPs * 1.0 / numESNPsPerBlock);
 			QSynchronizedCounter counter = new QSynchronizedCounter(0, numIters);
+			List<Future<?>> jobs = new ArrayList<Future<?>>(numThreads);
 			if (isCategoricalSNP) {
 				//for (int i = 0; i < numThreads; i++)
-				//threadPool.execute(new QeQTLSNPJobCat(popn, expData, covarQ, gpuContextsPool, results,
-				//	numETraitsPerBlock, numESNPsPerBlock, localBlockSize, rsq0, isAdditive, counter);
+				//jobs.add(threadPool.submit(new QeQTLSNPJobCat(popn, expData, covarQ, gpuContextsPool, results,
+				//	numETraitsPerBlock, numESNPsPerBlock, localBlockSize, rsq0, isAdditive, counter)));
 			} else {
 				for (int i = 0; i < numThreads; i++)
-					threadPool.execute(new QeQTLSNPJobReal(popn, expDataTbl, expDataSD, snpDataSD, gpuContextsPool,
-						numETraitsPerBlock, numESNPsPerBlock, localBlockSize, dfo, dfe, rsq0, isAdditive, fw, counter));
+					jobs.add(threadPool.submit(new QeQTLSNPJobReal(popn, expDataTbl, expDataSD, snpDataSD, gpuContextsPool,
+						numETraitsPerBlock, numESNPsPerBlock, localBlockSize, dfo, dfe, rsq0, isAdditive, fw, counter)));
 			}
 			threadPool.shutdown();
-			try {
-				threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
-			} catch (InterruptedException exx) {}
+			for (Future<?> job : jobs) {
+				job.get();
+			}
+			if (!threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS)) {
+				throw new RuntimeException("Timed out while waiting for eQTL workers");
+			}
 			fw.flush();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			threadPool.shutdownNow();
+			throw new RuntimeException("Interrupted while waiting for eQTL workers", e);
 		} catch (Exception e) {
-			e.printStackTrace();
+			threadPool.shutdownNow();
+			throw new RuntimeException("eQTL worker failed", e);
 		} finally {
-			gpuContextsPool.dispose();
+			gpuContextsPool.close();
 			if (fw != null)
 				try {
 					fw.close();
@@ -376,98 +379,72 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static final void initGPUs()
 	{
-		if (EPlatform.isLinux())
-		{
-			String[] paths = config.getLibraryPaths();
-			if (paths == null) {
-				BridJ.addLibraryPath("/usr/lib64");
-				BridJ.addLibraryPath("/usr/lib64/nvidia");
-			} else {
-				for (String path: paths)
-					BridJ.addLibraryPath(path);
-			}
-			int numNVidiaDevices = QOpenCL.getNumNVidiaDevicesInLinux();
-			if (numNVidiaDevices > 0) {
-				if (QOpenCL.checkNVidiaDevicePermissionInLinux())
-					System.out.println("Device permission appears to be okay.");
-				else {
-					System.out.println("WARNING: The device permission appears to be not okay. Most likely error will result soon.");
-					System.out.println("All NVidia devices (/dev/nvidia*) must be globally read-writable.");
-				}
-			}
-		}
-		System.out.println("Detected OpenCL library: " + QOpenCL.getDetectedOpenCLLib());
+		System.out.println("GPU backend: " + GPU_RUNTIME.getBackend().getName());
+		System.out.println("GPU runtime: " + GPU_RUNTIME.getBackend().getRuntimeDescription());
+		List<GpuDevice> devices;
 		try {
-			QOpenCL.init();
+			devices = GPU_RUNTIME.getGpuDevices(true, true);
 		} catch (Throwable e) {
-			System.err.println("Cannot initialize OpenCL library. Please contact your system administrator.");
+			System.err.println("Cannot initialize the GPU backend: " + e.getMessage());
 			System.exit(kExitCodeErrorInitOpenCLFailure);
+			return;
 		}
-		CLDevice[] devices = QOpenCL.getAllGPUDevices(true, true);
-		int numDevices = devices == null ? 0 : devices.length;
+		int numDevices = devices.size();
 		if (numDevices == 0) {
-			System.err.println("Cannot find any GPUs capable of 64-bit floating point arithmetic.");
-			devices = QOpenCL.getAllGPUDevices(true, false);
-			numDevices = devices == null ? 0 : devices.length;
-			if (numDevices > 0) {
-				System.err.println(numDevices + " GPU" + (numDevices > 1 ? "s": "") + " installed in this machine "
-					+ (numDevices > 1 ? "are": "is") + " only capable of 32-bit floating point arithmetic:");
-				for (CLDevice device: devices)
-					System.err.println(device.getName());
-				System.err.println("For NVidia cards, you will need cards with Compute Capability version 2.0 or higher:");
-				System.err.println("https://developer.nvidia.com/cuda-gpus");
-				System.err.println("For ATI/AMD cards, the availability of double-precision capabilities may VARY by operating system." +
-				" For example Radeon HD 4850 is capable of double-precision in Windows, but not in Mac.");
-				System.err.println("Contact your system administrators.");
+			System.err.println("Cannot find an available GPU with a compiler and double-precision support.");
+			List<GpuDevice> allGpuDevices = GPU_RUNTIME.getGpuDevices(true, false);
+			if (!allGpuDevices.isEmpty()) {
+				System.err.println("The following GPUs were detected but do not report double-precision support:");
+				for (GpuDevice device : allGpuDevices) {
+					System.err.println("  " + device.getName() + " (" + device.getComputeApiVersion() + ")");
+				}
+			} else {
+				System.err.println("No GPU was reported by the system OpenCL ICD drivers.");
 			}
 			System.exit(kExitCodeError64bitGPUNotFound);
+			return;
 		}
 		System.out.println("Found " + numDevices + " suitable GPU" + (numDevices > 1 ? "s": "") + " in this machine:");
 		boolean hasHostUnifiedMemory = false;
-		for (CLDevice device: devices) {
-			System.out.println(device.getName());
-			hasHostUnifiedMemory = hasHostUnifiedMemory | device.isHostUnifiedMemory();
+		for (GpuDevice device : devices) {
+			System.out.println(device.getName() + " [" + device.getVendor() + ", " + device.getComputeApiVersion() + "]");
+			hasHostUnifiedMemory = hasHostUnifiedMemory | device.hasUnifiedMemory();
 		}
 		if (hasHostUnifiedMemory) {
-			System.err.println("WARNING: Some of the GPUs have a unified memory access with host."+
-				" This is often the case with the low-end GPUs. Such memory architecture will significantly reduce the performance of the computation" +
-				" due to extensive memory bus transfer bottleneck.");
+			System.err.println("NOTE: At least one GPU reports unified host memory. Performance depends on the device and driver; this is not necessarily an error.");
 		}
-		mContexts = QOpenCL.getAllGPUContexts(true, true);
-		assert(numDevices == mContexts.length); // Sanity check. If not, something is seriously wrong
-		// Detect whether all the detected GPUs are equivalent
-		// Note: Only the device name is checked.
+		mContexts = new GpuContext[numDevices];
+		try {
+			for (int i = 0; i < numDevices; i++) {
+				mContexts[i] = devices.get(i).openContext();
+			}
+		} catch (RuntimeException e) {
+			for (GpuContext context : mContexts) {
+				if (context != null) context.close();
+			}
+			throw e;
+		}
 		String devName = null;
 		boolean allDevicesTheSame = true;
-		for (QOCLContext context: mContexts) {
-			CLDevice dev = context.getDevice();
+		for (GpuContext context : mContexts) {
+			GpuDevice dev = context.getDevice();
 			if (devName == null) {
 				devName = dev.getName();
-			} else {
-				if (!devName.equalsIgnoreCase(dev.getName())) {
-					allDevicesTheSame = false;
-					break;
-				}
+			} else if (!devName.equalsIgnoreCase(dev.getName())) {
+				allDevicesTheSame = false;
 			}
 			if (mMinAllocMemSize == 0)
-				mMinAllocMemSize = dev.getMaxMemAllocSize();
+				mMinAllocMemSize = dev.getMaxAllocationBytes();
 			else
-				mMinAllocMemSize = min(mMinAllocMemSize, dev.getMaxMemAllocSize());
+				mMinAllocMemSize = min(mMinAllocMemSize, dev.getMaxAllocationBytes());
 		}
 		if (!allDevicesTheSame) {
-			System.err.println("WARNING: These GPUs may not be identical in their features and capabilities."+
-				" Most likely, the performance will be constrained by the weakest GPU.");
+			System.err.println("WARNING: The detected GPUs are not identical. Performance may be constrained by the weakest GPU.");
 		} else {
 			System.out.println("All the detected GPUs appear to be identical.");
 		}
 		if (mMinAllocMemSize <= 0 && config.getBlockSize() <= 0) {
-			System.err.println("WARNING: The GPU(s) do not report their RAM sizes correctly." +
-				" This program will attempt to use a conservative setting that may or may not work." +
-				" You may want to manually specify block_size entry in your input.");
-			System.err.println("A good rule of thumb for specifying block_size is b = -p + 0.5*sqrt(p*p + c/2), " +
-				"where p is the number of individuals rounded up to a multiple of 16 " +
-				"and c is the amount of memory that can be allocated, and round b down to a multiple of 512.");
-			System.err.println("At the moment, the detected c is " + mMinAllocMemSize);
+			System.err.println("WARNING: The GPU(s) do not report their maximum allocation sizes correctly. Specify block_size if automatic sizing fails.");
 		}
 	}
 
@@ -481,16 +458,16 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static final void dumpGPUInfo()
 	{
-		System.out.println(QOpenCL.dumpAllPlatformInformation(false, true));
+		System.out.println(GPU_RUNTIME.describeGpuDevices());
 		System.exit(kExitCodeNormal);
 	}
 
 	static final int getDefaultBlockSize(int numInds, int numSNPs, int numETraits)
 	{
 		int
-			n = roundUpNearestMultiple(numInds, QOpenCL.kDefaultAlignment),
-			n_snps = roundUpNearestMultiple(numSNPs, QOpenCL.kDefaultAlignment),
-			n_etraits = roundUpNearestMultiple(numETraits, QOpenCL.kDefaultAlignment);
+			n = roundUpNearestMultiple(numInds, GpuRuntime.DEFAULT_ALIGNMENT),
+			n_snps = roundUpNearestMultiple(numSNPs, GpuRuntime.DEFAULT_ALIGNMENT),
+			n_etraits = roundUpNearestMultiple(numETraits, GpuRuntime.DEFAULT_ALIGNMENT);
 		n = roundDownNearestMultiple((int) (sqrt(n * n + mMinAllocMemSize / 2.0) - n), 512);
 		return min(n, min(n_snps, n_etraits));
 	}
@@ -516,7 +493,7 @@ public class QeQTLAnalysis implements IJobOwner
 	public static void main(String[] args)
 	{
 		long timea = System.currentTimeMillis();
-		System.out.println("GPU eQTL analysis software version 1.0. By: Roby Joehanes");
+		System.out.println("GPU eQTL analysis software version 2.0. By: Roby Joehanes");
 		if (args == null || args.length < 1)
 			printUsage();
 
@@ -774,6 +751,8 @@ public class QeQTLAnalysis implements IJobOwner
 		catch (Exception e)
 		{
 			e.printStackTrace();
+			System.exit(kExitCodeErrorAnalysisFailure);
+			return;
 		}
 		long timeb = System.currentTimeMillis();
 		System.out.println("Overall time (in seconds) = " + (timeb - timea) / 1000.0);

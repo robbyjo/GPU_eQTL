@@ -1,14 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry kind="src" path="src"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-	<classpathentry kind="lib" path="lib/commons-compress-1.3.jar"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/QGeneric"/>
+	<classpathentry excluding="gov/nih/exon/**" kind="src" path="src">
+		<attributes>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" output="target/test-classes" path="test">
+		<attributes>
+			<attribute name="test" value="true"/>
+			<attribute name="optional" value="true"/>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17">
+		<attributes>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="con" path="org.eclipse.m2e.MAVEN2_CLASSPATH_CONTAINER">
+		<attributes>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
 	<classpathentry kind="lib" path="lib/javacsv.jar" sourcepath="lib/javacsv-src.zip"/>
-	<classpathentry kind="lib" path="lib/wildcard-1.03.jar"/>
-	<classpathentry kind="lib" path="lib/javacl-1.0.0-RC1-shaded.jar"/>
-	<classpathentry kind="lib" path="lib/jgrapht.jar"/>
-	<classpathentry kind="lib" path="lib/jdistlib-0.3.6b-bin.jar"/>
-	<classpathentry kind="lib" path="lib/JTransforms-3.0.jar"/>
-	<classpathentry kind="output" path="bin"/>
+	<classpathentry kind="output" path="target/classes"/>
 </classpath>

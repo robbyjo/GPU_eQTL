@@ -31,13 +31,13 @@ import java.util.concurrent.TimeUnit;
 
 import com.csvreader.CsvReader;
 
-import jdistlib.F;
-import jdistlib.Normal;
-import jdistlib.math.density.Density;
-import jdistlib.math.spline.SmoothSpline;
-import jdistlib.math.spline.SmoothSplineResult;
-import jdistlib.rng.MersenneTwister;
-import jdistlib.util.Utilities;
+import net.sourceforge.jdistlib.F;
+import net.sourceforge.jdistlib.Normal;
+import net.sourceforge.jdistlib.math.density.Density;
+import net.sourceforge.jdistlib.math.spline.SmoothSpline;
+import net.sourceforge.jdistlib.math.spline.SmoothSplineResult;
+import net.sourceforge.jdistlib.rng.MersenneTwister;
+import net.sourceforge.jdistlib.util.Utilities;
 import static java.lang.Math.*;
 
 /**
