@@ -23,7 +23,8 @@ class QeQTLCommandLineTest {
             "--fixed-covariates", "Age,Batch", "--gpu-backend", "cuda", "--precision", "fp32",
             "--cache-dir", directory.resolve("cache").toString(),
             "--checkpoint-dir", directory.resolve("checkpoint").toString(),
-            "--rebuild-cache", "--resume", "--keep-checkpoints" });
+            "--profile-output", directory.resolve("profile.csv").toString(),
+            "--rebuild-cache", "--resume", "--keep-checkpoints", "--profile" });
         assertEquals(7, result.config().getNumThreads());
         assertEquals(64, result.config().getGenotypeBlockRows());
         assertArrayEquals(new String[] { "Age", "Batch" }, result.config().getFixedCovariates());
@@ -35,6 +36,8 @@ class QeQTLCommandLineTest {
         assertTrue(result.config().getRebuildCache());
         assertTrue(result.config().getResume());
         assertTrue(result.config().getKeepCheckpoints());
+        assertTrue(result.config().getProfile());
+        assertTrue(result.config().getProfileOutputFilename().startsWith(directory.toString()));
     }
 
     @Test

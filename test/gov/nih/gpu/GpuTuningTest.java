@@ -19,14 +19,20 @@ class GpuTuningTest {
             2005, 250000, 136840, GpuPrecision.FP32).blockSize());
         assertEquals(8192, GpuTuning.recommendBlockSize(List.of(large, smallAllocation),
             2005, 250000, 136840, GpuPrecision.FP64).blockSize());
+        assertEquals(1024, GpuTuning.recommendBlockSize(List.of(large),
+            2005, 4096, 8192, GpuPrecision.FP64).blockSize());
     }
 
     @Test
     void threadRecommendationUsesAllGpusWithoutUsingEveryCpuCore() {
-        assertEquals(2, GpuTuning.recommendThreadCount(32, 2, 100, true));
+        assertEquals(8, GpuTuning.recommendThreadCount(32, 2, 100, true));
         assertEquals(4, GpuTuning.recommendThreadCount(32, 2, 100, false));
         assertEquals(1, GpuTuning.recommendThreadCount(32, 4, 1, false));
         assertEquals(3, GpuTuning.recommendThreadCount(4, 4, 100, false));
+        assertEquals(2, GpuTuning.recommendThreadCount(32, 2, 100, true,
+            2L << 30, 600L << 20));
+        assertEquals(4, GpuTuning.recommendThreadCount(32, 1, 100, true,
+            16L << 30, GpuTuning.estimateStreamedWorkerBytes(2005, 1024, 1024, GpuPrecision.FP64)));
     }
 
     private static final class FakeDevice implements GpuDevice {

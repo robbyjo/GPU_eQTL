@@ -17,6 +17,14 @@ package gov.nih.gpu;
 public interface GpuContext extends AutoCloseable {
 	GpuDevice getDevice();
 
+	/** Enable synchronization and phase timing for subsequent calls. */
+	default void setProfilingEnabled(boolean enabled) { }
+
+	/** Metrics from the most recent call while this exclusive context was reserved. */
+	default GpuExecutionMetrics getLastExecutionMetrics() {
+		return GpuExecutionMetrics.EMPTY;
+	}
+
 	void compileKernel(String source, String kernelName);
 
 	default void compileKernel(String source, String kernelName, GpuPrecision precision) {

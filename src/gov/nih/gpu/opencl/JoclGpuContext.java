@@ -9,6 +9,7 @@ package gov.nih.gpu.opencl;
 
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
+import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuException;
 import gov.nih.gpu.GpuPrecision;
 
@@ -64,6 +65,8 @@ final class JoclGpuContext implements GpuContext {
 	private long inputBCapacity;
 	private long outputCapacity;
 	private GpuPrecision precision = GpuPrecision.FP64;
+	private boolean profilingEnabled;
+	private GpuExecutionMetrics lastExecutionMetrics = GpuExecutionMetrics.EMPTY;
 	private boolean closed;
 
 	JoclGpuContext(JoclGpuDevice device) {
@@ -84,6 +87,17 @@ final class JoclGpuContext implements GpuContext {
 	@Override
 	public GpuDevice getDevice() {
 		return device;
+	}
+
+	@Override
+	public synchronized void setProfilingEnabled(boolean enabled) {
+		profilingEnabled = enabled;
+		lastExecutionMetrics = GpuExecutionMetrics.EMPTY;
+	}
+
+	@Override
+	public synchronized GpuExecutionMetrics getLastExecutionMetrics() {
+		return lastExecutionMetrics;
 	}
 
 	@Override
@@ -146,18 +160,24 @@ final class JoclGpuContext implements GpuContext {
 		long inputABytes = Math.multiplyExact((long) inputA.length, Sizeof.cl_double);
 		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.cl_double);
 		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.cl_double);
+		long phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		inputABuffer = ensureBuffer(inputABuffer, inputABytes, inputACapacity, CL_MEM_READ_ONLY);
 		inputACapacity = Math.max(inputACapacity, inputABytes);
 		inputBBuffer = ensureBuffer(inputBBuffer, inputBBytes, inputBCapacity, CL_MEM_READ_ONLY);
 		inputBCapacity = Math.max(inputBCapacity, inputBBytes);
 		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_WRITE_ONLY);
 		outputCapacity = Math.max(outputCapacity, outputBytes);
+		double[] output = new double[outputElements];
+		long setupNanos = elapsed(phaseStart);
 
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputABuffer, CL_TRUE, 0, inputABytes,
 			Pointer.to(inputA), 0, null, null), "clEnqueueWriteBuffer(inputA)");
 		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputBBuffer, CL_TRUE, 0, inputBBytes,
 			Pointer.to(inputB), 0, null, null), "clEnqueueWriteBuffer(inputB)");
+		long uploadNanos = elapsed(phaseStart);
 
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clSetKernelArg(kernel, 0, Sizeof.cl_mem, Pointer.to(outputBuffer)), "clSetKernelArg(0)");
 		JoclGpuBackend.check(clSetKernelArg(kernel, 1, Sizeof.cl_mem, Pointer.to(inputABuffer)), "clSetKernelArg(1)");
 		JoclGpuBackend.check(clSetKernelArg(kernel, 2, Sizeof.cl_mem, Pointer.to(inputBBuffer)), "clSetKernelArg(2)");
@@ -168,10 +188,16 @@ final class JoclGpuContext implements GpuContext {
 		JoclGpuBackend.check(clEnqueueNDRangeKernel(queue, kernel, 2, null, globalWorkSize, localWorkSize,
 			0, null, null), "clEnqueueNDRangeKernel");
 		JoclGpuBackend.check(clFinish(queue), "clFinish");
+		long computeNanos = elapsed(phaseStart);
 
-		double[] output = new double[outputElements];
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clEnqueueReadBuffer(queue, outputBuffer, CL_TRUE, 0, outputBytes,
 			Pointer.to(output), 0, null, null), "clEnqueueReadBuffer");
+		long downloadNanos = elapsed(phaseStart);
+		lastExecutionMetrics = profilingEnabled
+			? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+				inputABytes + inputBBytes, outputBytes)
+			: GpuExecutionMetrics.EMPTY;
 		return output;
 	}
 
@@ -200,18 +226,24 @@ final class JoclGpuContext implements GpuContext {
 		long inputABytes = Math.multiplyExact((long) inputA.length, Sizeof.cl_float);
 		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.cl_float);
 		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.cl_float);
+		long phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		inputABuffer = ensureBuffer(inputABuffer, inputABytes, inputACapacity, CL_MEM_READ_ONLY);
 		inputACapacity = Math.max(inputACapacity, inputABytes);
 		inputBBuffer = ensureBuffer(inputBBuffer, inputBBytes, inputBCapacity, CL_MEM_READ_ONLY);
 		inputBCapacity = Math.max(inputBCapacity, inputBBytes);
 		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_WRITE_ONLY);
 		outputCapacity = Math.max(outputCapacity, outputBytes);
+		float[] output = new float[outputElements];
+		long setupNanos = elapsed(phaseStart);
 
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputABuffer, CL_TRUE, 0, inputABytes,
 			Pointer.to(inputA), 0, null, null), "clEnqueueWriteBuffer(inputA)");
 		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputBBuffer, CL_TRUE, 0, inputBBytes,
 			Pointer.to(inputB), 0, null, null), "clEnqueueWriteBuffer(inputB)");
+		long uploadNanos = elapsed(phaseStart);
 
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clSetKernelArg(kernel, 0, Sizeof.cl_mem, Pointer.to(outputBuffer)), "clSetKernelArg(0)");
 		JoclGpuBackend.check(clSetKernelArg(kernel, 1, Sizeof.cl_mem, Pointer.to(inputABuffer)), "clSetKernelArg(1)");
 		JoclGpuBackend.check(clSetKernelArg(kernel, 2, Sizeof.cl_mem, Pointer.to(inputBBuffer)), "clSetKernelArg(2)");
@@ -222,11 +254,21 @@ final class JoclGpuContext implements GpuContext {
 		JoclGpuBackend.check(clEnqueueNDRangeKernel(queue, kernel, 2, null, globalWorkSize, localWorkSize,
 			0, null, null), "clEnqueueNDRangeKernel");
 		JoclGpuBackend.check(clFinish(queue), "clFinish");
+		long computeNanos = elapsed(phaseStart);
 
-		float[] output = new float[outputElements];
+		phaseStart = profilingEnabled ? System.nanoTime() : 0;
 		JoclGpuBackend.check(clEnqueueReadBuffer(queue, outputBuffer, CL_TRUE, 0, outputBytes,
 			Pointer.to(output), 0, null, null), "clEnqueueReadBuffer");
+		long downloadNanos = elapsed(phaseStart);
+		lastExecutionMetrics = profilingEnabled
+			? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+				inputABytes + inputBBytes, outputBytes)
+			: GpuExecutionMetrics.EMPTY;
 		return output;
+	}
+
+	private long elapsed(long startedAtNanos) {
+		return profilingEnabled ? System.nanoTime() - startedAtNanos : 0;
 	}
 
 	private cl_mem ensureBuffer(cl_mem current, long requiredBytes, long currentCapacity, long flags) {

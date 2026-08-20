@@ -50,11 +50,12 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--expression-block-rows", "expression_block_rows");
         VALUE_OPTIONS.put("--cache-dir", "cache_dir");
         VALUE_OPTIONS.put("--checkpoint-dir", "checkpoint_dir");
+        VALUE_OPTIONS.put("--profile-output", "profile_output");
     }
 
     private static final List<String> PATH_OPTIONS = List.of(
         "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
-        "cache_dir", "checkpoint_dir");
+        "cache_dir", "checkpoint_dir", "profile_output");
 
     private QeQTLCommandLine() { }
 
@@ -140,6 +141,8 @@ public final class QeQTLCommandLine {
                 config.set("resume", "true");
             } else if ("--keep-checkpoints".equals(argument)) {
                 config.set("keep_checkpoints", "true");
+            } else if ("--profile".equals(argument)) {
+                config.set("profile", "true");
             } else if ("--no-genotype-header".equals(argument)) {
                 config.set("genotype_file_header", "false");
             } else if ("--debug".equals(argument)) {
@@ -181,6 +184,7 @@ public final class QeQTLCommandLine {
               --expression-block-rows N        Enable bounded-RAM CSV analysis
               --cache-dir DIR  --rebuild-cache
               --checkpoint-dir DIR  --resume  --keep-checkpoints
+              --profile  --profile-output FILE  Phase timing summary and CSV
               --gpu-backend {auto|cuda|opencl}
               --simplify-output  --rsq-only  --validate-only  --debug
               --printgpuinfo  --help

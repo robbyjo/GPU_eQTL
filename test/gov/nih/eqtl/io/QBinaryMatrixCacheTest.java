@@ -5,7 +5,10 @@ import static gov.nih.utils.QStringUtils.cCommonDelimiter;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -75,5 +78,19 @@ class QBinaryMatrixCacheTest {
         changedQ[0][0] = Math.nextUp(changedQ[0][0]);
         assertNotEquals(signature, QBinaryMatrixCache.signature("Genotype", genotype,
             alignment.genotypeColumnOrder(), changedQ));
+
+        try (RandomAccessFile mutable = new RandomAccessFile(cachePath.toFile(), "rw")) {
+            mutable.seek(20); // Stable v1 header position of the index offset.
+            long indexOffset = mutable.readLong();
+            mutable.seek(indexOffset + Integer.BYTES + Long.BYTES);
+            long firstRowOffset = mutable.readLong();
+            mutable.seek(firstRowOffset + Integer.BYTES);
+            int firstIdentifierByte = mutable.readUnsignedByte();
+            mutable.seek(firstRowOffset + Integer.BYTES);
+            mutable.writeByte(firstIdentifierByte ^ 1);
+        }
+        try (QBinaryMatrixCache corrupt = QBinaryMatrixCache.open(cachePath, "Genotype", signature)) {
+            assertThrows(IOException.class, () -> corrupt.readBlock(0, 1));
+        }
     }
 }

@@ -14,12 +14,12 @@ import static gov.nih.utils.QStringUtils.sLn;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.util.Arrays;
 
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
+import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuPrecision;
 
 /** One bounded-RAM genotype block, paired with sequential expression blocks. */
@@ -38,12 +38,13 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final int degreesOfFreedomOffset;
     private final double rSquaredThreshold;
     private final GpuPrecision precision;
+    private final QeQTLProfiler profiler;
 
     QeQTLStreamedJobReal(PreparedBlock genotype, QBinaryMatrixCache expressionCache,
         QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
         int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold,
-        GpuPrecision precision) {
+        GpuPrecision precision, QeQTLProfiler profiler) {
         this.genotype = genotype;
         this.expressionCache = expressionCache;
         this.checkpoint = checkpoint;
@@ -56,6 +57,7 @@ final class QeQTLStreamedJobReal implements Runnable {
         this.errorDegreesOfFreedom = errorDegreesOfFreedom;
         this.rSquaredThreshold = rSquaredThreshold;
         this.precision = precision;
+        this.profiler = profiler;
     }
 
     @Override
@@ -68,6 +70,7 @@ final class QeQTLStreamedJobReal implements Runnable {
     }
 
     private void runWithWriter(Writer writer) throws IOException {
+        long packingStarted = profiler.start();
         int sampleCount = genotype.values()[0].length;
         int paddedSampleCount = roundUp(sampleCount, DEFAULT_ALIGNMENT);
         double[] flattenedGenotypes = precision == GpuPrecision.FP64
@@ -84,9 +87,15 @@ final class QeQTLStreamedJobReal implements Runnable {
                     flattenedGenotypes[destination] = value;
             }
         }
+        profiler.record(QeQTLProfiler.Phase.GENOTYPE_PACK, packingStarted,
+            genotype.values().length, (long) genotype.values().length * sampleCount * precision.bytes());
 
         for (long offset = 0; offset < expressionCache.rowCount(); offset += expressionCapacity) {
+            long cacheReadStarted = profiler.start();
             PreparedBlock expression = expressionCache.readBlock(offset, expressionCapacity);
+            profiler.record(QeQTLProfiler.Phase.EXPRESSION_CACHE_READ, cacheReadStarted,
+                expression.values().length,
+                (long) expression.values().length * sampleCount * Double.BYTES);
             executePair(genotype, expression, flattenedGenotypes, flattenedGenotypes32,
                 paddedSampleCount, writer);
         }
@@ -94,7 +103,9 @@ final class QeQTLStreamedJobReal implements Runnable {
 
     private void executePair(PreparedBlock snps, PreparedBlock traits, double[] flattenedGenotypes,
         float[] flattenedGenotypes32, int paddedSampleCount, Writer writer) {
-        System.out.println(snps.rowOffset() + "," + traits.rowOffset());
+        if (QeQTLAnalysis.DEBUG)
+            System.out.println(snps.rowOffset() + "," + traits.rowOffset());
+        long packingStarted = profiler.start();
         double[] flattenedTraits = precision == GpuPrecision.FP64
             ? new double[expressionCapacity * paddedSampleCount] : null;
         float[] flattenedTraits32 = precision == GpuPrecision.FP32
@@ -109,10 +120,14 @@ final class QeQTLStreamedJobReal implements Runnable {
                     destination, traits.values()[trait].length);
             }
         }
+        profiler.record(QeQTLProfiler.Phase.EXPRESSION_PACK, packingStarted,
+            traits.values().length, (long) traits.values().length * traits.values()[0].length * precision.bytes());
 
         double[] products = null;
         float[] products32 = null;
+        long waitStarted = profiler.start();
         GpuContext context = contextPool.reserveContext();
+        profiler.record(QeQTLProfiler.Phase.GPU_CONTEXT_WAIT, waitStarted, 1, 0);
         try {
             long localMemoryBytes = (long) (localBlockSize + 1) * (4L * localBlockSize) * precision.bytes();
             int activeSnps = roundUp(snps.values().length, localBlockSize);
@@ -127,10 +142,12 @@ final class QeQTLStreamedJobReal implements Runnable {
                     expressionCapacity * genotypeCapacity, localMemoryBytes, paddedSampleCount,
                     genotypeCapacity, new long[] { activeSnps, activeTraits },
                     new long[] { localBlockSize, localBlockSize });
+            recordGpuMetrics(context.getLastExecutionMetrics());
         } finally {
             contextPool.releaseContext(context);
         }
 
+        long resultsStarted = profiler.start();
         StringBuilder output = new StringBuilder(Math.min(OUTPUT_BUFFER_CHARACTERS, 64 * 1024));
         for (int snp = 0; snp < snps.values().length; snp++) {
             for (int trait = 0; trait < traits.values().length; trait++) {
@@ -146,10 +163,19 @@ final class QeQTLStreamedJobReal implements Runnable {
             }
         }
         flush(output, writer);
-        if (products != null)
-            Arrays.fill(products, 0);
-        if (products32 != null)
-            Arrays.fill(products32, 0);
+        profiler.record(QeQTLProfiler.Phase.CPU_RESULTS_AND_WRITE, resultsStarted,
+            (long) snps.values().length * traits.values().length, 0);
+    }
+
+    private void recordGpuMetrics(GpuExecutionMetrics metrics) {
+        profiler.recordElapsed(QeQTLProfiler.Phase.GPU_BUFFER_SETUP,
+            metrics.bufferSetupNanoseconds(), 1, 0);
+        profiler.recordElapsed(QeQTLProfiler.Phase.GPU_UPLOAD,
+            metrics.uploadNanoseconds(), 1, metrics.uploadedBytes());
+        profiler.recordElapsed(QeQTLProfiler.Phase.GPU_COMPUTE,
+            metrics.computeNanoseconds(), 1, 0);
+        profiler.recordElapsed(QeQTLProfiler.Phase.GPU_DOWNLOAD,
+            metrics.downloadNanoseconds(), 1, metrics.downloadedBytes());
     }
 
     private void appendResult(StringBuilder output, PreparedBlock snps, PreparedBlock traits,

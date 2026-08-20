@@ -286,3 +286,68 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - Added a final backend safety guard requiring the declared kernel `DATATYPE` to match the requested precision before CUDA or OpenCL execution.
 - `.\mvnw.cmd clean package` after that guard — successful; all 26 tests passed with 0 failures, errors, or skips.
 - Superseding final shaded-jar SHA-256: `827AF86985C5A193949EE0C23B35EC5EF2916E5FCFBC205883DD37F971AC1EB3`.
+
+## 2026-08-20T18:37:07.0916546-04:00 — Cohort-aware joint-analysis roadmap
+
+### Baseline and goal
+
+- Baseline commit: `5088eae9bf354f1db5a71b3cb87139db490b81e8` in the canonical standalone checkout at `D:\projects\NIH-Project`.
+- Goal: record a further statistical-analysis milestone for jointly analyzing cohorts with different technical covariates, FHS-like familial relatedness, CARDIA-like repeated examinations, and independent WHI/JHS-like samples without materializing complete per-cohort QTL result sets.
+
+### Decisions and files changed
+
+- Updated `TODO.md` with a cohort-partitioned joint-analysis design. Each cohort may have a distinct fixed-effect design; genotype and expression must undergo the same cohort-specific projection, and correlated cohorts require covariance-aware pre-whitening rather than phenotype-only BLUP subtraction.
+- Recorded concatenation of transformed sample columns and blockwise score/information accumulation as algebraically equivalent implementation choices that require a deterministic equivalence test.
+- Required explicit effect/scaling semantics, effect-allele harmonization, correct rank/degrees-of-freedom accounting, support for FHS kinship and CARDIA repeated subjects, bounded tile accumulation, and optional heterogeneity diagnostics without persistent cohort-wide result files.
+- No production source, configuration behavior, statistical formula, or build dependency changed.
+
+### Verification
+
+- `git diff --check -- TODO.md SESSION_HISTORY.md` — completed with no whitespace errors; Git emitted only informational LF-to-CRLF working-copy warnings.
+- No Maven or GPU test was run because this was a documentation-only roadmap update. The most recent executable verification remains the preceding clean package with 26 passing tests on the NVIDIA GeForce RTX 2080 (CUDA driver API 13.3, CUDA Runtime 12.6, NVIDIA driver 610.88).
+
+### Known limitations and next step
+
+- This entry defines a future goal only; cohort-specific projection, mixed covariance, repeated-measure handling, joint score accumulation, and heterogeneity testing are not implemented yet.
+- The next recommended implementation remains profiling and optimizing the existing cache-backed scheduler on representative WHI data. That measurement should establish stable timing, I/O, memory, block-size, and FP32/FP64 baselines before introducing a new statistical execution model.
+
+## 2026-08-20T19:08:28.6833687-04:00 — Phase profiling and cache/scheduler optimization
+
+### Baseline and goal
+
+- Baseline commit: `5088eae9bf354f1db5a71b3cb87139db490b81e8` in the canonical standalone checkout at `D:\projects\NIH-Project`; the preceding cohort-aware roadmap documentation was already uncommitted.
+- Goal: instrument the bounded-RAM schedule, measure cold/warm WHI behavior and FP64/FP32, optimize only demonstrated bottlenecks, and update automatic block/worker choices without changing FP64 scientific output.
+- The supplied WHI data under `D:\Research\topmed\sqtl\sqtl-whi` remained read-only. Row-limited inputs, prepared caches, checkpoints, profiles, and results were created under ignored `target\profile-whi` and removed by the final clean build.
+
+### Decisions and files changed
+
+- Added opt-in `--profile` / `profile = true` and `--profile-output FILE` / `profile_output = FILE`. `QeQTLProfiler` records metadata/alignment, cache signature/build/open/read, genotype/expression packing, GPU-context wait, backend buffer setup/upload/compute/download, CPU result/write, kernel compilation, output assembly, and analysis wall time. Concurrent phase totals are explicitly labeled as overlapping.
+- Added opt-in backend measurements through `GpuExecutionMetrics`. CUDA and OpenCL synchronize only when profiling is enabled so upload, compute, and download can be separated; ordinary runs do not pay that synchronization cost.
+- Replaced per-double `RandomAccessFile` cache reads/writes and byte-at-a-time CRC updates with checksummed bulk row records in `QBinaryMatrixCache`. The version-1 on-disk bytes, signatures, index, FP64 values, and row CRC behavior are unchanged; caches written by the previous implementation were successfully reused by the optimized reader. The cache test now also corrupts a row and verifies a fatal checksum failure.
+- Removed clearing of newly returned result arrays immediately before they become unreachable and restricted per-tile offset logging to `--debug`.
+- Updated `GpuTuning` so bounded-RAM automatic mode permits up to four pipeline workers per GPU, capped by CPU cores, genotype jobs, and an estimate of available JVM heap versus prepared/packed/result bytes per worker. Explicit settings remain overrides and receive a heap-pressure warning when appropriate.
+- Automatic block sizing still treats VRAM as a hard limit, but now preserves up to four genotype jobs per selected GPU when a small/rectangular genotype matrix would otherwise collapse to fewer jobs. Full WHI recommendations remain 11,264 FP64 and 16,384 FP32 rows; the 4,096-by-8,192 benchmark now selects 1,024 rows and four workers automatically.
+- Added/updated `QeQTLProfiler`, `GpuExecutionMetrics`, `GpuContext`, both CUDA/OpenCL contexts, analysis/config/CLI/streamed-job plumbing, cache code, tuning code, unit tests, `README.md`, `AGENTS.md`, and `TODO.md`. Indexed VCF/VCF.gz/BCF is now the next implementation priority; full-cohort and real multi-GPU measurements remain performance follow-up.
+
+### Verification and representative measurements
+
+- Created ignored fixtures while preserving all 2,005 sample columns:
+  - `java -cp 'target\test-classes;target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar' gov.nih.eqtl.QCsvSubsetTool 'D:\Research\topmed\sqtl\sqtl-whi\chr1a-filtered-whi-dose-meanimp.csv' 'target\profile-whi\input\genotype-4096.csv' 4096`
+  - `java -cp 'target\test-classes;target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar' gov.nih.eqtl.QCsvSubsetTool 'D:\Research\topmed\sqtl\sqtl-whi\sqtl-whi-jointtmmfpkm-ratio-winsor-completeobs-2005.csv' 'target\profile-whi\input\expression-8192.csv' 8192`
+- The common profiling command was `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --config 'D:\Research\topmed\sqtl\sqtl-whi\sqtl-chr1a.ini' --genotype target\profile-whi\input\genotype-4096.csv --expression target\profile-whi\input\expression-8192.csv --covariates 'D:\Research\topmed\sqtl\sqtl-whi\sqtl-whi-mastermat-withpcs-2005.csv' --genotype-id-column NWDID --expression-id-column TORID --output target\profile-whi\baseline-cold.csv --cache-dir target\profile-whi\cache --checkpoint-dir target\profile-whi\checkpoint-baseline-cold --genotype-block-rows 1024 --expression-block-rows 1024 --block-size 1024 --threads 1 --precision fp64 --profile --profile-output target\profile-whi\baseline-cold-profile.csv`; warm and optimized runs changed only the output/checkpoint/profile names unless the variant is stated below.
+- Before bulk cache I/O, cold analysis wall time was 233.962 seconds: genotype/expression cache creation used 23.054/46.188 seconds, cache reads accumulated 159.969 seconds, and GPU compute accumulated 3.353 seconds. The matching warm run took 159.326 seconds, including 153.168 seconds of cache reads and 4.633 seconds of GPU compute.
+- After bulk cache I/O, the exact old caches were reused successfully. Warm analysis fell to 2.061 seconds, including 0.502 seconds of cache reads and 0.545 seconds of GPU compute: 77.3 times faster than the pre-change warm run. A new cold-cache run used `--cache-dir target\profile-whi\cache-optimized-cold`; it took 6.798 seconds, with 4.549 seconds for both cache builds and 0.460 seconds for cache reads: 34.4 times faster than the pre-change cold analysis.
+- Worker variants used `--threads 1`, `2`, and `4` with 1,024-row tiles and took 2.061, 1.265, and 1.086 seconds respectively. A 4,096-row/one-worker variant (`--genotype-block-rows 4096 --expression-block-rows 4096 --block-size 4096`) took 2.132 seconds. These measurements motivated the four-worker pipeline and workload-concurrency block cap, with heap-based safety rather than a universal fixed thread count.
+- The automatic verification used the common command with `--output target\profile-whi\optimized-auto.csv --checkpoint-dir target\profile-whi\checkpoint-optimized-auto --expression-block-rows 1024 --block-size 0 --threads 0 --profile-output target\profile-whi\optimized-auto-profile.csv`. It reported `workload concurrency` as the block limiter, selected 1,024 rows, estimated 72.33 MiB per worker, selected four workers, and completed the analysis in 1.246 seconds.
+- Baseline cold/warm, optimized cold/warm, two-worker, four-worker, final four-worker, and automatic FP64 result files each contained 48,948 associations plus the header and had identical SHA-256 `3E555AFB0251012480BD54FBE8792509424AE48ABB0A85927CCE078C1106C86E`. The 4,096-row block output had a different deterministic row order but zero sorted-line differences.
+- The FP32 variant changed `--precision fp32 --threads 4` and took 1.220 seconds versus 1.086 seconds for the comparable FP64 run, because the optimized small-tile workload was no longer GPU-compute-bound. FP32 reported 48,949 associations, one more than FP64 at p <= `1e-4`. Across the 48,948 common results, maximum/RMS absolute differences were R-squared `9.733e-7` / `1.386e-8`, effect `5.712e-7` / `1.021e-8`, t `1.110e-4` / `1.914e-6`, and log10 p `9.903e-4` / `1.061e-5`.
+- `.\mvnw.cmd test` was run after the profiling, bulk-cache, and tuning stages; every run succeeded. Final `.\mvnw.cmd clean package` compiled 100 production and 14 test sources, ran 28 tests with 0 failures/errors/skips, and created `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`.
+- Hardware integration tests exercised production FP64/FP32 CUDA/cuBLAS and JOCL/OpenCL operations against CPU references. Benchmark hardware: NVIDIA GeForce RTX 2080, compute capability 7.5, CUDA driver API 13.3, CUDA Runtime 12.6, NVIDIA driver 610.88, and 8,589,606,912 bytes reported VRAM.
+- `git diff --check` completed with no whitespace errors; Git emitted only informational LF-to-CRLF working-copy warnings. Final shaded-jar SHA-256: `98D3ABFA389D376202F065AAD5CAA8B5FD7F074D3932BD5BA18242D81D3F14FC`.
+
+### Known limitations and next step
+
+- The performance study used 4,096 SNPs by 8,192 expression traits with all 2,005 WHI samples, not the complete chromosome. Absolute GPU phase times include profiling synchronization, and the one-device worker optimum may differ with larger sample counts, storage, thresholds, JVM heaps, and multiple GPUs.
+- Bulk row I/O makes repeated cache reads inexpensive in this subset, but the complete expression cache is much larger and is still reread for every genotype block. Profile a complete WHI chromosome run before deciding whether expression-block sharing or a different checkpoint/scheduling order is worth its complexity.
+- The larger FP32 study crossed the p-value reporting boundary once; FP32 remains explicit and approximate, and borderline findings require FP64 verification.
+- Next recommended implementation: indexed VCF/VCF.gz and BCF genotype input through a metadata-plus-block source abstraction, with explicit dosage/genotype, allele, multiallelic, missingness, indexing, and sample-alignment policies.

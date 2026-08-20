@@ -9,6 +9,7 @@ package gov.nih.gpu.cuda;
 
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
+import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuException;
 import gov.nih.gpu.GpuPrecision;
 
@@ -42,6 +43,8 @@ final class CudaGpuContext implements GpuContext {
 	private long outputCapacity;
 	private double normalization;
 	private GpuPrecision precision = GpuPrecision.FP64;
+	private boolean profilingEnabled;
+	private GpuExecutionMetrics lastExecutionMetrics = GpuExecutionMetrics.EMPTY;
 	private boolean kernelReady;
 	private boolean closed;
 
@@ -60,6 +63,17 @@ final class CudaGpuContext implements GpuContext {
 	@Override
 	public GpuDevice getDevice() {
 		return device;
+	}
+
+	@Override
+	public synchronized void setProfilingEnabled(boolean enabled) {
+		profilingEnabled = enabled;
+		lastExecutionMetrics = GpuExecutionMetrics.EMPTY;
+	}
+
+	@Override
+	public synchronized GpuExecutionMetrics getLastExecutionMetrics() {
+		return lastExecutionMetrics;
 	}
 
 	@Override
@@ -129,13 +143,21 @@ final class CudaGpuContext implements GpuContext {
 		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.DOUBLE);
 		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.DOUBLE);
 		try {
+			long phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			selectDevice();
 			ensureInputABuffer(inputABytes);
 			ensureInputBBuffer(inputBBytes);
 			ensureOutputBuffer(outputBytes);
+			double[] output = new double[outputElements];
+			long setupNanos = elapsed(phaseStart);
+
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCuda.cudaMemcpy(inputABuffer, Pointer.to(inputA), inputABytes, cudaMemcpyHostToDevice);
 			JCuda.cudaMemcpy(inputBBuffer, Pointer.to(inputB), inputBBytes, cudaMemcpyHostToDevice);
 			JCuda.cudaMemset(outputBuffer, 0, outputBytes);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long uploadNanos = elapsed(phaseStart);
 
 			Pointer alpha = Pointer.to(new double[] { normalization });
 			Pointer beta = Pointer.to(new double[] { 0.0 });
@@ -143,14 +165,23 @@ final class CudaGpuContext implements GpuContext {
 			 * The Java arrays are row-major. Reinterpreting them as column-major lets
 			 * cuBLAS compute C^T = B^T A^T without allocating transpose buffers.
 			 */
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCublas2.cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
 				activeSnpColumns, activeTraits, widthA,
 				alpha, inputBBuffer, widthB,
 				inputABuffer, widthA,
 				beta, outputBuffer, widthB);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long computeNanos = elapsed(phaseStart);
 
-			double[] output = new double[outputElements];
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCuda.cudaMemcpy(Pointer.to(output), outputBuffer, outputBytes, cudaMemcpyDeviceToHost);
+			long downloadNanos = elapsed(phaseStart);
+			lastExecutionMetrics = profilingEnabled
+				? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+					inputABytes + inputBBytes, outputBytes)
+				: GpuExecutionMetrics.EMPTY;
 			return output;
 		} catch (RuntimeException | LinkageError e) {
 			throw new GpuException("CUDA/cuBLAS eQTL execution failed on " + device.getName(), e);
@@ -184,28 +215,49 @@ final class CudaGpuContext implements GpuContext {
 		long inputBBytes = Math.multiplyExact((long) inputB.length, Sizeof.FLOAT);
 		long outputBytes = Math.multiplyExact((long) outputElements, Sizeof.FLOAT);
 		try {
+			long phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			selectDevice();
 			ensureInputABuffer(inputABytes);
 			ensureInputBBuffer(inputBBytes);
 			ensureOutputBuffer(outputBytes);
+			float[] output = new float[outputElements];
+			long setupNanos = elapsed(phaseStart);
+
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCuda.cudaMemcpy(inputABuffer, Pointer.to(inputA), inputABytes, cudaMemcpyHostToDevice);
 			JCuda.cudaMemcpy(inputBBuffer, Pointer.to(inputB), inputBBytes, cudaMemcpyHostToDevice);
 			JCuda.cudaMemset(outputBuffer, 0, outputBytes);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long uploadNanos = elapsed(phaseStart);
 
 			Pointer alpha = Pointer.to(new float[] { (float) normalization });
 			Pointer beta = Pointer.to(new float[] { 0.0f });
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCublas2.cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
 				activeSnpColumns, activeTraits, widthA,
 				alpha, inputBBuffer, widthB,
 				inputABuffer, widthA,
 				beta, outputBuffer, widthB);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long computeNanos = elapsed(phaseStart);
 
-			float[] output = new float[outputElements];
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
 			JCuda.cudaMemcpy(Pointer.to(output), outputBuffer, outputBytes, cudaMemcpyDeviceToHost);
+			long downloadNanos = elapsed(phaseStart);
+			lastExecutionMetrics = profilingEnabled
+				? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+					inputABytes + inputBBytes, outputBytes)
+				: GpuExecutionMetrics.EMPTY;
 			return output;
 		} catch (RuntimeException | LinkageError e) {
 			throw new GpuException("CUDA/cuBLAS FP32 eQTL execution failed on " + device.getName(), e);
 		}
+	}
+
+	private long elapsed(long startedAtNanos) {
+		return profilingEnabled ? System.nanoTime() - startedAtNanos : 0;
 	}
 
 	private static void validateArguments(int inputALength, int inputBLength, int outputElements,

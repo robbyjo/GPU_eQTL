@@ -96,11 +96,11 @@ precision = fp32
   --precision fp32
 ```
 
-FP32 changes results slightly and should not be substituted silently for an established FP64 pipeline. On the representative 128-SNP by 128-trait WHI subset (2,005 samples; 16,384 associations), CUDA FP32 versus FP64 had maximum absolute differences of `5.59e-9` in R-squared, `1.03e-8` in effect, `9.70e-7` in t, and `2.51e-6` in log10 p. Both modes selected the same 11 associations at p <= `1e-4`. This is a bounded accuracy study, not a guarantee for every matrix or threshold; revalidate important borderline associations in FP64.
+FP32 changes results slightly and should not be substituted silently for an established FP64 pipeline. On the representative 128-SNP by 128-trait WHI subset (2,005 samples; 16,384 associations), CUDA FP32 versus FP64 had maximum absolute differences of `5.59e-9` in R-squared, `1.03e-8` in effect, `9.70e-7` in t, and `2.51e-6` in log10 p. Both modes selected the same 11 associations at p <= `1e-4`. A larger 4,096-SNP by 8,192-trait study (33,554,432 associations) found one FP32-only result at that reporting boundary; among the 48,948 common reported results, maximum absolute differences were `9.73e-7` in R-squared, `5.71e-7` in effect, `1.11e-4` in t, and `9.90e-4` in log10 p. These are bounded accuracy studies, not guarantees for every matrix or threshold; revalidate important borderline associations in FP64.
 
-When `block_size`/`--block-size` is omitted or zero, the application reads total VRAM and maximum-allocation limits from every selected GPU. It chooses one block size supported by the least-capable device, accounting for both input tiles, the quadratic result tile, FP32 versus FP64 element size, VRAM headroom, the per-allocation limit, and Java's array-size limit. It also caps the target result allocation at 1 GiB because consuming all available VRAM with one quadratic tile is usually slower and much harder on host memory. The choice is rounded to the GPU tile/granularity and printed before computation; an explicit block size remains an override.
+When `block_size`/`--block-size` is omitted or zero, the application reads total VRAM and maximum-allocation limits from every selected GPU. It chooses one block size supported by the least-capable device, accounting for both input tiles, the quadratic result tile, FP32 versus FP64 element size, VRAM headroom, the per-allocation limit, and Java's array-size limit. It also caps the target result allocation at 1 GiB because consuming all available VRAM with one quadratic tile is usually slower and much harder on host memory. When the genotype matrix is smaller than the memory limit, the recommendation retains up to four genotype jobs per selected GPU so one oversized tile does not eliminate packing/post-processing overlap. The choice and its limiting reason are printed before computation; an explicit block size remains an override.
 
-When `num_threads`/`--threads` is omitted or zero, bounded-RAM mode uses up to one worker per GPU, while full-memory mode may use up to two workers per GPU to overlap packing and post-processing. The recommendation is also capped by required iterations and leaves one CPU core free. Explicit values remain supported, with a warning if they leave GPUs idle or exceed available CPU cores.
+When `num_threads`/`--threads` is omitted or zero, bounded-RAM mode uses up to four workers per GPU to overlap cache reads, packing, GPU execution, and result processing; full-memory mode uses up to two. The bounded-RAM recommendation estimates prepared inputs, packed precision-specific inputs, and the result array per worker, retains JVM-heap headroom, is capped by required genotype jobs, and leaves one CPU core free. Explicit values remain supported, with warnings for idle GPUs, CPU oversubscription, or a streamed configuration estimated to consume more than 75% of the available JVM heap.
 
 All distinct usable GPUs are opened, with one exclusive context per device. Jobs reserve contexts from a shared pool, so a multi-GPU system uses multiple devices concurrently. Automatic discovery suppresses only the duplicate OpenCL representation of an NVIDIA device already selected through CUDA. On mixed-capacity systems, automatic block sizing follows the smallest selected GPU. Use `--gpu-backend cuda` or `opencl` when you intentionally want only one backend family.
 
@@ -166,6 +166,21 @@ By default, caches are placed in `.gpu-eqtl-cache` beside the output file. Choos
 ```
 
 Use `--rebuild-cache` after an intentional forced rebuild. Cache signatures include the input path, size, modification time, row/sample metadata, column permutation, and covariate projection. A changed signature creates a different cache rather than silently reusing incompatible prepared values. Old cache versions are not automatically deleted. For the complete WHI chromosome example, allow roughly 6–7 GB of additional uncompressed cache storage.
+
+Prepared rows are encoded and decoded in checksummed bulk records. This preserves the existing cache format and per-row CRC validation while avoiding a file operation and checksum update for every individual double. Caches created by the earlier version remain reusable.
+
+### Performance profiling
+
+Add `--profile` to print phase totals for metadata/alignment, cache creation and reads, host packing, GPU-context wait, GPU buffer setup, upload, computation, download, CPU statistics/result writing, and final assembly. Worker-phase totals can overlap and therefore need not sum to wall time. Add `--profile-output FILE` to write the same measurements as CSV; specifying a profile output also enables profiling.
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --config path\to\analysis.ini `
+  --profile `
+  --profile-output run-profile.csv
+```
+
+The INI equivalents are `profile = true` and `profile_output = run-profile.csv`. GPU profiling adds synchronization needed to separate upload, compute, and download time, so use the reported breakdown diagnostically and compare complete wall times for throughput decisions.
 
 ### Checkpoint and resume
 

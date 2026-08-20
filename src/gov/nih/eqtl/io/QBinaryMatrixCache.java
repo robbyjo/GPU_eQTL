@@ -14,9 +14,10 @@
  */
 package gov.nih.eqtl.io;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -44,6 +45,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
     private final String signature;
     private final int sampleCount;
     private final long rowCount;
+    private final long indexOffset;
     private final long[] rowOffsets;
 
     private QBinaryMatrixCache(Path path, String expectedKind, String expectedSignature) throws IOException {
@@ -57,7 +59,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
                 throw new IOException("Unsupported matrix cache version " + version + " in " + path);
             sampleCount = file.readInt();
             rowCount = file.readLong();
-            long indexOffset = file.readLong();
+            indexOffset = file.readLong();
             kind = readString(file);
             signature = readString(file);
             if (!kind.equals(expectedKind))
@@ -174,16 +176,43 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         String[] rowIds = new String[count];
         double[][] values = new double[count][sampleCount];
         double[] standardDeviations = new double[count];
+        byte[] record = new byte[0];
         for (int row = 0; row < count; row++) {
-            file.seek(rowOffsets[(int) rowOffset + row]);
+            int cacheRow = (int) rowOffset + row;
+            long recordStart = rowOffsets[cacheRow];
+            long recordEnd = cacheRow + 1 < rowOffsets.length
+                ? rowOffsets[cacheRow + 1] : indexOffset;
+            long longRecordLength = recordEnd - recordStart;
+            int minimumLength = Integer.BYTES + Double.BYTES
+                + Math.multiplyExact(sampleCount, Double.BYTES) + Long.BYTES;
+            if (longRecordLength < minimumLength || longRecordLength > Integer.MAX_VALUE)
+                throw new IOException("Invalid record length at cache row " + cacheRow + " in " + path);
+            int recordLength = (int) longRecordLength;
+            if (record.length < recordLength)
+                record = new byte[recordLength];
+            file.seek(recordStart);
+            file.readFully(record, 0, recordLength);
+
+            int checksummedLength = recordLength - Long.BYTES;
             CRC32 checksum = new CRC32();
-            rowIds[row] = readChecksummedString(file, checksum);
-            standardDeviations[row] = readChecksummedDouble(file, checksum);
-            for (int sample = 0; sample < sampleCount; sample++)
-                values[row][sample] = readChecksummedDouble(file, checksum);
-            long expectedChecksum = file.readLong();
+            checksum.update(record, 0, checksummedLength);
+            ByteBuffer input = ByteBuffer.wrap(record, 0, recordLength).order(ByteOrder.BIG_ENDIAN);
+            long expectedChecksum = input.getLong(checksummedLength);
             if (checksum.getValue() != expectedChecksum)
-                throw new IOException("Checksum failure at cache row " + (rowOffset + row) + " in " + path);
+                throw new IOException("Checksum failure at cache row " + cacheRow + " in " + path);
+
+            int identifierLength = input.getInt();
+            int expectedLength = Integer.BYTES + identifierLength + Double.BYTES
+                + Math.multiplyExact(sampleCount, Double.BYTES) + Long.BYTES;
+            if (identifierLength < 0 || identifierLength > 16 * 1024 * 1024
+                || expectedLength != recordLength)
+                throw new IOException("Invalid row record at cache row " + cacheRow + " in " + path);
+            byte[] identifier = new byte[identifierLength];
+            input.get(identifier);
+            rowIds[row] = new String(identifier, StandardCharsets.UTF_8);
+            standardDeviations[row] = input.getDouble();
+            for (int sample = 0; sample < sampleCount; sample++)
+                values[row][sample] = input.getDouble();
         }
         return new PreparedBlock(rowOffset, rowIds, values, standardDeviations);
     }
@@ -263,11 +292,19 @@ public final class QBinaryMatrixCache implements AutoCloseable {
 
     private static void writeRow(RandomAccessFile output, String rowId, double standardDeviation,
         double[] values) throws IOException {
-        CRC32 checksum = new CRC32();
-        writeChecksummedString(output, checksum, rowId);
-        writeChecksummedDouble(output, checksum, standardDeviation);
+        byte[] identifier = rowId.getBytes(StandardCharsets.UTF_8);
+        int payloadLength = Integer.BYTES + identifier.length + Double.BYTES
+            + Math.multiplyExact(values.length, Double.BYTES);
+        byte[] payload = new byte[payloadLength];
+        ByteBuffer encoded = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN);
+        encoded.putInt(identifier.length);
+        encoded.put(identifier);
+        encoded.putDouble(standardDeviation);
         for (double value : values)
-            writeChecksummedDouble(output, checksum, value);
+            encoded.putDouble(value);
+        CRC32 checksum = new CRC32();
+        checksum.update(payload);
+        output.write(payload);
         output.writeLong(checksum.getValue());
     }
 
@@ -284,51 +321,6 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         byte[] bytes = new byte[length];
         input.readFully(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
-    }
-
-    private static void writeChecksummedString(RandomAccessFile output, CRC32 checksum,
-        String value) throws IOException {
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        output.writeInt(bytes.length);
-        update(checksum, bytes.length);
-        output.write(bytes);
-        checksum.update(bytes);
-    }
-
-    private static String readChecksummedString(RandomAccessFile input, CRC32 checksum) throws IOException {
-        int length = input.readInt();
-        if (length < 0 || length > 16 * 1024 * 1024)
-            throw new EOFException("Invalid row identifier length in matrix cache");
-        update(checksum, length);
-        byte[] bytes = new byte[length];
-        input.readFully(bytes);
-        checksum.update(bytes);
-        return new String(bytes, StandardCharsets.UTF_8);
-    }
-
-    private static void writeChecksummedDouble(RandomAccessFile output, CRC32 checksum,
-        double value) throws IOException {
-        long bits = Double.doubleToRawLongBits(value);
-        output.writeLong(bits);
-        update(checksum, bits);
-    }
-
-    private static double readChecksummedDouble(RandomAccessFile input, CRC32 checksum) throws IOException {
-        long bits = input.readLong();
-        update(checksum, bits);
-        return Double.longBitsToDouble(bits);
-    }
-
-    private static void update(CRC32 checksum, int value) {
-        checksum.update((value >>> 24) & 0xff);
-        checksum.update((value >>> 16) & 0xff);
-        checksum.update((value >>> 8) & 0xff);
-        checksum.update(value & 0xff);
-    }
-
-    private static void update(CRC32 checksum, long value) {
-        for (int shift = 56; shift >= 0; shift -= 8)
-            checksum.update((int) (value >>> shift) & 0xff);
     }
 
     private static MessageDigest sha256() {

@@ -102,6 +102,7 @@ public class QeQTLAnalysis implements IJobOwner
 	static GpuContext[] mContexts = null;
 	static GpuPrecision gpuPrecision = GpuPrecision.FP64;
 	static QeQTLAnalysisConfig config = null;
+	static QeQTLProfiler profiler = new QeQTLProfiler(false);
 
 	public static final String eqtlCat =
 		"#define CPY 4" + sLn +
@@ -345,7 +346,9 @@ public class QeQTLAnalysis implements IJobOwner
 		String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir" : "Rs_ID,ProbesetID,RSq,Fx,T,log10P";
 		if (completedAtStart == totalBlocks) {
 			try {
+				long assemblyStarted = profiler.start();
 				checkpoint.assemble(outputPath, outputHeader);
+				profiler.record(QeQTLProfiler.Phase.OUTPUT_ASSEMBLY, assemblyStarted, totalBlocks, 0);
 				return;
 			} catch (IOException e) {
 				throw new RuntimeException("Cannot assemble completed checkpoint", e);
@@ -357,8 +360,13 @@ public class QeQTLAnalysis implements IJobOwner
 
 		GpuContextPool contextPool = new GpuContextPool(mContexts);
 		try {
-			for (GpuContext context : contextPool.getAllContexts())
+			long compileStarted = profiler.start();
+			for (GpuContext context : contextPool.getAllContexts()) {
+				context.setProfilingEnabled(profiler.isEnabled());
 				context.compileKernel(header + eqtlReal, "eqtlReal", gpuPrecision);
+			}
+			profiler.record(QeQTLProfiler.Phase.KERNEL_COMPILE, compileStarted,
+				contextPool.getAllContexts().size(), 0);
 		} catch (RuntimeException e) {
 			contextPool.close();
 			throw e;
@@ -375,10 +383,13 @@ public class QeQTLAnalysis implements IJobOwner
 				if (checkpoint.isComplete(blockNumber))
 					continue;
 				long rowOffset = (long) blockNumber * genotypeRowsPerBlock;
+				long cacheReadStarted = profiler.start();
 				QeQTLPreprocessor.PreparedBlock prepared = genotypeCache.readBlock(rowOffset, genotypeRowsPerBlock);
+				profiler.record(QeQTLProfiler.Phase.GENOTYPE_CACHE_READ, cacheReadStarted,
+					prepared.values().length, (long) prepared.values().length * numInds * Double.BYTES);
 				pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionCache,
 					checkpoint, blockNumber, contextPool, genotypeRowsPerBlock,
-					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, gpuPrecision)));
+					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, gpuPrecision, profiler)));
 				if (pending.size() >= numThreads)
 					pending.removeFirst().get();
 			}
@@ -387,7 +398,9 @@ public class QeQTLAnalysis implements IJobOwner
 			threadPool.shutdown();
 			if (!threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS))
 				throw new RuntimeException("Timed out while waiting for streamed eQTL workers");
+			long assemblyStarted = profiler.start();
 			checkpoint.assemble(outputPath, outputHeader);
+			profiler.record(QeQTLProfiler.Phase.OUTPUT_ASSEMBLY, assemblyStarted, totalBlocks, 0);
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			threadPool.shutdownNow();
@@ -551,10 +564,16 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static int configureThreadCount(long requiredIterations, int numDevices, boolean streamed)
 	{
+		return configureThreadCount(requiredIterations, numDevices, streamed, Long.MAX_VALUE, 1);
+	}
+
+	private static int configureThreadCount(long requiredIterations, int numDevices, boolean streamed,
+		long availableHeapBytes, long estimatedWorkerBytes)
+	{
 		int threads = config.getNumThreads();
 		if (threads == 0) {
 			threads = GpuTuning.recommendThreadCount(QSystemUtils.kNumCPUCores,
-				numDevices, requiredIterations, streamed);
+				numDevices, requiredIterations, streamed, availableHeapBytes, estimatedWorkerBytes);
 			config.setNumThreads(threads);
 			System.out.println("The thread count was not specified; using " + threads
 				+ " (" + numDevices + " GPU context" + (numDevices == 1 ? "" : "s") + ")");
@@ -564,6 +583,10 @@ public class QeQTLAnalysis implements IJobOwner
 				+ QSystemUtils.kNumCPUCores + ") and may reduce performance.");
 		if (threads < Math.min((long) numDevices, requiredIterations))
 			System.err.println("WARNING: num_threads is lower than the number of usable GPUs; some GPUs may remain idle.");
+		if (streamed && estimatedWorkerBytes > 1
+			&& estimatedWorkerBytes * (double) threads > availableHeapBytes * 0.75)
+			System.err.println("WARNING: explicit num_threads may require more than 75% of the available JVM heap; "
+				+ "reduce --threads or streamed block rows if the run exhausts memory.");
 		return threads;
 	}
 
@@ -610,6 +633,7 @@ public class QeQTLAnalysis implements IJobOwner
 		String[] factorCovariates, String thresholdType, double threshold, int dfOffset,
 		boolean isAdditive, int configuredBlockSize, int numDevices) throws Exception
 	{
+		long metadataStarted = profiler.start();
 		System.out.println("Scanning matrix metadata and identifiers...");
 		QDelimitedMatrixSource genotypeSource = new QDelimitedMatrixSource(
 			Path.of(genotypeFilename), cCommonDelimiter, "#");
@@ -662,6 +686,8 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Degrees of Freedom for Errors = " + errorDegreesOfFreedom);
 		if (dfOffset != 0)
 			System.out.println("Degrees of Freedom for Offset = " + dfOffset);
+		profiler.record(QeQTLProfiler.Phase.METADATA_AND_ALIGNMENT, metadataStarted,
+			numIndividuals, 0);
 		if (config.getValidateOnly()) {
 			if (configuredBlockSize <= 0 || config.getNumThreads() == 0)
 				System.out.println("Automatic block/thread tuning is deferred until a real GPU analysis run.");
@@ -698,7 +724,18 @@ public class QeQTLAnalysis implements IJobOwner
 					+ globalBlockSize + ")");
 			schedulableJobs = (numSnps + (long) genotypeRows - 1) / genotypeRows;
 		}
-		configureThreadCount(schedulableJobs, numDevices, stream);
+		if (stream) {
+			Runtime runtime = Runtime.getRuntime();
+			long availableHeap = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+			long estimatedWorkerBytes = GpuTuning.estimateStreamedWorkerBytes(numIndividuals,
+				genotypeRows, expressionRows, gpuPrecision);
+			System.out.println("Estimated streamed memory per worker = "
+				+ String.format("%.2f MiB", estimatedWorkerBytes / kMB));
+			configureThreadCount(schedulableJobs, numDevices, true,
+				availableHeap, estimatedWorkerBytes);
+		} else {
+			configureThreadCount(schedulableJobs, numDevices, false);
+		}
 
 		double rSquaredThreshold = thresholdType.equals("none") ? 0.0 : threshold;
 		if (thresholdType.equals("pval")) {
@@ -709,6 +746,7 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 
 		long start = System.currentTimeMillis();
+		long analysisStarted = profiler.start();
 		if (stream) {
 			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
 				+ " rows, expression blocks=" + expressionRows + " rows");
@@ -716,18 +754,27 @@ public class QeQTLAnalysis implements IJobOwner
 			Path cacheDirectory = config.getCacheDirectory() == null
 				? outputPath.getParent().resolve(".gpu-eqtl-cache")
 				: Path.of(config.getCacheDirectory());
+			long signatureStarted = profiler.start();
 			String genotypeSignature = QBinaryMatrixCache.signature("Genotype", genotypeSource,
 				alignment.genotypeColumnOrder(), covariateQ);
 			String expressionSignature = QBinaryMatrixCache.signature("Expression", expressionSource,
 				alignment.expressionColumnOrder(), covariateQ);
+			profiler.record(QeQTLProfiler.Phase.CACHE_SIGNATURES, signatureStarted, 2, 0);
+			long genotypeCacheStarted = profiler.start();
 			try (QBinaryMatrixCache genotypeCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Genotype", genotypeSignature, genotypeSource, alignment.genotypeColumnOrder(), covariateQ,
-				genotypeRows, config.getRebuildCache());
-				QBinaryMatrixCache expressionCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
+				genotypeRows, config.getRebuildCache())) {
+				profiler.record(QeQTLProfiler.Phase.GENOTYPE_CACHE_OPEN_OR_BUILD, genotypeCacheStarted,
+					genotypeCache.rowCount(), java.nio.file.Files.size(genotypeCache.path()));
+				long expressionCacheStarted = profiler.start();
+				try (QBinaryMatrixCache expressionCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Expression", expressionSignature, expressionSource, alignment.expressionColumnOrder(), covariateQ,
 				expressionRows, config.getRebuildCache())) {
-				plugin.eSNPAnalysisStreamed(genotypeCache, expressionCache, rSquaredThreshold, dfOffset,
-					errorDegreesOfFreedom, genotypeRows, expressionRows);
+					profiler.record(QeQTLProfiler.Phase.EXPRESSION_CACHE_OPEN_OR_BUILD, expressionCacheStarted,
+						expressionCache.rowCount(), java.nio.file.Files.size(expressionCache.path()));
+					plugin.eSNPAnalysisStreamed(genotypeCache, expressionCache, rSquaredThreshold, dfOffset,
+						errorDegreesOfFreedom, genotypeRows, expressionRows);
+				}
 			}
 		} else {
 			System.out.println("Loading aligned matrices into RAM (set --genotype-block-rows or --expression-block-rows to stream).");
@@ -748,6 +795,8 @@ public class QeQTLAnalysis implements IJobOwner
 			plugin.eSNPAnalysis(genotypeData, expressionData, covariateQ, rSquaredThreshold,
 				dfOffset, errorDegreesOfFreedom, isAdditive);
 		}
+		profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
+			(long) numSnps * numTraits, 0);
 		System.out.println("Total analysis time (in seconds) = " + (System.currentTimeMillis() - start) / 1000.0);
 	}
 
@@ -804,6 +853,7 @@ public class QeQTLAnalysis implements IJobOwner
 		if (commandLine.gpuBackend() != null)
 			System.setProperty("eqtl.gpu.backend", commandLine.gpuBackend());
 		config = commandLine.config();
+		profiler = new QeQTLProfiler(config.getProfile());
 		try {
 			gpuPrecision = config.getGpuPrecision();
 		} catch (IllegalArgumentException e) {
@@ -936,6 +986,7 @@ public class QeQTLAnalysis implements IJobOwner
 			}
 			long timeb = System.currentTimeMillis();
 			System.out.println("Overall time (in seconds) = " + (timeb - timea) / 1000.0);
+			finishProfiling();
 			System.exit(kExitCodeNormal);
 			return;
 		}
@@ -1083,5 +1134,21 @@ public class QeQTLAnalysis implements IJobOwner
 		long timeb = System.currentTimeMillis();
 		System.out.println("Overall time (in seconds) = " + (timeb - timea) / 1000.0);
 		System.exit(kExitCodeNormal);
+	}
+
+	private static void finishProfiling()
+	{
+		if (!profiler.isEnabled())
+			return;
+		profiler.printSummary(System.out);
+		String output = config.getProfileOutputFilename();
+		if (output != null) {
+			try {
+				profiler.writeCsv(Path.of(output));
+				System.out.println("Profiling CSV: " + Path.of(output).toAbsolutePath().normalize());
+			} catch (IOException e) {
+				throw new RuntimeException("Cannot write profiling CSV", e);
+			}
+		}
 	}
 }

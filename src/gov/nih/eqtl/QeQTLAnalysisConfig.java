@@ -240,6 +240,12 @@ public class QeQTLAnalysisConfig {
 	public boolean getKeepCheckpoints()
 	{ return getBoolean("keep_checkpoints"); }
 
+	public boolean getProfile()
+	{ return getBoolean("profile") || mIni.get("profile_output") != null; }
+
+	public String getProfileOutputFilename()
+	{ return expandPath(mIni.get("profile_output"), getIniPath()); }
+
 	private boolean getBoolean(String key)
 	{
 		String value = mIni.get(key);
