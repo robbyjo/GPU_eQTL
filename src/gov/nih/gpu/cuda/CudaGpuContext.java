@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static jcuda.jcublas.cublasOperation.CUBLAS_OP_N;
+import static jcuda.jcublas.cublasOperation.CUBLAS_OP_T;
 import static jcuda.runtime.cudaMemcpyKind.cudaMemcpyDeviceToHost;
 import static jcuda.runtime.cudaMemcpyKind.cudaMemcpyHostToDevice;
 
@@ -41,6 +42,16 @@ final class CudaGpuContext implements GpuContext {
 	private long inputACapacity;
 	private long inputBCapacity;
 	private long outputCapacity;
+	private Pointer residualValuesBuffer;
+	private Pointer residualQBuffer;
+	private Pointer residualCoefficientsBuffer;
+	private long residualValuesCapacity;
+	private long residualQCapacity;
+	private long residualCoefficientsCapacity;
+	private Object residualProjectionSource;
+	private GpuPrecision residualProjectionPrecision;
+	private int residualProjectionSamples;
+	private int residualProjectionRank;
 	private double normalization;
 	private GpuPrecision precision = GpuPrecision.FP64;
 	private boolean profilingEnabled;
@@ -256,6 +267,126 @@ final class CudaGpuContext implements GpuContext {
 		}
 	}
 
+	@Override
+	public synchronized double[] residualizeDoubleRows(double[] rowMajorValues, double[] rowMajorQ,
+		int rowCount, int sampleCount, int covariateRank) {
+		ensureOpen();
+		validateResidualizationArguments(rowMajorValues == null ? 0 : rowMajorValues.length,
+			rowMajorQ == null ? 0 : rowMajorQ.length, rowCount, sampleCount, covariateRank);
+		long valuesBytes = Math.multiplyExact((long) rowMajorValues.length, Sizeof.DOUBLE);
+		long qBytes = Math.multiplyExact((long) rowMajorQ.length, Sizeof.DOUBLE);
+		long coefficientBytes = Math.multiplyExact((long) rowCount * covariateRank, Sizeof.DOUBLE);
+		try {
+			long phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			selectDevice();
+			ensureResidualizationBuffers(valuesBytes, qBytes, coefficientBytes);
+			double[] output = new double[rowMajorValues.length];
+			long setupNanos = elapsed(phaseStart);
+
+			boolean uploadProjection = !isCachedProjection(rowMajorQ, GpuPrecision.FP64,
+				sampleCount, covariateRank);
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(residualValuesBuffer, Pointer.to(rowMajorValues), valuesBytes, cudaMemcpyHostToDevice);
+			if (uploadProjection) {
+				JCuda.cudaMemcpy(residualQBuffer, Pointer.to(rowMajorQ), qBytes, cudaMemcpyHostToDevice);
+				rememberProjection(rowMajorQ, GpuPrecision.FP64, sampleCount, covariateRank);
+			}
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long uploadNanos = elapsed(phaseStart);
+
+			Pointer one = Pointer.to(new double[] { 1.0 });
+			Pointer zero = Pointer.to(new double[] { 0.0 });
+			Pointer minusOne = Pointer.to(new double[] { -1.0 });
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			// T^T = Q^T Y^T, where row-major host arrays are column-major transposes.
+			JCublas2.cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+				covariateRank, rowCount, sampleCount,
+				one, residualQBuffer, covariateRank,
+				residualValuesBuffer, sampleCount,
+				zero, residualCoefficientsBuffer, covariateRank);
+			// Y_res^T = Y^T - Q T^T, updating the value buffer in place.
+			JCublas2.cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N,
+				sampleCount, rowCount, covariateRank,
+				minusOne, residualQBuffer, covariateRank,
+				residualCoefficientsBuffer, covariateRank,
+				one, residualValuesBuffer, sampleCount);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long computeNanos = elapsed(phaseStart);
+
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(Pointer.to(output), residualValuesBuffer, valuesBytes, cudaMemcpyDeviceToHost);
+			long downloadNanos = elapsed(phaseStart);
+			lastExecutionMetrics = profilingEnabled
+				? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+					valuesBytes + (uploadProjection ? qBytes : 0), valuesBytes)
+				: GpuExecutionMetrics.EMPTY;
+			return output;
+		} catch (RuntimeException | LinkageError e) {
+			throw new GpuException("CUDA/cuBLAS FP64 residualization failed on " + device.getName(), e);
+		}
+	}
+
+	@Override
+	public synchronized float[] residualizeFloatRows(float[] rowMajorValues, float[] rowMajorQ,
+		int rowCount, int sampleCount, int covariateRank) {
+		ensureOpen();
+		validateResidualizationArguments(rowMajorValues == null ? 0 : rowMajorValues.length,
+			rowMajorQ == null ? 0 : rowMajorQ.length, rowCount, sampleCount, covariateRank);
+		long valuesBytes = Math.multiplyExact((long) rowMajorValues.length, Sizeof.FLOAT);
+		long qBytes = Math.multiplyExact((long) rowMajorQ.length, Sizeof.FLOAT);
+		long coefficientBytes = Math.multiplyExact((long) rowCount * covariateRank, Sizeof.FLOAT);
+		try {
+			long phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			selectDevice();
+			ensureResidualizationBuffers(valuesBytes, qBytes, coefficientBytes);
+			float[] output = new float[rowMajorValues.length];
+			long setupNanos = elapsed(phaseStart);
+
+			boolean uploadProjection = !isCachedProjection(rowMajorQ, GpuPrecision.FP32,
+				sampleCount, covariateRank);
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(residualValuesBuffer, Pointer.to(rowMajorValues), valuesBytes, cudaMemcpyHostToDevice);
+			if (uploadProjection) {
+				JCuda.cudaMemcpy(residualQBuffer, Pointer.to(rowMajorQ), qBytes, cudaMemcpyHostToDevice);
+				rememberProjection(rowMajorQ, GpuPrecision.FP32, sampleCount, covariateRank);
+			}
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long uploadNanos = elapsed(phaseStart);
+
+			Pointer one = Pointer.to(new float[] { 1.0f });
+			Pointer zero = Pointer.to(new float[] { 0.0f });
+			Pointer minusOne = Pointer.to(new float[] { -1.0f });
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			JCublas2.cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+				covariateRank, rowCount, sampleCount,
+				one, residualQBuffer, covariateRank,
+				residualValuesBuffer, sampleCount,
+				zero, residualCoefficientsBuffer, covariateRank);
+			JCublas2.cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N,
+				sampleCount, rowCount, covariateRank,
+				minusOne, residualQBuffer, covariateRank,
+				residualCoefficientsBuffer, covariateRank,
+				one, residualValuesBuffer, sampleCount);
+			if (profilingEnabled)
+				JCuda.cudaDeviceSynchronize();
+			long computeNanos = elapsed(phaseStart);
+
+			phaseStart = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(Pointer.to(output), residualValuesBuffer, valuesBytes, cudaMemcpyDeviceToHost);
+			long downloadNanos = elapsed(phaseStart);
+			lastExecutionMetrics = profilingEnabled
+				? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+					valuesBytes + (uploadProjection ? qBytes : 0), valuesBytes)
+				: GpuExecutionMetrics.EMPTY;
+			return output;
+		} catch (RuntimeException | LinkageError e) {
+			throw new GpuException("CUDA/cuBLAS FP32 residualization failed on " + device.getName(), e);
+		}
+	}
+
 	private long elapsed(long startedAtNanos) {
 		return profilingEnabled ? System.nanoTime() - startedAtNanos : 0;
 	}
@@ -284,6 +415,59 @@ final class CudaGpuContext implements GpuContext {
 		if (activeSnpColumns > widthB || requiredInputA > inputALength
 				|| requiredInputB > inputBLength || requiredOutput > outputElements)
 			throw new IllegalArgumentException("Work dimensions exceed the supplied eQTL matrix buffers");
+	}
+
+	private static void validateResidualizationArguments(int valuesLength, int qLength,
+		int rowCount, int sampleCount, int covariateRank) {
+		if (rowCount <= 0 || sampleCount <= 0 || covariateRank <= 0 || covariateRank > sampleCount)
+			throw new IllegalArgumentException("Invalid residualization matrix dimensions");
+		if (valuesLength != Math.multiplyExact(rowCount, sampleCount)
+			|| qLength != Math.multiplyExact(sampleCount, covariateRank))
+			throw new IllegalArgumentException("Residualization buffers do not match their matrix dimensions");
+	}
+
+	private void ensureResidualizationBuffers(long valuesBytes, long qBytes, long coefficientBytes) {
+		if (residualValuesBuffer == null || residualValuesCapacity < valuesBytes) {
+			residualValuesBuffer = replaceBuffer(residualValuesBuffer, valuesBytes);
+			residualValuesCapacity = valuesBytes;
+		}
+		if (residualQBuffer == null || residualQCapacity < qBytes) {
+			residualQBuffer = replaceBuffer(residualQBuffer, qBytes);
+			residualQCapacity = qBytes;
+			residualProjectionSource = null;
+		}
+		if (residualCoefficientsBuffer == null || residualCoefficientsCapacity < coefficientBytes) {
+			residualCoefficientsBuffer = replaceBuffer(residualCoefficientsBuffer, coefficientBytes);
+			residualCoefficientsCapacity = coefficientBytes;
+		}
+	}
+
+	private boolean isCachedProjection(Object source, GpuPrecision projectionPrecision,
+		int sampleCount, int covariateRank) {
+		return residualProjectionSource == source && residualProjectionPrecision == projectionPrecision
+			&& residualProjectionSamples == sampleCount && residualProjectionRank == covariateRank;
+	}
+
+	private void rememberProjection(Object source, GpuPrecision projectionPrecision,
+		int sampleCount, int covariateRank) {
+		residualProjectionSource = source;
+		residualProjectionPrecision = projectionPrecision;
+		residualProjectionSamples = sampleCount;
+		residualProjectionRank = covariateRank;
+	}
+
+	@Override
+	public synchronized void releaseResidualizationResources() {
+		ensureOpen();
+		selectDevice();
+		if (residualValuesBuffer != null) JCuda.cudaFree(residualValuesBuffer);
+		if (residualQBuffer != null) JCuda.cudaFree(residualQBuffer);
+		if (residualCoefficientsBuffer != null) JCuda.cudaFree(residualCoefficientsBuffer);
+		residualValuesBuffer = residualQBuffer = residualCoefficientsBuffer = null;
+		residualValuesCapacity = residualQCapacity = residualCoefficientsCapacity = 0;
+		residualProjectionSource = null;
+		residualProjectionPrecision = null;
+		residualProjectionSamples = residualProjectionRank = 0;
 	}
 
 	private void ensureInputABuffer(long requiredBytes) {
@@ -336,6 +520,9 @@ final class CudaGpuContext implements GpuContext {
 		}
 		try {
 			selectDevice();
+			if (residualValuesBuffer != null) JCuda.cudaFree(residualValuesBuffer);
+			if (residualQBuffer != null) JCuda.cudaFree(residualQBuffer);
+			if (residualCoefficientsBuffer != null) JCuda.cudaFree(residualCoefficientsBuffer);
 			if (inputABuffer != null) JCuda.cudaFree(inputABuffer);
 			if (inputBBuffer != null) JCuda.cudaFree(inputBBuffer);
 			if (outputBuffer != null) JCuda.cudaFree(outputBuffer);
@@ -344,6 +531,7 @@ final class CudaGpuContext implements GpuContext {
 			throw new GpuException("Could not release the CUDA resources for " + device.getName(), e);
 		} finally {
 			inputABuffer = inputBBuffer = outputBuffer = null;
+			residualValuesBuffer = residualQBuffer = residualCoefficientsBuffer = null;
 			handle = null;
 			closed = true;
 		}

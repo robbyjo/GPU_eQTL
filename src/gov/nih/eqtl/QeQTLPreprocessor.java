@@ -25,9 +25,26 @@ import gov.nih.utils.matrix.QMatrixUtils;
 public final class QeQTLPreprocessor {
     public record PreparedBlock(long rowOffset, String[] rowIds, double[][] values, double[] standardDeviations) { }
 
+	/** Optional block projector; implementations may use several exclusive GPU contexts concurrently. */
+	public interface Residualizer {
+		double[][] residualize(double[][] values, double[][] covariateQ, String matrixName);
+
+		default int concurrency() { return 1; }
+
+		/** Conservative total host bytes needed per matrix value while preparing one block. */
+		default int estimatedHostBytesPerValue() { return 0; }
+
+		default String cacheSignatureTag() { return "cpu-fp64-v1"; }
+	}
+
     private QeQTLPreprocessor() { }
 
     public static PreparedBlock prepare(Block block, double[][] covariateQ, String matrixName) {
+		return prepare(block, covariateQ, matrixName, null);
+	}
+
+	public static PreparedBlock prepare(Block block, double[][] covariateQ, String matrixName,
+		Residualizer residualizer) {
         double[][] values = block.values();
         int sampleCount = values[0].length;
         for (int row = 0; row < values.length; row++) {
@@ -39,9 +56,16 @@ public final class QeQTLPreprocessor {
         }
 
         if (covariateQ != null) {
-            double[][] residuals = QMatrixUtils.parallelMatrixMultiplication(values, covariateQ, null, 1,
-                values.length, sampleCount, EMultiplicationMode.XMinusXYYt);
+			double[][] residuals = residualizer == null
+				? QMatrixUtils.parallelMatrixMultiplication(values, covariateQ, null, 1,
+					values.length, sampleCount, EMultiplicationMode.XMinusXYYt)
+				: residualizer.residualize(values, covariateQ, matrixName);
+			if (residuals.length != values.length)
+				throw new IllegalArgumentException(matrixName + " residualizer returned the wrong row count");
             for (int row = 0; row < values.length; row++)
+				if (residuals[row].length != sampleCount)
+					throw new IllegalArgumentException(matrixName + " residualizer returned the wrong sample count");
+			for (int row = 0; row < values.length; row++)
                 System.arraycopy(residuals[row], 0, values[row], 0, sampleCount);
         }
 

@@ -101,6 +101,7 @@ public class QeQTLAnalysis implements IJobOwner
 	static GpuRuntime GPU_RUNTIME;
 	static GpuContext[] mContexts = null;
 	static GpuPrecision gpuPrecision = GpuPrecision.FP64;
+	static QResidualizationMode residualizationMode = QResidualizationMode.AUTO;
 	static QeQTLAnalysisConfig config = null;
 	static QeQTLProfiler profiler = new QeQTLProfiler(false);
 
@@ -161,6 +162,22 @@ public class QeQTLAnalysis implements IJobOwner
 	public void eSNPAnalysis(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[][] covarQ, double rsq0,
 		int dfo, int dfe, boolean isAdditive)
 	{
+		eSNPAnalysisInternal(popn, expDataTbl, covarQ, null, null, rsq0, dfo, dfe, isAdditive);
+	}
+
+	public void eSNPAnalysisPrepared(QGeneticSNPData popn, QGeneExpressionData expDataTbl,
+		double[] snpDataSD, double[] expDataSD, double rsq0, int dfo, int dfe, boolean isAdditive)
+	{
+		if (snpDataSD == null || expDataSD == null)
+			throw new IllegalArgumentException("Prepared standard deviations must not be null");
+		eSNPAnalysisInternal(popn, expDataTbl, null, expDataSD, snpDataSD,
+			rsq0, dfo, dfe, isAdditive);
+	}
+
+	private void eSNPAnalysisInternal(QGeneticSNPData popn, QGeneExpressionData expDataTbl,
+		double[][] covarQ, double[] preparedExpDataSD, double[] preparedSnpDataSD, double rsq0,
+		int dfo, int dfe, boolean isAdditive)
+	{
 		//long mem1 = QSystemUtils.usedMemoryAfterGC();
 		double[][] expData = expDataTbl.getData();
 		int
@@ -180,7 +197,7 @@ public class QeQTLAnalysis implements IJobOwner
 
 		long time1, time2;
 		// Clean the expression data to a residual
-		if (covarQ != null) {
+		if (preparedExpDataSD == null && covarQ != null) {
 			System.out.println("Taking residuals from expression data.");
 			time1 = System.currentTimeMillis();
 			double[][] resid = QMatrixUtils.parallelMatrixMultiplication(expData, covarQ, null, 1, numETraits, numInds, EMultiplicationMode.XMinusXYYt);
@@ -202,11 +219,17 @@ public class QeQTLAnalysis implements IJobOwner
 
 		// Compute SD
 		time1 = System.currentTimeMillis();
-		double[] expDataSD = new double[numETraits], snpDataSD = new double[numSNPs];
-		for (int i = 0; i < numETraits; i++)
-			expDataSD[i] = calcStdDevAndStandardize(expData[i]);
-		for (int i = 0; i < numSNPs; i++)
-			snpDataSD[i] = calcStdDevAndStandardize(snpData[i]);
+		double[] expDataSD = preparedExpDataSD, snpDataSD = preparedSnpDataSD;
+		if (expDataSD == null) {
+			expDataSD = new double[numETraits];
+			snpDataSD = new double[numSNPs];
+			for (int i = 0; i < numETraits; i++)
+				expDataSD[i] = calcStdDevAndStandardize(expData[i]);
+			for (int i = 0; i < numSNPs; i++)
+				snpDataSD[i] = calcStdDevAndStandardize(snpData[i]);
+		} else if (expDataSD.length != numETraits || snpDataSD.length != numSNPs) {
+			throw new IllegalArgumentException("Prepared standard-deviation counts do not match the matrices");
+		}
 		time2 = System.currentTimeMillis();
 		System.out.println("Standardizing time = " + (time2 - time1));
 
@@ -747,6 +770,15 @@ public class QeQTLAnalysis implements IJobOwner
 
 		long start = System.currentTimeMillis();
 		long analysisStarted = profiler.start();
+		QGpuResidualizer gpuResidualizer = null;
+		if (covariateQ != null && residualizationMode != QResidualizationMode.CPU) {
+			gpuResidualizer = new QGpuResidualizer(mContexts, covariateQ, gpuPrecision, profiler);
+			System.out.println("Fixed-effect residualization = GPU (" + gpuPrecision.optionName()
+				+ ", " + mContexts.length + " context" + (mContexts.length == 1 ? "" : "s") + ")");
+		} else if (covariateQ != null) {
+			System.out.println("Fixed-effect residualization = CPU FP64");
+		}
+		try {
 		if (stream) {
 			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
 				+ " rows, expression blocks=" + expressionRows + " rows");
@@ -755,23 +787,28 @@ public class QeQTLAnalysis implements IJobOwner
 				? outputPath.getParent().resolve(".gpu-eqtl-cache")
 				: Path.of(config.getCacheDirectory());
 			long signatureStarted = profiler.start();
+			String preprocessingTag = gpuResidualizer == null ? null : gpuResidualizer.cacheSignatureTag();
 			String genotypeSignature = QBinaryMatrixCache.signature("Genotype", genotypeSource,
-				alignment.genotypeColumnOrder(), covariateQ);
+				alignment.genotypeColumnOrder(), covariateQ, preprocessingTag);
 			String expressionSignature = QBinaryMatrixCache.signature("Expression", expressionSource,
-				alignment.expressionColumnOrder(), covariateQ);
+				alignment.expressionColumnOrder(), covariateQ, preprocessingTag);
 			profiler.record(QeQTLProfiler.Phase.CACHE_SIGNATURES, signatureStarted, 2, 0);
 			long genotypeCacheStarted = profiler.start();
 			try (QBinaryMatrixCache genotypeCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Genotype", genotypeSignature, genotypeSource, alignment.genotypeColumnOrder(), covariateQ,
-				genotypeRows, config.getRebuildCache())) {
+				genotypeRows, config.getRebuildCache(), gpuResidualizer)) {
 				profiler.record(QeQTLProfiler.Phase.GENOTYPE_CACHE_OPEN_OR_BUILD, genotypeCacheStarted,
 					genotypeCache.rowCount(), java.nio.file.Files.size(genotypeCache.path()));
 				long expressionCacheStarted = profiler.start();
 				try (QBinaryMatrixCache expressionCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Expression", expressionSignature, expressionSource, alignment.expressionColumnOrder(), covariateQ,
-				expressionRows, config.getRebuildCache())) {
+				expressionRows, config.getRebuildCache(), gpuResidualizer)) {
 					profiler.record(QeQTLProfiler.Phase.EXPRESSION_CACHE_OPEN_OR_BUILD, expressionCacheStarted,
 						expressionCache.rowCount(), java.nio.file.Files.size(expressionCache.path()));
+					if (gpuResidualizer != null) {
+						gpuResidualizer.close();
+						gpuResidualizer = null;
+					}
 					plugin.eSNPAnalysisStreamed(genotypeCache, expressionCache, rSquaredThreshold, dfOffset,
 						errorDegreesOfFreedom, genotypeRows, expressionRows);
 				}
@@ -786,14 +823,26 @@ public class QeQTLAnalysis implements IJobOwner
 			try (QDelimitedMatrixSource.BlockReader reader = expressionSource.open(alignment.expressionColumnOrder())) {
 				expressionBlock = reader.readBlock(numTraits);
 			}
-			validateFinite(genotypeBlock, "Genotype");
-			validateFinite(expressionBlock, "Expression");
-			QGeneticSNPData genotypeData = toGenotypeData(genotypeBlock);
+			QeQTLPreprocessor.PreparedBlock preparedGenotypes = QeQTLPreprocessor.prepare(
+				genotypeBlock, covariateQ, "Genotype", gpuResidualizer);
+			QeQTLPreprocessor.PreparedBlock preparedExpressions = QeQTLPreprocessor.prepare(
+				expressionBlock, covariateQ, "Expression", gpuResidualizer);
+			if (gpuResidualizer != null) {
+				gpuResidualizer.close();
+				gpuResidualizer = null;
+			}
+			QGeneticSNPData genotypeData = toGenotypeData(new QDelimitedMatrixSource.Block(
+				preparedGenotypes.rowOffset(), preparedGenotypes.rowIds(), preparedGenotypes.values()));
 			String[] canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
-			QGeneExpressionData expressionData = new QGeneExpressionData(expressionBlock.values(),
-				expressionBlock.rowIds(), canonicalSampleIds);
-			plugin.eSNPAnalysis(genotypeData, expressionData, covariateQ, rSquaredThreshold,
-				dfOffset, errorDegreesOfFreedom, isAdditive);
+			QGeneExpressionData expressionData = new QGeneExpressionData(preparedExpressions.values(),
+				preparedExpressions.rowIds(), canonicalSampleIds);
+			plugin.eSNPAnalysisPrepared(genotypeData, expressionData,
+				preparedGenotypes.standardDeviations(), preparedExpressions.standardDeviations(),
+				rSquaredThreshold, dfOffset, errorDegreesOfFreedom, isAdditive);
+		}
+		} finally {
+			if (gpuResidualizer != null)
+				gpuResidualizer.close();
 		}
 		profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
 			(long) numSnps * numTraits, 0);
@@ -856,6 +905,7 @@ public class QeQTLAnalysis implements IJobOwner
 		profiler = new QeQTLProfiler(config.getProfile());
 		try {
 			gpuPrecision = config.getGpuPrecision();
+			residualizationMode = config.getResidualizationMode();
 		} catch (IllegalArgumentException e) {
 			System.err.println("ERROR: " + e.getMessage());
 			System.exit(kExitCodeErrorInvalidParam);
@@ -865,9 +915,10 @@ public class QeQTLAnalysis implements IJobOwner
 			dumpGPUInfo();
 		DEBUG = commandLine.debug();
 		System.out.println("GPU matrix-product precision = " + gpuPrecision.optionName());
+		System.out.println("Fixed-effect residualization mode = " + residualizationMode.optionName());
 		if (gpuPrecision == GpuPrecision.FP32)
-			System.err.println("NOTE: FP32 is enabled explicitly. GPU matrix products are approximate; "
-				+ "preprocessing and statistical calculations remain FP64.");
+			System.err.println("NOTE: FP32 is enabled explicitly. GPU matrix products and GPU covariate "
+				+ "projection are approximate; CPU projection and statistical calculations remain FP64.");
 		if (config.get("lambda") != null)
 			System.err.println("NOTE: The obsolete lambda setting is ignored; automatic sizing uses GPU memory limits.");
 

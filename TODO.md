@@ -12,6 +12,7 @@ This list contains work remaining after the correctness, CLI, bounded-RAM cache,
 
 - Use `--profile` on the complete WHI chromosome run to determine whether rereading the full prepared expression cache once per genotype block remains material after bulk-row I/O. Only then consider expression-block sharing or a different loop/checkpoint schedule.
 - Validate automatic block/worker tuning on real multi-GPU machines and on larger 5,100–5,700-sample cohorts. Revisit the 1-GiB output target and four-worker pipeline only with those measurements.
+- Profile GPU fixed-effect residualization at 5,100–5,700 samples, higher covariate ranks, and on real multi-GPU/Intel/AMD systems. The 2,005-sample NVIDIA study was cache-I/O-bound even though projection compute itself was fast; do not claim a universal wall-time gain.
 - Benchmark FP32 versus FP64 on Intel and AMD hardware. The larger NVIDIA WHI study found one reporting-threshold classification difference, so retain FP64 verification for borderline FP32 findings.
 - Add cache inspection and safe stale-cache pruning commands; never delete caches merely because they are not used by the current run.
 

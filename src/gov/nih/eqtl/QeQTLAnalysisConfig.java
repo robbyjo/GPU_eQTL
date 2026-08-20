@@ -213,6 +213,9 @@ public class QeQTLAnalysisConfig {
 	public GpuPrecision getGpuPrecision()
 	{ return GpuPrecision.parse(mIni.get("precision")); }
 
+	public QResidualizationMode getResidualizationMode()
+	{ return QResidualizationMode.parse(mIni.get("residualization")); }
+
 	public int getGenotypeBlockRows()
 	{ return getNonNegativeInt("genotype_block_rows"); }
 

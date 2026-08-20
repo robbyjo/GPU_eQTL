@@ -26,7 +26,13 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HexFormat;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.zip.CRC32;
 
 import gov.nih.eqtl.QeQTLPreprocessor;
@@ -94,6 +100,13 @@ public final class QBinaryMatrixCache implements AutoCloseable {
     public static QBinaryMatrixCache openOrBuild(Path cacheDirectory, String kind, String signature,
         QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
         int rowsPerBuildBlock, boolean rebuild) throws IOException {
+		return openOrBuild(cacheDirectory, kind, signature, source, columnOrder, covariateQ,
+			rowsPerBuildBlock, rebuild, null);
+	}
+
+	public static QBinaryMatrixCache openOrBuild(Path cacheDirectory, String kind, String signature,
+		QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
+		int rowsPerBuildBlock, boolean rebuild, QeQTLPreprocessor.Residualizer residualizer) throws IOException {
         Files.createDirectories(cacheDirectory);
         Path cachePath = cachePath(cacheDirectory, source.metadata().path(), kind, signature);
         if (!rebuild && Files.isRegularFile(cachePath)) {
@@ -106,13 +119,14 @@ public final class QBinaryMatrixCache implements AutoCloseable {
             }
         }
         System.out.println("Building " + kind + " cache: " + cachePath);
-        build(cachePath, kind, signature, source, columnOrder, covariateQ, rowsPerBuildBlock);
+		build(cachePath, kind, signature, source, columnOrder, covariateQ,
+			rowsPerBuildBlock, residualizer);
         return open(cachePath, kind, signature);
     }
 
     private static void build(Path cachePath, String kind, String signature,
         QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
-        int rowsPerBuildBlock) throws IOException {
+		int rowsPerBuildBlock, QeQTLPreprocessor.Residualizer residualizer) throws IOException {
         Path parent = cachePath.toAbsolutePath().getParent();
         Path temporary = Files.createTempFile(parent, cachePath.getFileName().toString(), ".partial");
         boolean complete = false;
@@ -133,16 +147,30 @@ public final class QBinaryMatrixCache implements AutoCloseable {
                 throw new IOException("Unsupported source row count " + expectedRows);
             long[] offsets = new long[(int) expectedRows];
             int written = 0;
-            QDelimitedMatrixSource.Block raw;
-            while ((raw = reader.readBlock(rowsPerBuildBlock)) != null) {
-                PreparedBlock prepared = QeQTLPreprocessor.prepare(raw, covariateQ, kind);
-                for (int row = 0; row < prepared.values().length; row++) {
-                    if (written >= offsets.length)
-                        throw new IOException("Source grew while building cache: " + source.metadata().path());
-                    offsets[written++] = output.getFilePointer();
-                    writeRow(output, prepared.rowIds()[row], prepared.standardDeviations()[row], prepared.values()[row]);
-                }
-            }
+			int concurrency = preparationConcurrency(residualizer, rowsPerBuildBlock,
+				source.metadata().columnCount());
+			ExecutorService executor = concurrency > 1 ? Executors.newFixedThreadPool(concurrency) : null;
+			Deque<Future<PreparedBlock>> pending = new ArrayDeque<>();
+			try {
+				QDelimitedMatrixSource.Block raw;
+				while ((raw = reader.readBlock(rowsPerBuildBlock)) != null) {
+					if (executor == null) {
+						PreparedBlock prepared = QeQTLPreprocessor.prepare(raw, covariateQ, kind, residualizer);
+						written = writePrepared(output, prepared, offsets, written, source);
+					} else {
+						QDelimitedMatrixSource.Block submitted = raw;
+						pending.addLast(executor.submit(() ->
+							QeQTLPreprocessor.prepare(submitted, covariateQ, kind, residualizer)));
+						if (pending.size() >= concurrency)
+							written = writePrepared(output, await(pending.removeFirst()), offsets, written, source);
+					}
+				}
+				while (!pending.isEmpty())
+					written = writePrepared(output, await(pending.removeFirst()), offsets, written, source);
+			} finally {
+				if (executor != null)
+					executor.shutdownNow();
+			}
             if (written != offsets.length)
                 throw new IOException("Source row count changed while building cache: expected "
                     + offsets.length + ", found " + written);
@@ -165,7 +193,60 @@ public final class QBinaryMatrixCache implements AutoCloseable {
                 Files.deleteIfExists(temporary);
             }
         }
-    }
+	}
+
+	private static int preparationConcurrency(QeQTLPreprocessor.Residualizer residualizer,
+		int rowsPerBlock, int sampleCount) {
+		if (residualizer == null)
+			return 1;
+		int requested = Math.max(1, residualizer.concurrency());
+		int bytesPerValue = residualizer.estimatedHostBytesPerValue();
+		if (requested == 1 || bytesPerValue <= 0)
+			return requested;
+		long blockBytes;
+		try {
+			blockBytes = Math.multiplyExact(Math.multiplyExact((long) rowsPerBlock, sampleCount),
+				bytesPerValue);
+		} catch (ArithmeticException e) {
+			return 1;
+		}
+		Runtime runtime = Runtime.getRuntime();
+		long available = Math.max(0, runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory()));
+		long budget = available - available / 4;
+		int heapLimited = blockBytes <= 0 ? 1
+			: (int) Math.max(1, Math.min((long) requested, budget / blockBytes));
+		if (heapLimited < requested)
+			System.out.println("Limiting matrix-cache GPU preparation concurrency to " + heapLimited
+				+ " for JVM heap headroom (" + requested + " GPU contexts available)");
+		return heapLimited;
+	}
+
+	private static int writePrepared(RandomAccessFile output, PreparedBlock prepared,
+		long[] offsets, int written, QDelimitedMatrixSource source) throws IOException {
+		for (int row = 0; row < prepared.values().length; row++) {
+			if (written >= offsets.length)
+				throw new IOException("Source grew while building cache: " + source.metadata().path());
+			offsets[written++] = output.getFilePointer();
+			writeRow(output, prepared.rowIds()[row], prepared.standardDeviations()[row], prepared.values()[row]);
+		}
+		return written;
+	}
+
+	private static PreparedBlock await(Future<PreparedBlock> future) throws IOException {
+		try {
+			return future.get();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("Interrupted while preparing a matrix cache block", e);
+		} catch (ExecutionException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof RuntimeException runtime)
+				throw runtime;
+			if (cause instanceof Error error)
+				throw error;
+			throw new IOException("Failed to prepare a matrix cache block", cause);
+		}
+	}
 
     public synchronized PreparedBlock readBlock(long rowOffset, int maximumRows) throws IOException {
         if (rowOffset < 0 || rowOffset >= rowCount)
@@ -240,6 +321,11 @@ public final class QBinaryMatrixCache implements AutoCloseable {
 
     public static String signature(String kind, QDelimitedMatrixSource source,
         int[] columnOrder, double[][] covariateQ) throws IOException {
+		return signature(kind, source, columnOrder, covariateQ, null);
+	}
+
+	public static String signature(String kind, QDelimitedMatrixSource source,
+		int[] columnOrder, double[][] covariateQ, String preprocessingTag) throws IOException {
         MessageDigest digest = sha256();
         update(digest, "gpu-eqtl-cache-v" + VERSION);
         update(digest, kind);
@@ -263,6 +349,8 @@ public final class QBinaryMatrixCache implements AutoCloseable {
                 for (double value : row)
                     update(digest, Double.doubleToLongBits(value));
         }
+		if (preprocessingTag != null)
+			update(digest, preprocessingTag);
         return HexFormat.of().formatHex(digest.digest());
     }
 

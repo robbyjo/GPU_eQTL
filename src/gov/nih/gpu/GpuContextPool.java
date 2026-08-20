@@ -19,18 +19,30 @@ import java.util.List;
 public final class GpuContextPool implements AutoCloseable {
 	private final List<GpuContext> allContexts;
 	private final Deque<GpuContext> availableContexts;
+	private final boolean closeContexts;
 	private boolean closed;
 
 	public GpuContextPool(GpuContext[] contexts) {
-		this(contexts == null ? Collections.<GpuContext>emptyList() : Arrays.asList(contexts));
+		this(contexts == null ? Collections.<GpuContext>emptyList() : Arrays.asList(contexts), true);
 	}
 
 	public GpuContextPool(Collection<? extends GpuContext> contexts) {
+		this(contexts, true);
+	}
+
+	private GpuContextPool(Collection<? extends GpuContext> contexts, boolean closeContexts) {
 		if (contexts == null) {
 			throw new IllegalArgumentException("contexts must not be null");
 		}
 		allContexts = new ArrayList<GpuContext>(contexts);
 		availableContexts = new ArrayDeque<GpuContext>(contexts);
+		this.closeContexts = closeContexts;
+	}
+
+	/** A temporary exclusive pool whose close operation leaves the contexts open. */
+	public static GpuContextPool borrowed(GpuContext[] contexts) {
+		return new GpuContextPool(
+			contexts == null ? Collections.<GpuContext>emptyList() : Arrays.asList(contexts), false);
 	}
 
 	public synchronized List<GpuContext> getAllContexts() {
@@ -69,9 +81,9 @@ public final class GpuContextPool implements AutoCloseable {
 			return;
 		}
 		closed = true;
-		for (GpuContext context : allContexts) {
-			context.close();
-		}
+		if (closeContexts)
+			for (GpuContext context : allContexts)
+				context.close();
 		availableContexts.clear();
 		notifyAll();
 	}

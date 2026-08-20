@@ -21,6 +21,7 @@ class QeQTLCommandLineTest {
         QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
             "--config", ini.toString(), "--threads", "7", "--genotype-block-rows", "64",
             "--fixed-covariates", "Age,Batch", "--gpu-backend", "cuda", "--precision", "fp32",
+			"--residualization", "gpu",
             "--cache-dir", directory.resolve("cache").toString(),
             "--checkpoint-dir", directory.resolve("checkpoint").toString(),
             "--profile-output", directory.resolve("profile.csv").toString(),
@@ -30,6 +31,7 @@ class QeQTLCommandLineTest {
         assertArrayEquals(new String[] { "Age", "Batch" }, result.config().getFixedCovariates());
         assertEquals("cuda", result.gpuBackend());
         assertEquals(gov.nih.gpu.GpuPrecision.FP32, result.config().getGpuPrecision());
+		assertEquals(QResidualizationMode.GPU, result.config().getResidualizationMode());
         assertTrue(result.config().getGenotypeFilename().startsWith(directory.toString()));
         assertTrue(result.config().getCacheDirectory().startsWith(directory.toString()));
         assertTrue(result.config().getCheckpointDirectory().startsWith(directory.toString()));
@@ -52,5 +54,6 @@ class QeQTLCommandLineTest {
         assertEquals("csv", result.config().getGenotypeFileFormat());
         assertTrue(result.config().getValidateOnly());
         assertEquals(0, result.config().getNumThreads());
+		assertEquals(QResidualizationMode.AUTO, result.config().getResidualizationMode());
     }
 }

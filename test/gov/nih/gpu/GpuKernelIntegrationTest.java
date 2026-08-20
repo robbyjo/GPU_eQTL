@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class GpuKernelIntegrationTest {
 	@Test
@@ -47,6 +48,26 @@ class GpuKernelIntegrationTest {
 	@Test
 	void openClBackendFp32MatchesCpuReferenceWhenAvailable() {
 		assertRealEqtlOperationFp32(new JoclGpuBackend());
+	}
+
+	@Test
+	void cudaFp64ResidualizationMatchesCpuReferenceWhenAvailable() {
+		assertResidualization(new CudaGpuBackend(), GpuPrecision.FP64);
+	}
+
+	@Test
+	void openClFp64ResidualizationMatchesCpuReferenceWhenAvailable() {
+		assertResidualization(new JoclGpuBackend(), GpuPrecision.FP64);
+	}
+
+	@Test
+	void cudaFp32ResidualizationMatchesCpuReferenceWhenAvailable() {
+		assertResidualization(new CudaGpuBackend(), GpuPrecision.FP32);
+	}
+
+	@Test
+	void openClFp32ResidualizationMatchesCpuReferenceWhenAvailable() {
+		assertResidualization(new JoclGpuBackend(), GpuPrecision.FP32);
 	}
 
 	private static void assertRealEqtlOperation(GpuBackend backend) {
@@ -166,5 +187,86 @@ class GpuKernelIntegrationTest {
 				}
 			}
 		}
+	}
+
+	private static void assertResidualization(GpuBackend backend, GpuPrecision precision) {
+		List<GpuDevice> devices;
+		try {
+			devices = new GpuRuntime(backend).getGpuDevices(true, precision.requiresDoublePrecision());
+		} catch (RuntimeException | LinkageError e) {
+			Assumptions.abort("No usable " + backend.getName() + " runtime: " + e.getMessage());
+			return;
+		}
+		Assumptions.assumeFalse(devices.isEmpty(), "No available " + precision.optionName()
+			+ " device for " + backend.getName());
+
+		int rows = 3;
+		int samples = 8;
+		int rank = 2;
+		double inverseRootN = 1.0 / Math.sqrt(samples);
+		double centeredNorm = Math.sqrt(42.0);
+		double[] q = new double[samples * rank];
+		for (int sample = 0; sample < samples; sample++) {
+			q[sample * rank] = inverseRootN;
+			q[sample * rank + 1] = (sample - 3.5) / centeredNorm;
+		}
+		double[] values = new double[] {
+			2, 3, 5, 7, 11, 13, 17, 19,
+			8, 5, 9, 2, 6, 5, 3, 5,
+			1, 4, 1, 4, 2, 1, 3, 5
+		};
+		double[] expected = residualizeOnCpu(values, q, rows, samples, rank);
+
+		try (GpuContext context = devices.get(0).openContext()) {
+			context.setProfilingEnabled(true);
+			if (precision == GpuPrecision.FP64) {
+				double[] actual = context.residualizeDoubleRows(values, q, rows, samples, rank);
+				assertArrayEquals(expected, actual, 2e-12, backend.getName() + " FP64 residualization");
+				assertEquals((long) (values.length + q.length) * Double.BYTES,
+					context.getLastExecutionMetrics().uploadedBytes());
+				context.residualizeDoubleRows(values, q, rows, samples, rank);
+				assertEquals((long) values.length * Double.BYTES,
+					context.getLastExecutionMetrics().uploadedBytes(), "Q should be uploaded once per context");
+			} else {
+				float[] values32 = toFloat(values);
+				float[] q32 = toFloat(q);
+				float[] actual = context.residualizeFloatRows(values32, q32, rows, samples, rank);
+				for (int i = 0; i < actual.length; i++)
+					assertEquals(expected[i], actual[i], 2e-5,
+						backend.getName() + " FP32 residualization element " + i);
+				assertEquals((long) (values32.length + q32.length) * Float.BYTES,
+					context.getLastExecutionMetrics().uploadedBytes());
+				context.residualizeFloatRows(values32, q32, rows, samples, rank);
+				assertEquals((long) values32.length * Float.BYTES,
+					context.getLastExecutionMetrics().uploadedBytes(), "Q should be uploaded once per context");
+			}
+			assertArrayEquals(new double[] {
+				2, 3, 5, 7, 11, 13, 17, 19,
+				8, 5, 9, 2, 6, 5, 3, 5,
+				1, 4, 1, 4, 2, 1, 3, 5 }, values, 0.0,
+				"Residualization must not mutate the host input");
+		}
+	}
+
+	private static double[] residualizeOnCpu(double[] values, double[] q,
+		int rows, int samples, int rank) {
+		double[] result = values.clone();
+		for (int row = 0; row < rows; row++) {
+			double[] coefficients = new double[rank];
+			for (int column = 0; column < rank; column++)
+				for (int sample = 0; sample < samples; sample++)
+					coefficients[column] += values[row * samples + sample] * q[sample * rank + column];
+			for (int sample = 0; sample < samples; sample++)
+				for (int column = 0; column < rank; column++)
+					result[row * samples + sample] -= coefficients[column] * q[sample * rank + column];
+		}
+		return result;
+	}
+
+	private static float[] toFloat(double[] values) {
+		float[] result = new float[values.length];
+		for (int i = 0; i < values.length; i++)
+			result[i] = (float) values[i];
+		return result;
 	}
 }
