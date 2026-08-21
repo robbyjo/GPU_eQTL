@@ -18,11 +18,17 @@
 package gov.nih.eqtl;
 
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.BitSet;
@@ -43,7 +49,13 @@ import gov.nih.eqtl.io.QPlinkLoader;
 import gov.nih.eqtl.io.QCovariateTable;
 import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QLocalPatternImputedSource;
+import gov.nih.eqtl.io.QMatrixRowSource;
+import gov.nih.eqtl.io.QMissingnessReport;
+import gov.nih.eqtl.io.QMissingnessScan;
+import gov.nih.eqtl.io.QPolicyMatrixSource;
 import gov.nih.eqtl.io.QSampleAlignment;
+import gov.nih.eqtl.io.QVariantMatrixSource;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.eqtl.datastructure.QSNPDataReal;
 import gov.nih.jama.QRDecomposition;
@@ -344,22 +356,33 @@ public class QeQTLAnalysis implements IJobOwner
 		QBinaryMatrixCache expressionCache, double rsq0, int dfo, int dfe,
 		int genotypeRowsPerBlock, int expressionRowsPerBlock)
 	{
+		eSNPAnalysisStreamed(genotypeCache, expressionCache, rsq0, dfo, dfe,
+			genotypeRowsPerBlock, expressionRowsPerBlock,
+			Path.of(config.getOutputFilename()),
+			config.getCheckpointDirectory() == null
+				? Path.of(config.getOutputFilename() + ".checkpoint")
+				: Path.of(config.getCheckpointDirectory()),
+			config.getResume(), config.getKeepCheckpoints(), true, false);
+	}
+
+	private void eSNPAnalysisStreamed(QBinaryMatrixCache genotypeCache,
+		QBinaryMatrixCache expressionCache, double rsq0, int dfo, int dfe,
+		int genotypeRowsPerBlock, int expressionRowsPerBlock,
+		Path outputPath, Path checkpointDirectory, boolean resume,
+		boolean keepCheckpoints, boolean closeGpuContexts, boolean includeSampleStatistics)
+	{
 		final int localBlockSize = 16;
 		int numInds = genotypeCache.sampleCount();
 		if (expressionCache.sampleCount() != numInds)
 			throw new IllegalArgumentException("Prepared cache sample counts differ");
 		int totalBlocks = (int) ceil(genotypeCache.rowCount() * 1.0 / genotypeRowsPerBlock);
-		Path outputPath = Path.of(config.getOutputFilename());
-		Path checkpointDirectory = config.getCheckpointDirectory() == null
-			? Path.of(config.getOutputFilename() + ".checkpoint")
-			: Path.of(config.getCheckpointDirectory());
 		String analysisSignature = QBinaryMatrixCache.analysisSignature(genotypeCache, expressionCache,
 			genotypeRowsPerBlock, expressionRowsPerBlock, dfo, dfe, rsq0,
-			simplifyResult, rsqOnly, gpuPrecision);
+			simplifyResult, rsqOnly, gpuPrecision, includeSampleStatistics);
 		QAnalysisCheckpoint checkpoint;
 		try {
 			checkpoint = QAnalysisCheckpoint.open(checkpointDirectory, analysisSignature, totalBlocks,
-				config.getResume(), config.getKeepCheckpoints());
+				resume, keepCheckpoints);
 		} catch (IOException e) {
 			throw new RuntimeException("Cannot initialize analysis checkpoint", e);
 		}
@@ -367,6 +390,8 @@ public class QeQTLAnalysis implements IJobOwner
 		if (completedAtStart > 0)
 			System.out.println("Completed checkpoint blocks found: " + completedAtStart + " / " + totalBlocks);
 		String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir" : "Rs_ID,ProbesetID,RSq,Fx,T,log10P";
+		if (includeSampleStatistics)
+			outputHeader += ",N,DF";
 		if (completedAtStart == totalBlocks) {
 			try {
 				long assemblyStarted = profiler.start();
@@ -381,7 +406,8 @@ public class QeQTLAnalysis implements IJobOwner
 		String header = kernelHeader(localBlockSize, gpuPrecision)
 			+ "#define N_MIN_1 " + (numInds - 1) + sLn;
 
-		GpuContextPool contextPool = new GpuContextPool(mContexts);
+		GpuContextPool contextPool = closeGpuContexts
+			? new GpuContextPool(mContexts) : GpuContextPool.borrowed(mContexts);
 		try {
 			long compileStarted = profiler.start();
 			for (GpuContext context : contextPool.getAllContexts()) {
@@ -412,7 +438,8 @@ public class QeQTLAnalysis implements IJobOwner
 					prepared.values().length, (long) prepared.values().length * numInds * Double.BYTES);
 				pending.addLast(threadPool.submit(new QeQTLStreamedJobReal(prepared, expressionCache,
 					checkpoint, blockNumber, contextPool, genotypeRowsPerBlock,
-					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, gpuPrecision, profiler)));
+					expressionRowsPerBlock, localBlockSize, dfo, dfe, rsq0, gpuPrecision, profiler,
+					includeSampleStatistics)));
 				if (pending.size() >= numThreads)
 					pending.removeFirst().get();
 			}
@@ -651,31 +678,145 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 	}
 
-	private static void runCsvAnalysis(QeQTLAnalysis plugin, String genotypeFilename,
+	private static void runMatrixAnalysis(QeQTLAnalysis plugin, String genotypeFilename,
 		String expressionFilename, String covariateFilename, String[] fixedCovariates,
 		String[] factorCovariates, String thresholdType, double threshold, int dfOffset,
-		boolean isAdditive, int configuredBlockSize, int numDevices) throws Exception
+		boolean isAdditive, int configuredBlockSize, int numDevices, String genotypeFormat) throws Exception
 	{
 		long metadataStarted = profiler.start();
 		System.out.println("Scanning matrix metadata and identifiers...");
-		QDelimitedMatrixSource genotypeSource = new QDelimitedMatrixSource(
-			Path.of(genotypeFilename), cCommonDelimiter, "#");
-		QDelimitedMatrixSource expressionSource = new QDelimitedMatrixSource(
+		QDataType predictorType = config.getPredictorDataType();
+		QDataType traitType = config.getTraitDataType();
+		QMissingValuePolicy predictorMissing = config.getPredictorMissingPolicy();
+		QMissingValuePolicy traitMissing = config.getTraitMissingPolicy();
+		String covariateMissing = config.getCovariateMissingPolicy();
+		if (!genotypeFormat.equals("csv") && !predictorType.isGenotype())
+			throw new IllegalArgumentException("VCF/BCF input requires --predictor-type genotype");
+		if (predictorMissing == QMissingValuePolicy.LOCAL_PATTERN && !predictorType.isGenotype())
+			throw new IllegalArgumentException("local-pattern imputation is only valid for --predictor-type genotype");
+		if (predictorMissing == QMissingValuePolicy.PATTERN)
+			throw new IllegalArgumentException("Pattern-wise predictor deletion is not yet supported; use mean, local-pattern, error, zero, or exclude-row");
+		if (!(covariateMissing.equals("error") || covariateMissing.equals("complete-samples")))
+			throw new IllegalArgumentException("covariate_missing must be error or complete-samples");
+		QMatrixRowSource genotypeSource;
+		if (genotypeFormat.equals("csv")) {
+			genotypeSource = new QDelimitedMatrixSource(Path.of(genotypeFilename), cCommonDelimiter, "#");
+		} else {
+			if (!isAdditive)
+				throw new IllegalArgumentException("VCF/BCF input currently supports the additive model only");
+			Path qcOutput = config.getVariantQcOutputFilename() == null
+				? Path.of(config.getOutputFilename() == null
+					? genotypeFilename + ".variants.tsv" : config.getOutputFilename() + ".variants.tsv")
+				: Path.of(config.getVariantQcOutputFilename());
+			if (config.getOutputFilename() != null && qcOutput.toAbsolutePath().normalize().equals(
+				Path.of(config.getOutputFilename()).toAbsolutePath().normalize()))
+				throw new IllegalArgumentException("Variant QC output must differ from association output");
+			QVariantMatrixSource.Options variantOptions = new QVariantMatrixSource.Options(
+				QVariantMatrixSource.Format.parse(genotypeFormat, Path.of(genotypeFilename)),
+				QVariantMatrixSource.GenotypeField.parse(config.getGenotypeField()),
+				predictorMissing == QMissingValuePolicy.EXCLUDE_ROW
+					? QVariantMatrixSource.MissingPolicy.EXCLUDE_VARIANT
+					: QVariantMatrixSource.MissingPolicy.PRESERVE,
+				QVariantMatrixSource.MultiallelicPolicy.parse(config.getMultiallelicPolicy()),
+				config.getMinimumMaf(), config.getMinimumMac(), qcOutput);
+			QVariantMatrixSource variantSource = new QVariantMatrixSource(
+				Path.of(genotypeFilename), variantOptions);
+			genotypeSource = variantSource;
+			QVariantMatrixSource.Summary variantSummary = variantSource.summary();
+			System.out.println("Variant genotype field = " + variantSource.selectedField());
+			System.out.println("Variant QC: input=" + variantSummary.inputRecords()
+				+ ", included=" + variantSummary.includedVariants()
+				+ ", monomorphic=" + variantSummary.monomorphicVariants()
+				+ ", singletons=" + variantSummary.singletons()
+				+ ", doubletons=" + variantSummary.doubletons());
+			System.out.println("Variant annotation/QC output: " + qcOutput.toAbsolutePath().normalize());
+		}
+		QMatrixRowSource expressionSource = new QDelimitedMatrixSource(
 			Path.of(expressionFilename), cCommonDelimiter, "#");
-		long genotypeRowCount = genotypeSource.metadata().rowCount();
-		long expressionRowCount = expressionSource.metadata().rowCount();
-		if (genotypeRowCount > Integer.MAX_VALUE || expressionRowCount > Integer.MAX_VALUE)
+		if (genotypeSource.metadata().rowCount() > Integer.MAX_VALUE
+			|| expressionSource.metadata().rowCount() > Integer.MAX_VALUE)
 			throw new IllegalArgumentException("This release supports at most " + Integer.MAX_VALUE + " rows per matrix");
 
+		System.out.println("Declared matrix types: predictor=" + predictorType.optionName()
+			+ ", trait=" + traitType.optionName());
+		System.out.println("Missing-value policies: predictor=" + predictorMissing.optionName()
+			+ ", trait=" + traitMissing.optionName() + ", covariates=" + covariateMissing);
+
+		QSampleAlignment fullAlignment;
 		QSampleAlignment alignment;
+		QCovariateTable covariates = null;
+		QCovariateTable.Missingness covariateMissingness = null;
+		boolean[] retainedCovariateRows = null;
+		String[] canonicalSampleIds;
 		double[][] covariateQ = null;
+		double[][] covariateModel = null;
 		int covariateRank = 1;
 		if (covariateFilename != null) {
 			System.out.println("Loading and validating covariate data...");
-			QCovariateTable covariates = QCovariateTable.load(Path.of(covariateFilename), cCommonDelimiter, "#");
-			alignment = covariates.align(genotypeSource.metadata().sampleIds(),
+			covariates = QCovariateTable.load(Path.of(covariateFilename), cCommonDelimiter, "#");
+			fullAlignment = covariates.align(genotypeSource.metadata().sampleIds(),
 				expressionSource.metadata().sampleIds(), config.getGenotypeIdColumn(), config.getExpressionIdColumn());
-			QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(fixedCovariates, factorCovariates);
+			canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), fullAlignment.genotypeColumnOrder());
+			covariateMissingness = covariates.inspectMissingness(fixedCovariates);
+			retainedCovariateRows = covariateMissingness.completeRows();
+			if (covariateMissing.equals("error")) {
+				java.util.Arrays.fill(retainedCovariateRows, true);
+				alignment = fullAlignment;
+			} else {
+				alignment = fullAlignment.select(retainedCovariateRows);
+				if (alignment.sampleCount() < fullAlignment.sampleCount())
+					System.err.println("WARNING: Removed " + (fullAlignment.sampleCount() - alignment.sampleCount())
+						+ " sample(s) missing a selected covariate.");
+			}
+		} else {
+			fullAlignment = QCovariateTable.alignDirectly(genotypeSource.metadata().sampleIds(),
+				expressionSource.metadata().sampleIds());
+			alignment = fullAlignment;
+			canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
+		}
+
+		System.out.println("Inspecting matrix missingness...");
+		QMissingnessScan predictorScan = QMissingnessScan.scan("predictor", genotypeSource,
+			alignment.genotypeColumnOrder());
+		QMissingnessScan traitScan = QMissingnessScan.scan("trait", expressionSource,
+			alignment.expressionColumnOrder());
+		Path missingnessOutput = missingnessOutput(genotypeFilename);
+		if (config.getOutputFilename() != null && missingnessOutput.equals(
+			Path.of(config.getOutputFilename()).toAbsolutePath().normalize()))
+			throw new IllegalArgumentException("Missingness QC output must differ from association output");
+		QMissingnessReport.write(missingnessOutput, predictorScan, predictorType, predictorMissing,
+			traitScan, traitType, traitMissing, covariateMissingness, covariateMissing, canonicalSampleIds);
+		canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
+		System.out.println("Missingness QC output: " + missingnessOutput);
+		System.out.println("Missing values: predictor=" + predictorScan.totalMissingValues()
+			+ ", trait=" + traitScan.totalMissingValues()
+			+ ", selected covariates=" + (covariateMissingness == null ? 0 : covariateMissingness.totalMissing()));
+		if (config.getInspectMissingness()) {
+			System.out.println("Missingness inspection completed; no association analysis was run.");
+			return;
+		}
+		if (covariateMissingness != null && covariateMissing.equals("error")
+			&& covariateMissingness.totalMissing() > 0)
+			throw new IllegalArgumentException("Selected covariates contain missing values; see " + missingnessOutput);
+		if (predictorMissing == QMissingValuePolicy.ERROR && predictorScan.hasMissingValues())
+			throw new IllegalArgumentException("Predictor matrix contains missing values; see " + missingnessOutput);
+		if (traitMissing == QMissingValuePolicy.ERROR && traitScan.hasMissingValues())
+			throw new IllegalArgumentException("Trait matrix contains missing values; see " + missingnessOutput);
+
+		if (predictorMissing == QMissingValuePolicy.LOCAL_PATTERN) {
+			System.err.println("WARNING: local-pattern is a nearest flanking-genotype proxy; it is not "
+				+ "phasing or reference-panel imputation. Flanks per side=" + config.getPredictorFlankCount());
+			genotypeSource = new QLocalPatternImputedSource(genotypeSource, predictorScan,
+				config.getPredictorFlankCount());
+		} else {
+			genotypeSource = new QPolicyMatrixSource(genotypeSource, predictorScan, predictorMissing);
+		}
+		if (!(traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues()))
+			expressionSource = new QPolicyMatrixSource(expressionSource, traitScan, traitMissing);
+
+		if (covariates != null) {
+			QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(
+				fixedCovariates, factorCovariates, retainedCovariateRows);
 			if (model.automaticFactors().length > 0)
 				System.out.println("Automatically categorical covariates: " + String.join(", ", model.automaticFactors()));
 			System.out.println("Covariate model columns: " + String.join(", ", model.columnNames()));
@@ -685,11 +826,12 @@ public class QeQTLAnalysis implements IJobOwner
 					+ decomposition.getRank() + " for " + decomposition.getNumColumns() + " columns");
 			covariateRank = decomposition.getRank();
 			covariateQ = decomposition.getQ().getArray();
-		} else {
-			alignment = QCovariateTable.alignDirectly(genotypeSource.metadata().sampleIds(),
-				expressionSource.metadata().sampleIds());
+			covariateModel = model.values();
 		}
 
+		long genotypeRowCount = genotypeSource.metadata().rowCount();
+		long expressionRowCount = traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues()
+			? traitScan.rowCount() : expressionSource.metadata().rowCount();
 		int numIndividuals = alignment.sampleCount();
 		int numSnps = (int) genotypeRowCount;
 		int numTraits = (int) expressionRowCount;
@@ -733,7 +875,10 @@ public class QeQTLAnalysis implements IJobOwner
 		long numRequiredIterations = ((numSnps + (long) globalBlockSize - 1) / globalBlockSize)
 			* ((numTraits + (long) globalBlockSize - 1) / globalBlockSize);
 		System.out.println("Given the block size, " + numRequiredIterations + " iteration(s) are needed");
-		boolean stream = config.getGenotypeBlockRows() > 0 || config.getExpressionBlockRows() > 0;
+		boolean dynamicTraitPatterns = traitMissing == QMissingValuePolicy.PATTERN
+			&& traitScan.hasMissingValues();
+		boolean stream = dynamicTraitPatterns || config.getGenotypeBlockRows() > 0
+			|| config.getExpressionBlockRows() > 0;
 		int genotypeRows = 0;
 		int expressionRows = 0;
 		long schedulableJobs = numRequiredIterations;
@@ -770,6 +915,22 @@ public class QeQTLAnalysis implements IJobOwner
 
 		long start = System.currentTimeMillis();
 		long analysisStarted = profiler.start();
+		if (dynamicTraitPatterns) {
+			if (!isAdditive)
+				throw new IllegalArgumentException("Pattern-wise trait deletion currently supports the additive model only");
+			if (config.getResume() || config.getKeepCheckpoints())
+				throw new IllegalArgumentException("Pattern-wise trait deletion does not yet support --resume or --keep-checkpoints");
+			System.err.println("WARNING: Exact pattern-wise trait deletion will run one GPU pass per distinct "
+				+ "missingness pattern and can be very slow. Patterns=" + traitScan.patterns().size());
+			runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
+				alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
+				expressionRows, covariateFilename != null);
+			profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
+				(long) numSnps * numTraits, 0);
+			System.out.println("Total analysis time (in seconds) = "
+				+ (System.currentTimeMillis() - start) / 1000.0);
+			return;
+		}
 		QGpuResidualizer gpuResidualizer = null;
 		if (covariateQ != null && residualizationMode != QResidualizationMode.CPU) {
 			gpuResidualizer = new QGpuResidualizer(mContexts, covariateQ, gpuPrecision, profiler);
@@ -780,7 +941,7 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 		try {
 		if (stream) {
-			System.out.println("Bounded-RAM CSV mode: genotype blocks=" + genotypeRows
+			System.out.println("Bounded-RAM matrix mode: genotype blocks=" + genotypeRows
 				+ " rows, expression blocks=" + expressionRows + " rows");
 			Path outputPath = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
 			Path cacheDirectory = config.getCacheDirectory() == null
@@ -815,12 +976,12 @@ public class QeQTLAnalysis implements IJobOwner
 			}
 		} else {
 			System.out.println("Loading aligned matrices into RAM (set --genotype-block-rows or --expression-block-rows to stream).");
-			QDelimitedMatrixSource.Block genotypeBlock;
-			QDelimitedMatrixSource.Block expressionBlock;
-			try (QDelimitedMatrixSource.BlockReader reader = genotypeSource.open(alignment.genotypeColumnOrder())) {
+			QMatrixRowSource.Block genotypeBlock;
+			QMatrixRowSource.Block expressionBlock;
+			try (QMatrixRowSource.BlockReader reader = genotypeSource.open(alignment.genotypeColumnOrder())) {
 				genotypeBlock = reader.readBlock(numSnps);
 			}
-			try (QDelimitedMatrixSource.BlockReader reader = expressionSource.open(alignment.expressionColumnOrder())) {
+			try (QMatrixRowSource.BlockReader reader = expressionSource.open(alignment.expressionColumnOrder())) {
 				expressionBlock = reader.readBlock(numTraits);
 			}
 			QeQTLPreprocessor.PreparedBlock preparedGenotypes = QeQTLPreprocessor.prepare(
@@ -831,9 +992,8 @@ public class QeQTLAnalysis implements IJobOwner
 				gpuResidualizer.close();
 				gpuResidualizer = null;
 			}
-			QGeneticSNPData genotypeData = toGenotypeData(new QDelimitedMatrixSource.Block(
+			QGeneticSNPData genotypeData = toGenotypeData(new QMatrixRowSource.Block(
 				preparedGenotypes.rowOffset(), preparedGenotypes.rowIds(), preparedGenotypes.values()));
-			String[] canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
 			QGeneExpressionData expressionData = new QGeneExpressionData(preparedExpressions.values(),
 				preparedExpressions.rowIds(), canonicalSampleIds);
 			plugin.eSNPAnalysisPrepared(genotypeData, expressionData,
@@ -849,7 +1009,186 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Total analysis time (in seconds) = " + (System.currentTimeMillis() - start) / 1000.0);
 	}
 
-	private static QGeneticSNPData toGenotypeData(QDelimitedMatrixSource.Block block)
+	private static void runTraitPatternAnalysis(QeQTLAnalysis plugin,
+		QMatrixRowSource predictorSource, QMatrixRowSource rawTraitSource,
+		QMissingnessScan traitScan,
+		QSampleAlignment alignment, double[][] covariateModel,
+		String thresholdType, double threshold, int dfOffset,
+		int predictorRowsPerBlock, int traitRowsPerBlock, boolean hasCovariates) throws Exception
+	{
+		Path output = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
+		Path parent = output.getParent();
+		if (parent == null)
+			parent = Path.of(".").toAbsolutePath().normalize();
+		Files.createDirectories(parent);
+		Path work = Files.createTempDirectory(parent, ".gpu-eqtl-pattern-").toAbsolutePath().normalize();
+		Path partialOutput = Files.createTempFile(parent, output.getFileName().toString(), ".partial");
+		boolean complete = false;
+		try (BufferedWriter combined = Files.newBufferedWriter(partialOutput, StandardCharsets.UTF_8)) {
+			combined.write(rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir,N,DF"
+				: "Rs_ID,ProbesetID,RSq,Fx,T,log10P,N,DF");
+			combined.newLine();
+			int patternNumber = 0;
+			for (QMissingnessScan.Pattern pattern : traitScan.patterns()) {
+				patternNumber++;
+				BitSet missing = pattern.missingSamples();
+				int[] observed = complement(missing, alignment.sampleCount());
+				int[] predictorColumns = select(alignment.genotypeColumnOrder(), observed);
+				int[] traitColumns = select(alignment.expressionColumnOrder(), observed);
+				double[][] patternQ = null;
+				int covariateRank = 1;
+				if (hasCovariates) {
+					double[][] selectedModel = selectRows(covariateModel, observed);
+					QRDecomposition decomposition = new QRDecomposition(selectedModel);
+					if (!decomposition.isFullRank())
+						throw new IllegalArgumentException("Covariate model is rank deficient for trait missingness pattern "
+							+ pattern.id() + " (" + pattern.rowIndices().length + " trait row(s), N="
+							+ observed.length + ")");
+					covariateRank = decomposition.getRank();
+					patternQ = decomposition.getQ().getArray();
+				}
+				int regressionDegreesOfFreedom = covariateRank;
+				int errorDegreesOfFreedom = observed.length - regressionDegreesOfFreedom - 1;
+				if (errorDegreesOfFreedom - dfOffset <= 0)
+					throw new IllegalArgumentException("Non-positive residual degrees of freedom for trait missingness pattern "
+						+ pattern.id() + " (N=" + observed.length + ", covariate rank=" + covariateRank + ")");
+				double patternThreshold = rSquaredThreshold(thresholdType, threshold,
+					errorDegreesOfFreedom, dfOffset);
+				BitSet selectedTraits = new BitSet((int) traitScan.rowCount());
+				for (long row : pattern.rowIndices())
+					selectedTraits.set(Math.toIntExact(row));
+				QMatrixRowSource traitSource = new QPolicyMatrixSource(rawTraitSource,
+					traitScan, QMissingValuePolicy.ERROR, selectedTraits);
+				String suffix = "Pattern" + String.format("%06d", pattern.id());
+				System.out.println("Trait pattern " + patternNumber + "/" + traitScan.patterns().size()
+					+ ": traits=" + pattern.rowIndices().length + ", N=" + observed.length
+					+ ", DF=" + (errorDegreesOfFreedom - dfOffset));
+
+				QGpuResidualizer residualizer = null;
+				if (patternQ != null && residualizationMode != QResidualizationMode.CPU)
+					residualizer = new QGpuResidualizer(mContexts, patternQ, gpuPrecision, profiler);
+				Path predictorCachePath = null;
+				Path traitCachePath = null;
+				try {
+					String preprocessingTag = residualizer == null ? null : residualizer.cacheSignatureTag();
+					String predictorKind = "Predictor" + suffix;
+					String traitKind = "Trait" + suffix;
+					String predictorSignature = QBinaryMatrixCache.signature(predictorKind,
+						predictorSource, predictorColumns, patternQ, preprocessingTag);
+					String traitSignature = QBinaryMatrixCache.signature(traitKind,
+						traitSource, traitColumns, patternQ, preprocessingTag);
+					try (QBinaryMatrixCache predictorCache = QBinaryMatrixCache.openOrBuild(work,
+						predictorKind, predictorSignature, predictorSource, predictorColumns, patternQ,
+						predictorRowsPerBlock, true, residualizer);
+						 QBinaryMatrixCache traitCache = QBinaryMatrixCache.openOrBuild(work,
+						traitKind, traitSignature, traitSource, traitColumns, patternQ,
+						traitRowsPerBlock, true, residualizer)) {
+						predictorCachePath = predictorCache.path();
+						traitCachePath = traitCache.path();
+						if (residualizer != null) {
+							residualizer.close();
+							residualizer = null;
+						}
+						Path groupOutput = work.resolve(suffix + ".csv");
+						Path checkpoint = work.resolve(suffix + ".checkpoint");
+						plugin.eSNPAnalysisStreamed(predictorCache, traitCache, patternThreshold,
+							dfOffset, errorDegreesOfFreedom, predictorRowsPerBlock, traitRowsPerBlock,
+							groupOutput, checkpoint, false, false, false, true);
+						appendWithoutHeader(groupOutput, combined);
+						Files.deleteIfExists(groupOutput);
+					}
+				} finally {
+					if (residualizer != null)
+						residualizer.close();
+					if (predictorCachePath != null)
+						Files.deleteIfExists(predictorCachePath);
+					if (traitCachePath != null)
+						Files.deleteIfExists(traitCachePath);
+				}
+			}
+			combined.flush();
+			complete = true;
+		} finally {
+			for (GpuContext context : mContexts)
+				if (context != null)
+					context.close();
+			cleanupPatternWorkDirectory(work, parent);
+			if (!complete)
+				Files.deleteIfExists(partialOutput);
+		}
+		if (complete)
+			moveAtomically(partialOutput, output);
+	}
+
+	private static double rSquaredThreshold(String type, double threshold,
+		int errorDegreesOfFreedom, int dfOffset) {
+		if (type.equals("none"))
+			return 0;
+		if (!type.equals("pval"))
+			return threshold;
+		double tValue = T.quantile(threshold / 2.0,
+			errorDegreesOfFreedom - dfOffset, false, false);
+		tValue *= tValue;
+		return tValue / (errorDegreesOfFreedom + tValue);
+	}
+
+	private static int[] complement(BitSet excluded, int size) {
+		int[] selected = new int[size - excluded.cardinality()];
+		int output = 0;
+		for (int index = excluded.nextClearBit(0); index < size; index = excluded.nextClearBit(index + 1))
+			selected[output++] = index;
+		return selected;
+	}
+
+	private static int[] select(int[] values, int[] indices) {
+		int[] selected = new int[indices.length];
+		for (int i = 0; i < indices.length; i++)
+			selected[i] = values[indices[i]];
+		return selected;
+	}
+
+	private static double[][] selectRows(double[][] values, int[] indices) {
+		if (values == null)
+			throw new IllegalArgumentException("Covariate model is required");
+		double[][] selected = new double[indices.length][];
+		for (int i = 0; i < indices.length; i++)
+			selected[i] = values[indices[i]].clone();
+		return selected;
+	}
+
+	private static void appendWithoutHeader(Path input, BufferedWriter output) throws IOException {
+		try (BufferedReader reader = Files.newBufferedReader(input, StandardCharsets.UTF_8)) {
+			if (reader.readLine() == null)
+				throw new IOException("Pattern result has no header: " + input);
+			String line;
+			while ((line = reader.readLine()) != null) {
+				output.write(line);
+				output.newLine();
+			}
+		}
+	}
+
+	private static void cleanupPatternWorkDirectory(Path work, Path expectedParent) throws IOException {
+		Path normalized = work.toAbsolutePath().normalize();
+		if (!normalized.startsWith(expectedParent.toAbsolutePath().normalize())
+			|| !normalized.getFileName().toString().startsWith(".gpu-eqtl-pattern-"))
+			throw new IOException("Refusing to clean unexpected pattern work directory " + normalized);
+		try (java.util.stream.Stream<Path> paths = Files.walk(normalized)) {
+			for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList())
+				Files.deleteIfExists(path);
+		}
+	}
+
+	private static void moveAtomically(Path source, Path target) throws IOException {
+		try {
+			Files.move(source, target, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+		} catch (AtomicMoveNotSupportedException e) {
+			Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+		}
+	}
+
+	private static QGeneticSNPData toGenotypeData(QMatrixRowSource.Block block)
 	{
 		QGeneticSNPData result = new QGeneticSNPData();
 		for (int row = 0; row < block.rowCount(); row++) {
@@ -861,13 +1200,22 @@ public class QeQTLAnalysis implements IJobOwner
 		return result;
 	}
 
-	private static void validateFinite(QDelimitedMatrixSource.Block block, String matrixName)
+	private static void validateFinite(QMatrixRowSource.Block block, String matrixName)
 	{
 		for (int row = 0; row < block.rowCount(); row++)
 			for (double value : block.values()[row])
 				if (value == gov.nih.utils.QDataUtils.kUndefinedValue || !Double.isFinite(value))
 					throw new IllegalArgumentException(matrixName + " row '" + block.rowIds()[row]
 						+ "' contains a missing or non-finite value");
+	}
+
+	private static Path missingnessOutput(String predictorFilename)
+	{
+		String configured = config.getMissingnessQcOutputFilename();
+		if (configured != null)
+			return Path.of(configured).toAbsolutePath().normalize();
+		String base = config.getOutputFilename() == null ? predictorFilename : config.getOutputFilename();
+		return Path.of(base + ".missingness.tsv").toAbsolutePath().normalize();
 	}
 
 	private static String[] reorder(String[] values, int[] order)
@@ -877,6 +1225,23 @@ public class QeQTLAnalysis implements IJobOwner
 			result[i] = values[order[i]];
 		return result;
 	}
+
+	private static String resolveGenotypeFormat(String configured, String filename)
+	{
+		String format = configured == null ? "auto" : configured.toLowerCase(java.util.Locale.ROOT);
+		if (!format.equals("auto")) {
+			if (format.equals("vcf.gz") || format.equals("vcfgz"))
+				return "vcf";
+			return format;
+		}
+		String name = filename == null ? "" : filename.toLowerCase(java.util.Locale.ROOT);
+		if (name.endsWith(".bcf"))
+			return "bcf";
+		if (name.endsWith(".vcf") || name.endsWith(".vcf.gz"))
+			return "vcf";
+		return "csv";
+	}
+
 	public static void main(String[] args)
 	{
 		long timea = System.currentTimeMillis();
@@ -931,9 +1296,9 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 
 		int numDevices;
-		if (config.getValidateOnly()) {
+		if (config.getValidateOnly() || config.getInspectMissingness()) {
 			numDevices = 1;
-			System.out.println("Validation-only mode: GPU initialization is skipped.");
+			System.out.println("Validation/inspection mode: GPU initialization is skipped.");
 		} else {
 			System.out.println("Initializing GPUs...");
 			initGPUs();
@@ -953,6 +1318,7 @@ public class QeQTLAnalysis implements IJobOwner
 			covarFixed[] = config.getFixedCovariates(),
 			covarRandom[] = config.getRandomCovariates(),
 			covarFactor[] = config.getFactorCovariates();
+		genoFileformat = resolveGenotypeFormat(genoFileformat, genoFilename);
 		simplifyResult = config.getSimplifyOutput();
 		rsqOnly = config.getRSqOutput();
 		double t0 = config.getThresholdValue();
@@ -1025,11 +1391,14 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Available memory (MB) = " + String.format("%5.2f", (availMem / kMB)));
 
 		QeQTLAnalysis plugin = new QeQTLAnalysis();
-		if (genoFileformat.equalsIgnoreCase("csv") && exprFileformat.equalsIgnoreCase("csv")
-			&& config.getGenotypeFileHeader()) {
+		boolean modernGenotypeFormat = genoFileformat.equalsIgnoreCase("csv")
+			|| genoFileformat.equalsIgnoreCase("vcf") || genoFileformat.equalsIgnoreCase("bcf");
+		if (modernGenotypeFormat && exprFileformat.equalsIgnoreCase("csv")
+			&& (config.getGenotypeFileHeader() || !genoFileformat.equalsIgnoreCase("csv"))) {
 			try {
-				runCsvAnalysis(plugin, genoFilename, exprFilename, covarFilename, covarFixed,
-					covarFactor, thresholdType, t0, dfOffset, isAdditive, globalBlockSize, numDevices);
+				runMatrixAnalysis(plugin, genoFilename, exprFilename, covarFilename, covarFixed,
+					covarFactor, thresholdType, t0, dfOffset, isAdditive, globalBlockSize, numDevices,
+					genoFileformat.toLowerCase(java.util.Locale.ROOT));
 			} catch (Exception e) {
 				e.printStackTrace();
 				System.exit(kExitCodeErrorAnalysisFailure);
@@ -1042,7 +1411,7 @@ public class QeQTLAnalysis implements IJobOwner
 			return;
 		}
 		if (config.getValidateOnly()) {
-			System.err.println("ERROR: --validate-only requires headered CSV genotype and expression matrices.");
+			System.err.println("ERROR: --validate-only requires VCF/BCF or headered CSV genotype input and CSV expression input.");
 			System.exit(kExitCodeErrorInvalidParam);
 			return;
 		}

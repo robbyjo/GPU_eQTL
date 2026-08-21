@@ -155,6 +155,56 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
 
 Omitting `--block-size` and `--threads` in this example enables the device-aware recommendations described above.
 
+### Matrix roles and missing values
+
+The same engine may analyze genotype, expression, methylation, proteomics, or another continuous matrix. Declare the roles instead of asking the program to infer them from the values:
+
+```powershell
+  --predictor-type genotype --trait-type expression
+```
+
+Accepted types are `genotype`, `expression`, `methylation`, `proteomics`, and `continuous`. The historical `--genotype`/`--expression` names and INI files retain genotype/expression defaults for compatibility. The generic `--predictor` and `--traits` spellings require `--predictor-type` and `--trait-type`, respectively. The declared type is reported in the missingness audit and controls whether genotype-only local-pattern imputation is allowed. It does not inspect a large matrix to guess its biological meaning.
+
+Blank fields and the tokens `NA`, `N/A`, `null`, `NaN`, and `.` are missing in delimited matrices. Every modern headered-matrix run writes an atomic tab-separated missingness audit to `<output>.missingness.tsv`; change it with `--missingness-qc-output FILE`. The report includes matrix summaries, exact trait-row missingness patterns, affected row IDs, per-sample counts, and selected-covariate counts. Use `--inspect-missingness` to write this report and stop before GPU initialization.
+
+The defaults reflect the common case of scant genotype missingness and expression-side missingness:
+
+- Predictor missing values use row-mean imputation (`--predictor-missing mean`). For genotype dosage this is the observed effect-allele-frequency mean; it is also a defined, conservative policy for non-genotype continuous predictors.
+- Trait missing values use exact pattern-wise deletion (`--trait-missing pattern`). Trait rows with the same complete-sample mask are residualized and analyzed together. This forces bounded-RAM processing, runs one GPU pass per distinct pattern, reports the effective `N` and p-value `DF` on every result, and can be very slow when there are many patterns. The program prints a warning before starting. Pattern mode does not yet support checkpoint resume, and its output is grouped by missingness pattern rather than global trait-row order.
+- Samples missing any selected fixed covariate are removed once from all three aligned inputs (`--covariate-missing complete-samples`). Use `error` to require selected covariates to be complete.
+
+Predictor and trait alternatives are `error`, `mean`, `zero`, and `exclude-row`. `exclude-row` removes an entire predictor or trait row containing any missing value. Trait `pattern` performs dynamic complete-case selection; predictor `pattern` is intentionally rejected because it would create a separate sample set for every predictor-trait combination.
+
+For sparse missing genotypes, `--predictor-missing local-pattern --predictor-flanks 1` enables a bounded-memory local proxy. It compares the sample's observed dosages at the requested number of variants on each side, finds called donors with the nearest flanking dosage pattern, and averages tied nearest donor dosages. It never averages the flanking SNP dosages themselves. `CHROM:POS...` row identifiers are validated for contiguous, nondecreasing genomic order and chromosome boundaries are respected. If location annotations are absent, the program explicitly warns that it is trusting input row order; if no comparable donor exists it warns and falls back to the row mean. This is inexpensive nearest-pattern imputation, not phasing, LD modeling, or reference-panel imputation, so important analyses should compare it with mean or a standard externally imputed genotype source.
+
+### VCF.gz and BCF genotype input
+
+Genotypes may be read from plain VCF, gzip/BGZF-compressed VCF, or BCF 2.1/2.2 while expression remains a headered delimited matrix. Variant input uses the same metadata/block interface, sample-ID alignment, prepared cache, checkpoint, full-memory path, and bounded-RAM path as CSV. For example:
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --genotype cohort.vcf.gz `
+  --genotype-format vcf `
+  --genotype-field auto `
+  --genotype-missing mean `
+  --min-maf 0.01 `
+  --min-mac 5 `
+  --variant-qc-output cohort.variant-qc.tsv `
+  --expression expression.csv `
+  --covariates covariates.csv `
+  --fixed-covariates Age,Batch,PC1,PC2 `
+  --output results.csv `
+  --genotype-block-rows 10240
+```
+
+`--genotype-format auto` infers VCF/BCF from `.vcf`, `.vcf.gz`, and `.bcf`; otherwise it retains CSV behavior. `--genotype-field auto` chooses header-declared `DS` first and falls back to `GT`. Force either field with `--genotype-field DS` or `GT`. VCF/BCF calls remain missing through the common QC scan and are then handled by `--predictor-missing`; the compatibility spelling `--genotype-missing` selects the same policy. Predictor mean imputation is the default. Use `error` to require complete calls, `exclude-row`/`exclude-variant` to remove the variant, `zero` for an explicit zero fill, or `local-pattern` for the documented flanking proxy.
+
+The current variant model is biallelic, diploid, and additive. Multiallelic records are excluded by default and annotated as such; use `--multiallelic error` to make one fatal. Monomorphic variants are always detected, reported, and excluded because their standardized association row is undefined. `--min-maf` accepts values from 0 through 0.5, and `--min-mac` accepts a non-negative value; when both are present a variant must pass both. MAC may be fractional for imputed dosages. Singletons and doubletons are identified only when the computed MAC is within numerical tolerance of one or two.
+
+Every VCF/BCF scan writes a tab-separated variant report, defaulting to `<output>.variants.tsv`. `--variant-qc-output FILE` changes its location. It contains the canonical association identifier `CHROM:POS:REF:ALT`, rs ID, REF, ALT, original VCF FILTER, selected field, called/missing counts, effect-allele count and allele number, EAF, MAF, MAC, exact biallelic HWE p-value, classification, inclusion status, and exclusion reason. HWE uses available diploid `GT` calls even when `DS` supplies the association dosage; it is `NA` when no usable GT calls exist. Original VCF FILTER values are annotated but are not an implicit analysis filter.
+
+Variant QC and frequency filters are computed over the complete genotype sample set after validating unique header IDs; expression and covariate alignment then verifies that this is the same analysis sample set and applies the required permutation. The unified missingness report describes the final aligned sample set after the selected-covariate policy. Association output uses the canonical variant identifier so missing or duplicated rs IDs cannot collide. The reader scans the variant file for metadata/QC and rereads it by blocks for preparation; it does not materialize the full genotype matrix in RAM when `--genotype-block-rows` is set.
+
 If genotype and expression headers use different identifiers, the program searches for covariate columns whose unique values exactly match each header. Ambiguous cases must be resolved explicitly:
 
 ```powershell
@@ -163,7 +213,7 @@ If genotype and expression headers use different identifiers, the program search
 
 Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode covariates, check model rank, and report degrees of freedom without running the association analysis.
 
-### Bounded-RAM CSV mode
+### Bounded-RAM matrix mode
 
 Set either block-row option to enable the streamed path; an omitted block-row value falls back to `--block-size`. Values are rounded up to the 16-row GPU tile boundary.
 
@@ -174,7 +224,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
   --expression-block-rows 10240
 ```
 
-The same settings can be added to an INI file as `genotype_block_rows` and `expression_block_rows`. ID bridge columns are `genotype_id_column` and `expression_id_column`. Plain CSV, `.csv.gz`, and `.csv.bz2` sources are supported by the metadata/block reader. CSV headers and a first-column row identifier are required for validation and streaming; legacy headerless genotype CSV files continue through the old full-memory loader.
+The same settings can be added to an INI file as `genotype_block_rows` and `expression_block_rows`. ID bridge columns are `genotype_id_column` and `expression_id_column`. Plain CSV, `.csv.gz`, and `.csv.bz2` matrix sources are supported by the delimited metadata/block reader; VCF/VCF.gz/BCF uses the variant reader described above. CSV headers and a first-column row identifier are required for validation and streaming; legacy headerless genotype CSV files continue through the old full-memory loader.
 
 By default, caches are placed in `.gpu-eqtl-cache` beside the output file. Choose another location, preferably fast local SSD storage, with:
 
@@ -216,3 +266,7 @@ The default directory is `<output-file>.checkpoint`. `--checkpoint-dir DIR` sele
 Run `--help` for the complete argument list. See `TODO.md` for the remaining modernization work. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
 
 See `AGENTS.md` for contributor constraints and the ordered roadmap. See `SESSION_HISTORY.md` for timestamped changes, verification, and known limitations.
+
+## License
+
+GPU eQTL is distributed under the GNU General Public License version 3. See [`LICENSE`](LICENSE) for the complete license text.

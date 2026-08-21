@@ -108,9 +108,9 @@ class QBinaryMatrixCacheTest {
         assertArrayEquals(new String[] { "rs2", "rs3" }, cached.rowIds());
 
         PreparedBlock direct;
-        try (QDelimitedMatrixSource.BlockReader reader = genotype.open(alignment.genotypeColumnOrder())) {
-            QDelimitedMatrixSource.Block all = reader.readBlock(3);
-            QDelimitedMatrixSource.Block tail = new QDelimitedMatrixSource.Block(1,
+        try (QMatrixRowSource.BlockReader reader = genotype.open(alignment.genotypeColumnOrder())) {
+            QMatrixRowSource.Block all = reader.readBlock(3);
+            QMatrixRowSource.Block tail = new QMatrixRowSource.Block(1,
                 new String[] { all.rowIds()[1], all.rowIds()[2] },
                 new double[][] { all.values()[1], all.values()[2] });
             direct = QeQTLPreprocessor.prepare(tail, covariateQ, "Genotype");

@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -40,6 +41,28 @@ public final class QCovariateTable {
         @Override
         public String[] automaticFactors() {
             return automaticFactors.clone();
+        }
+    }
+
+    public record Missingness(boolean[] completeRows, int[] rowMissingCounts,
+        Map<String, Integer> columnMissingCounts, int totalMissing) {
+        public Missingness {
+            completeRows = completeRows.clone();
+            rowMissingCounts = rowMissingCounts.clone();
+            columnMissingCounts = Collections.unmodifiableMap(new LinkedHashMap<>(columnMissingCounts));
+        }
+
+        @Override
+        public boolean[] completeRows() { return completeRows.clone(); }
+
+        @Override
+        public int[] rowMissingCounts() { return rowMissingCounts.clone(); }
+
+        public int completeSampleCount() {
+            int count = 0;
+            for (boolean complete : completeRows)
+                if (complete) count++;
+            return count;
         }
     }
 
@@ -181,6 +204,54 @@ public final class QCovariateTable {
         return new ModelMatrix(values, modelNames.toArray(String[]::new), automaticFactors.toArray(String[]::new));
     }
 
+    public ModelMatrix buildModelMatrix(String[] terms, String[] forcedFactors, boolean[] includedRows) {
+        if (includedRows == null)
+            return buildModelMatrix(terms, forcedFactors);
+        if (includedRows.length != rows.length)
+            throw new IllegalArgumentException("Covariate row selection has the wrong length");
+        List<String[]> selected = new ArrayList<>();
+        for (int row = 0; row < rows.length; row++)
+            if (includedRows[row])
+                selected.add(rows[row]);
+        if (selected.isEmpty())
+            throw new IllegalArgumentException("Covariate missingness policy removed every sample");
+        return new QCovariateTable(path, columnNames, selected.toArray(String[][]::new))
+            .buildModelMatrix(terms, forcedFactors);
+    }
+
+    public Missingness inspectMissingness(String[] terms) {
+        LinkedHashMap<String, Integer> selectedColumns = new LinkedHashMap<>();
+        if (terms != null) {
+            for (String term : terms) {
+                if (term == null || term.isBlank())
+                    continue;
+                for (String raw : term.split("\\*")) {
+                    String name = raw.trim();
+                    requireColumn(name);
+                    selectedColumns.putIfAbsent(name, 0);
+                }
+            }
+        }
+        boolean[] complete = new boolean[rows.length];
+        Arrays.fill(complete, true);
+        int[] rowMissing = new int[rows.length];
+        int total = 0;
+        for (String name : new ArrayList<>(selectedColumns.keySet())) {
+            int column = columnIndices.get(name);
+            int columnMissing = 0;
+            for (int row = 0; row < rows.length; row++) {
+                if (isMissingToken(rows[row][column])) {
+                    complete[row] = false;
+                    rowMissing[row]++;
+                    columnMissing++;
+                    total++;
+                }
+            }
+            selectedColumns.put(name, columnMissing);
+        }
+        return new Missingness(complete, rowMissing, selectedColumns, total);
+    }
+
     private EncodedColumns encode(String name, boolean forceFactor) {
         int index = columnIndices.get(name);
         boolean numeric = !forceFactor;
@@ -301,10 +372,14 @@ public final class QCovariateTable {
     }
 
     private static void requirePresent(String value, String name, int row) {
-        String normalized = value.toLowerCase(Locale.ROOT);
-        if (value.isEmpty() || normalized.equals("na") || normalized.equals("n/a")
-            || normalized.equals("null") || value.equals("."))
+        if (isMissingToken(value))
             throw new IllegalArgumentException("Missing value for covariate '" + name + "' at data row " + (row + 1));
+    }
+
+    public static boolean isMissingToken(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() || normalized.equals("na") || normalized.equals("n/a")
+            || normalized.equals("null") || normalized.equals("nan") || normalized.equals(".");
     }
 
     private static void validateHeader(String[] header, Path path) throws IOException {

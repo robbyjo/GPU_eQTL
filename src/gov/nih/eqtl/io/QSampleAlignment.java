@@ -41,4 +41,33 @@ public record QSampleAlignment(
     public int sampleCount() {
         return genotypeColumnOrder.length;
     }
+
+    public QSampleAlignment select(boolean[] retainedSamples) {
+        if (retainedSamples == null || retainedSamples.length != sampleCount())
+            throw new IllegalArgumentException("Sample selection has the wrong length");
+        int retained = 0;
+        for (boolean keep : retainedSamples)
+            if (keep) retained++;
+        if (retained == 0)
+            throw new IllegalArgumentException("Sample selection removed every aligned sample");
+        int[] genotype = new int[retained];
+        int[] expression = new int[retained];
+        int output = 0;
+        for (int sample = 0; sample < retainedSamples.length; sample++) {
+            if (!retainedSamples[sample])
+                continue;
+            genotype[output] = genotypeColumnOrder[sample];
+            expression[output] = expressionColumnOrder[sample];
+            output++;
+        }
+        return new QSampleAlignment(genotype, expression, genotypeIdColumn, expressionIdColumn,
+            reorderedCount(genotype), reorderedCount(expression));
+    }
+
+    private static int reorderedCount(int[] order) {
+        int count = 0;
+        for (int i = 0; i < order.length; i++)
+            if (order[i] != i) count++;
+        return count;
+    }
 }

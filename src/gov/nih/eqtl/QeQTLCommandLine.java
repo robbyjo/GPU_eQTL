@@ -29,7 +29,9 @@ public final class QeQTLCommandLine {
     private static final Map<String, String> VALUE_OPTIONS = new LinkedHashMap<>();
     static {
         VALUE_OPTIONS.put("--genotype", "genotype_file");
+        VALUE_OPTIONS.put("--predictor", "genotype_file");
         VALUE_OPTIONS.put("--expression", "expression_file");
+        VALUE_OPTIONS.put("--traits", "expression_file");
         VALUE_OPTIONS.put("--covariates", "covariate_file");
         VALUE_OPTIONS.put("--output", "output_file");
         VALUE_OPTIONS.put("--family", "family_file");
@@ -37,6 +39,19 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--genotype-format", "genotype_format");
         VALUE_OPTIONS.put("--expression-format", "expression_format");
         VALUE_OPTIONS.put("--genotype-model", "genotype_model");
+        VALUE_OPTIONS.put("--genotype-field", "genotype_field");
+        VALUE_OPTIONS.put("--genotype-missing", "genotype_missing");
+        VALUE_OPTIONS.put("--predictor-type", "predictor_type");
+        VALUE_OPTIONS.put("--trait-type", "trait_type");
+        VALUE_OPTIONS.put("--predictor-missing", "predictor_missing");
+		VALUE_OPTIONS.put("--predictor-flanks", "predictor_flanks");
+        VALUE_OPTIONS.put("--trait-missing", "trait_missing");
+        VALUE_OPTIONS.put("--covariate-missing", "covariate_missing");
+        VALUE_OPTIONS.put("--missingness-qc-output", "missingness_qc_output");
+        VALUE_OPTIONS.put("--multiallelic", "multiallelic");
+        VALUE_OPTIONS.put("--min-maf", "min_maf");
+        VALUE_OPTIONS.put("--min-mac", "min_mac");
+        VALUE_OPTIONS.put("--variant-qc-output", "variant_qc_output");
         VALUE_OPTIONS.put("--fixed-covariates", "covariate_fixed");
         VALUE_OPTIONS.put("--random-covariates", "covariate_random");
         VALUE_OPTIONS.put("--factor-covariates", "covariate_factor");
@@ -56,7 +71,7 @@ public final class QeQTLCommandLine {
 
     private static final List<String> PATH_OPTIONS = List.of(
         "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
-        "cache_dir", "checkpoint_dir", "profile_output");
+        "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output", "missingness_qc_output");
 
     private QeQTLCommandLine() { }
 
@@ -99,7 +114,7 @@ public final class QeQTLCommandLine {
             if (!workingDirectory.endsWith(File.separator))
                 workingDirectory += File.separator;
             values.put("ini.path", workingDirectory);
-            values.put("genotype_format", "csv");
+            values.put("genotype_format", "auto");
             values.put("expression_format", "csv");
             config = new QeQTLAnalysisConfig(values);
         }
@@ -108,6 +123,8 @@ public final class QeQTLCommandLine {
         boolean printGpuInfo = false;
         boolean debug = false;
         String gpuBackend = null;
+		boolean genericPredictor = false;
+		boolean genericTraits = false;
         for (int i = 0; i < args.length; i++) {
             String argument = args[i];
             if (!argument.startsWith("-"))
@@ -115,6 +132,8 @@ public final class QeQTLCommandLine {
             if ("--config".equals(argument)) {
                 i++;
             } else if (VALUE_OPTIONS.containsKey(argument)) {
+				if ("--predictor".equals(argument)) genericPredictor = true;
+				if ("--traits".equals(argument)) genericTraits = true;
                 String key = VALUE_OPTIONS.get(argument);
                 String value = requireValue(args, ++i, argument);
                 if (PATH_OPTIONS.contains(key))
@@ -136,6 +155,8 @@ public final class QeQTLCommandLine {
                 config.set("rsq_only", "true");
             } else if ("--validate-only".equals(argument)) {
                 config.set("validate_only", "true");
+            } else if ("--inspect-missingness".equals(argument)) {
+                config.set("inspect_missingness", "true");
             } else if ("--rebuild-cache".equals(argument)) {
                 config.set("rebuild_cache", "true");
             } else if ("--resume".equals(argument)) {
@@ -156,6 +177,10 @@ public final class QeQTLCommandLine {
                 throw new IllegalArgumentException("Unknown option: " + argument);
             }
         }
+		if (genericPredictor && config.get("predictor_type") == null)
+			throw new IllegalArgumentException("--predictor requires --predictor-type; use --genotype for the compatibility default");
+		if (genericTraits && config.get("trait_type") == null)
+			throw new IllegalArgumentException("--traits requires --trait-type; use --expression for the compatibility default");
         return new Result(config, help, printGpuInfo, debug, gpuBackend);
     }
 
@@ -171,8 +196,23 @@ public final class QeQTLCommandLine {
               java -jar gpu-eqtl-...-all.jar legacy.ini
               java -jar gpu-eqtl-...-all.jar --config legacy.ini [overrides]
               java -jar gpu-eqtl-...-all.jar --genotype FILE --expression FILE --output FILE [options]
+			  java -jar gpu-eqtl-...-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE --output FILE [options]
 
             Main options:
+              --genotype-format {auto|csv|vcf|vcf.gz|bcf}
+              --predictor-type {genotype|expression|methylation|proteomics|continuous}
+              --trait-type {genotype|expression|methylation|proteomics|continuous}
+              --genotype-field {auto|DS|GT}   Prefer DS when auto and declared (default: auto)
+              --predictor-missing {error|mean|zero|local-pattern|exclude-row}  (default: mean)
+              --predictor-flanks N              Flanks per side for local-pattern (default: 1)
+              --trait-missing {error|mean|zero|exclude-row|pattern} (default: pattern)
+              --genotype-missing VALUE        Compatibility alias for --predictor-missing
+              --covariate-missing {error|complete-samples} (default: complete-samples)
+              --inspect-missingness            Write QC and stop before GPU initialization
+              --missingness-qc-output FILE     Default: OUTPUT.missingness.tsv
+              --multiallelic {exclude|error}  Current biallelic policy (default: exclude)
+              --min-maf VALUE  --min-mac VALUE
+              --variant-qc-output FILE        Variant annotation/QC TSV (default: OUTPUT.variants.tsv)
               --covariates FILE                 Mixed numeric/categorical covariate table
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
@@ -182,8 +222,8 @@ public final class QeQTLCommandLine {
               --precision {fp64|fp32}         GPU matrix-product precision (default: fp64)
 			  --residualization {auto|gpu|cpu} Fixed-effect projection location (default: auto)
               --df-offset N  --block-size N  --threads N
-              --genotype-block-rows N          Enable bounded-RAM CSV analysis
-              --expression-block-rows N        Enable bounded-RAM CSV analysis
+              --genotype-block-rows N          Enable bounded-RAM genotype analysis
+              --expression-block-rows N        Enable bounded-RAM expression analysis
               --cache-dir DIR  --rebuild-cache
               --checkpoint-dir DIR  --resume  --keep-checkpoints
               --profile  --profile-output FILE  Phase timing summary and CSV

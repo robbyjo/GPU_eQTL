@@ -1,0 +1,14 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=1000000,IDX=0>
+##FILTER=<ID=PASS,Description="All filters passed",IDX=0>
+##FILTER=<ID=LowQual,Description="Low quality example retained for annotation",IDX=1>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype",IDX=2>
+##FORMAT=<ID=DS,Number=A,Type=Float,Description="Alternate allele dosage",IDX=3>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S2	S1	S3	S4
+1	100	rsMono	A	G	.	PASS	.	GT:DS	0/0:0	0/0:0	0/0:0	0/0:0
+1	110	rsSingle	C	T	.	PASS	.	GT:DS	0/0:0	0/1:1	0/0:0	0/0:0
+1	120	rsDouble	G	A	.	PASS	.	GT:DS	0/0:0	1/1:2	0/0:0	0/0:0
+1	130	rsCommon	T	C	.	LowQual	.	GT:DS	0/0:0	0/1:1	0/1:1	1/1:2
+1	140	rsMissing	A	C	.	PASS	.	GT:DS	0/0:0	./.:.	0/1:1	1/1:2
+1	150	rsFractional	G	T	.	PASS	.	GT:DS	0/0:0.2	0/1:0.8	0/1:1.4	1/1:2.0
+1	160	rsMulti	A	C,G	.	PASS	.	GT:DS	0/0:0,0	0/1:1,0	0/2:0,1	1/2:1,1

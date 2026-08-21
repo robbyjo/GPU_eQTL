@@ -25,8 +25,8 @@ class QDelimitedMatrixSourceTest {
             source.metadata().sampleIds());
 
         int[] canonicalOrder = { 1, 3, 0, 5, 7, 6, 4, 2 };
-        try (QDelimitedMatrixSource.BlockReader reader = source.open(canonicalOrder)) {
-            QDelimitedMatrixSource.Block first = reader.readBlock(2);
+        try (QMatrixRowSource.BlockReader reader = source.open(canonicalOrder)) {
+            QMatrixRowSource.Block first = reader.readBlock(2);
             assertEquals(0, first.rowOffset());
             assertArrayEquals(new String[] { "rs1", "rs2" }, first.rowIds());
             assertArrayEquals(new double[] { 0.1, 0.4, 1.7, 1.4, 1.9, 0.8, 0.2, 1.1 },

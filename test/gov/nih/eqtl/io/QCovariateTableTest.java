@@ -7,8 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import gov.nih.jama.QRDecomposition;
 
@@ -53,4 +55,20 @@ class QCovariateTableTest {
         assertThrows(IllegalArgumentException.class, () -> covariates.align(
             genotype.metadata().sampleIds(), expression.metadata().sampleIds(), "subject_id", "expression_id"));
     }
+
+	@Test
+	void inspectsSelectedCovariatesAndBuildsOnlyCompleteSamples(@TempDir Path directory) throws Exception {
+		Path file = directory.resolve("covariates.csv");
+		Files.writeString(file, "id,age,batch,unused\nS1,40,A,NA\nS2,NA,B,x\nS3,60,A,y\n");
+		QCovariateTable table = QCovariateTable.load(file, cCommonDelimiter, "#");
+		QCovariateTable.Missingness missing = table.inspectMissingness(new String[] {"age", "batch"});
+		assertEquals(1, missing.totalMissing());
+		assertArrayEquals(new boolean[] {true, false, true}, missing.completeRows());
+		assertEquals(2, missing.completeSampleCount());
+		QCovariateTable.ModelMatrix model = table.buildModelMatrix(
+			new String[] {"age"}, null, missing.completeRows());
+		assertEquals(2, model.values().length);
+		assertArrayEquals(new double[] {1, 40}, model.values()[0]);
+		assertArrayEquals(new double[] {1, 60}, model.values()[1]);
+	}
 }

@@ -10,11 +10,20 @@
     <name>GPU eQTL</name>
     <description>GPU-accelerated eQTL and QTL analysis</description>
 
+    <licenses>
+        <license>
+            <name>GNU General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
         <jcuda.version>12.6.0</jcuda.version>
         <jocl.version>2.0.6</jocl.version>
+        <htsjdk.version>5.0.0</htsjdk.version>
         <junit.version>5.13.4</junit.version>
     </properties>
 
@@ -39,6 +48,11 @@
             <artifactId>commons-compress</artifactId>
             <version>1.28.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.github.samtools</groupId>
+            <artifactId>htsjdk</artifactId>
+            <version>${htsjdk.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>net.sourceforge.jdistlib</groupId>
@@ -56,6 +70,15 @@
     <build>
         <sourceDirectory>src</sourceDirectory>
         <testSourceDirectory>test</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>LICENSE</include>
+                </includes>
+                <targetPath>META-INF</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

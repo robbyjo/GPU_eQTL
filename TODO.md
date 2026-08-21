@@ -2,11 +2,20 @@
 
 This list contains work remaining after the correctness, CLI, bounded-RAM cache, checkpoint, optional FP32, device-aware tuning, and first cache/scheduler profiling milestones. Preserve the scientific and verification rules in `AGENTS.md`.
 
-## Next priority: indexed VCF/VCF.gz and BCF input
+## Missing-data production follow-up
 
-- Add indexed VCF/VCF.gz and BCF genotype input, with explicit `DS`/`GT` policy, multiallelic handling, missing-value rules, region selection, and exact header-sample alignment.
-- Expose metadata and block iteration through the same source abstraction used by bounded CSV input so validation, preparation caches, checkpoint/resume, and future forward selection do not depend on the file format.
-- Add deterministic fixtures for allele orientation, multiallelic records, missing dosage/genotype values, compressed/indexed access, sample reordering, and malformed headers before representative-data testing.
+- Cross-check the new common missingness audit on representative CSV, VCF.gz, and BCF cohorts, including covariate-driven sample removal, and compare exact row/sample/pattern counts with independent R or bcftools summaries.
+- Add a deterministic end-to-end CPU association reference for exact trait-pattern deletion and compare identifiers, effective N, residual DF, effects, and p-values with the GPU path. The first implementation is exact but deliberately conservative: it rebuilds prepared predictor rows once per pattern, groups output by pattern, and disables checkpoint resume.
+- Add resumable pattern scheduling and reusable pattern-specific predictor caches without weakening cache signatures. Investigate batching compatible masks only if it preserves each trait's exact sample set, projection, rank, threshold, and output N/DF.
+- Benchmark `local-pattern` genotype imputation against row-mean and standard reference-panel imputation. Define maximum distance, minimum comparable flanks/donors, phased-input behavior, and richer per-imputation QC before treating the proxy as a production default. Mean remains the default.
+- Consider an explicit global complete-sample policy across predictor, trait, and selected covariates. Keep it distinct from `exclude-row` (feature removal) and exact trait-pattern deletion (per-pattern sample removal).
+
+## VCF/VCF.gz and BCF milestone delivered; production follow-up remains
+
+- Delivered sequential plain/gzip VCF and BCF 2.1/2.2 input through the common metadata/block source, with exact header-sample order, canonical variant IDs, explicit `DS`/`GT`, missing and multiallelic policies, MAF/MAC filters, monomorphic/singleton/doubleton classification, EAF/MAF/MAC, exact biallelic HWE, and an atomic variant-QC report.
+- Keep the deterministic VCF.gz/BCF fixture and optional independently generated BCF test. Before a production run, validate a representative cohort VCF.gz and BCF against `bcftools query` counts, allele statistics, chosen field, sample order, and several hand-checked variants.
+- Add tabix/CSI region selection and true random-access variant blocks. The current first pass scans the whole source for QC and each preparation pass reads sequentially; a prepared cache is indexed, but the original VCF/BCF source is not yet region-queryable in this application.
+- Add an explicit multiallelic split policy only after tests define per-ALT DS/GT projection, other-ALT calls, canonical IDs, allele counts, and HWE behavior. Current choices are `exclude` and `error`.
 
 ## Performance follow-up
 
@@ -20,9 +29,13 @@ This list contains work remaining after the correctness, CLI, bounded-RAM cache,
 
 - Extend validation to family and pedigree identifiers if those inputs remain supported.
 - Add optional compressed result output and decide whether the legacy full-memory scheduler should also assemble deterministic block-ordered output.
+- Generalize legacy association column labels (`Rs_ID`, `ProbesetID`) through an opt-in output schema for methylation, proteomics, and other declared matrix roles without breaking existing parsers.
 
 ## Statistical analyses
 
+- Add gene/region set ingestion and deterministic CPU references for burden, SKAT, and SKAT-O before GPU acceleration. Define allele orientation, MAF/MAC masks, missingness, variant weights, covariate projection, set overlap, null-model reuse, p-value method, and failure behavior for monomorphic or rank-deficient sets.
+- Accelerate the set-test linear algebra in bounded variant/set blocks, reuse the existing multi-GPU context pool, and compare every GPU statistic to the CPU reference. SKAT-O must define its rho grid and adjusted omnibus p-value; do not report the minimum unadjusted component p-value as SKAT-O.
+- Stream only retained set/trait results and support restartable deterministic scheduling so burden/SKAT analyses do not require all variant-by-trait results on disk. Defer relatedness-aware set tests until the cohort covariance/null-model design below is implemented.
 - Add SNP interaction analysis with an explicit model definition, degrees-of-freedom tests, deterministic CPU references, and bounded block-pair scheduling.
 - Add forward selection on top of an indexed/re-readable genotype source, including stopping rules, conditional-model degrees of freedom, and reproducible tie handling.
 - Repair and separately verify the disabled categorical-SNP analysis path. Automatic categorical covariates do not make that path correct.

@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
@@ -43,31 +44,10 @@ import gov.nih.utils.QDataUtils;
  * Metadata-first, re-readable delimited numeric matrix. The first column is a
  * row identifier and the first row contains sample identifiers.
  */
-public final class QDelimitedMatrixSource {
+public final class QDelimitedMatrixSource implements QMatrixRowSource {
     private static final int BUFFER_SIZE = 16 * 1024 * 1024;
 
-    public record Metadata(Path path, long rowCount, int columnCount, String[] sampleIds) {
-        public Metadata {
-            sampleIds = sampleIds == null ? null : sampleIds.clone();
-        }
-
-        @Override
-        public String[] sampleIds() {
-            return sampleIds == null ? null : sampleIds.clone();
-        }
-    }
-
-    public record Block(long rowOffset, String[] rowIds, double[][] values) {
-        public int rowCount() {
-            return values.length;
-        }
-
-        public int columnCount() {
-            return values.length == 0 ? 0 : values[0].length;
-        }
-    }
-
-    public final class BlockReader implements AutoCloseable {
+    public final class BlockReader implements QMatrixRowSource.BlockReader {
         private final CsvReader reader;
         private final int[] columnOrder;
         private long nextRowOffset;
@@ -82,7 +62,7 @@ public final class QDelimitedMatrixSource {
             columnOrder = normalizeColumnOrder(requestedColumnOrder, metadata.columnCount());
         }
 
-        public Block readBlock(int maximumRows) throws IOException {
+        public QMatrixRowSource.Block readBlock(int maximumRows) throws IOException {
             if (maximumRows <= 0)
                 throw new IllegalArgumentException("maximumRows must be positive");
             if (closed)
@@ -102,11 +82,13 @@ public final class QDelimitedMatrixSource {
                 double[] values = new double[columnOrder.length];
                 for (int i = 0; i < columnOrder.length; i++) {
                     String value = tokens[columnOrder[i] + 1].trim();
-                    if (value.isEmpty()) {
+                    if (isMissingToken(value)) {
                         values[i] = QDataUtils.kUndefinedValue;
                     } else {
                         try {
                             values[i] = Double.parseDouble(value);
+                            if (!Double.isFinite(values[i]))
+                                throw new NumberFormatException("not finite");
                         } catch (NumberFormatException e) {
                             throw new IOException("Invalid numeric value at line " + lineNumber
                                 + ", matrix column " + (columnOrder[i] + 2) + " in " + path, e);
@@ -119,7 +101,8 @@ public final class QDelimitedMatrixSource {
             }
             if (rows.isEmpty())
                 return null;
-            return new Block(blockOffset, rowIds.toArray(String[]::new), rows.toArray(double[][]::new));
+            return new QMatrixRowSource.Block(blockOffset, rowIds.toArray(String[]::new),
+                rows.toArray(double[][]::new));
         }
 
         @Override
@@ -134,7 +117,7 @@ public final class QDelimitedMatrixSource {
     private final Path path;
     private final char[] delimiters;
     private final String commentMarkers;
-    private final Metadata metadata;
+    private final QMatrixRowSource.Metadata metadata;
 
     public QDelimitedMatrixSource(Path path, char[] delimiters, String commentMarkers) throws IOException {
         this.path = path.toAbsolutePath().normalize();
@@ -143,15 +126,17 @@ public final class QDelimitedMatrixSource {
         metadata = scanMetadata();
     }
 
-    public Metadata metadata() {
+    @Override
+    public QMatrixRowSource.Metadata metadata() {
         return metadata;
     }
 
+    @Override
     public BlockReader open(int[] columnOrder) throws IOException {
         return new BlockReader(columnOrder);
     }
 
-    private Metadata scanMetadata() throws IOException {
+    private QMatrixRowSource.Metadata scanMetadata() throws IOException {
         Set<String> rowIds = new HashSet<>();
         long rowCount = 0;
         CsvReader reader = null;
@@ -180,7 +165,7 @@ public final class QDelimitedMatrixSource {
             }
             if (rowCount == 0)
                 throw new IOException("Matrix contains no data rows: " + path);
-            return new Metadata(path, rowCount, sampleIds.length, sampleIds);
+            return new QMatrixRowSource.Metadata(path, rowCount, sampleIds.length, sampleIds, null);
         } finally {
             if (reader != null)
                 reader.close();
@@ -212,16 +197,22 @@ public final class QDelimitedMatrixSource {
                 identity[i] = i;
             return identity;
         }
-        if (requested.length != columnCount)
-            throw new IllegalArgumentException("Column order has " + requested.length
-                + " entries; expected " + columnCount);
+        if (requested.length == 0 || requested.length > columnCount)
+            throw new IllegalArgumentException("Column selection has " + requested.length
+                + " entries; expected between 1 and " + columnCount);
         boolean[] seen = new boolean[columnCount];
         for (int value : requested) {
             if (value < 0 || value >= columnCount || seen[value])
-                throw new IllegalArgumentException("Column order is not a permutation");
+                throw new IllegalArgumentException("Column selection contains an invalid or duplicate index");
             seen[value] = true;
         }
         return requested.clone();
+    }
+
+    private static boolean isMissingToken(String value) {
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() || normalized.equals("na") || normalized.equals("n/a")
+            || normalized.equals("null") || normalized.equals("nan") || normalized.equals(".");
     }
 
     private static void validateUniqueIdentifiers(String[] identifiers, String kind, Path path) throws IOException {

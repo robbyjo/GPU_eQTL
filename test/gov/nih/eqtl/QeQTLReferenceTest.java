@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,9 @@ import org.junit.jupiter.api.Test;
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.eqtl.io.QCovariateTable;
 import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QMatrixRowSource;
+import gov.nih.eqtl.io.QMissingnessScan;
+import gov.nih.eqtl.io.QPolicyMatrixSource;
 import gov.nih.eqtl.io.QSampleAlignment;
 import gov.nih.jama.QRDecomposition;
 
@@ -35,12 +39,12 @@ class QeQTLReferenceTest {
         assertEquals(3, regressionDegreesOfFreedom);
         assertEquals(4, errorDegreesOfFreedom);
 
-        QDelimitedMatrixSource.Block genotypeBlock;
-        QDelimitedMatrixSource.Block expressionBlock;
-        try (QDelimitedMatrixSource.BlockReader reader = genotype.open(alignment.genotypeColumnOrder())) {
+        QMatrixRowSource.Block genotypeBlock;
+        QMatrixRowSource.Block expressionBlock;
+        try (QMatrixRowSource.BlockReader reader = genotype.open(alignment.genotypeColumnOrder())) {
             genotypeBlock = reader.readBlock(16);
         }
-        try (QDelimitedMatrixSource.BlockReader reader = expression.open(alignment.expressionColumnOrder())) {
+        try (QMatrixRowSource.BlockReader reader = expression.open(alignment.expressionColumnOrder())) {
             expressionBlock = reader.readBlock(16);
         }
         double[][] covariateQ = qr.getQ().getArray();
@@ -81,6 +85,106 @@ class QeQTLReferenceTest {
             -0.6394636593437162, -0.23924073411641683, -0.410466712182518,
             -0.08092923510992273, -0.5420393432793345, -0.3244133736673645 }, toArray(log10P), 1e-12);
     }
+
+	@Test
+	void exactTraitMissingnessPatternsRecomputeSampleSetRankAndStatistics() throws Exception {
+		QDelimitedMatrixSource genotype = new QDelimitedMatrixSource(
+			Path.of("test/resources/eqtl-reference/genotype.csv"), cCommonDelimiter, "#");
+		QDelimitedMatrixSource expression = new QDelimitedMatrixSource(
+			Path.of("test/resources/missing-reference/expression.csv"), cCommonDelimiter, "#");
+		QCovariateTable covariates = QCovariateTable.load(
+			Path.of("test/resources/eqtl-reference/covariates.csv"), cCommonDelimiter, "#");
+		QSampleAlignment alignment = covariates.align(genotype.metadata().sampleIds(),
+			expression.metadata().sampleIds(), "genotype_id", "expression_id");
+		QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(
+			new String[] {"Age", "Batch"}, null);
+		QMissingnessScan scan = QMissingnessScan.scan("trait", expression,
+			alignment.expressionColumnOrder());
+		assertEquals(2, scan.patterns().size());
+
+		List<String> identifiers = new ArrayList<>();
+		List<Double> rSquared = new ArrayList<>();
+		List<Double> effects = new ArrayList<>();
+		List<Double> tStatistics = new ArrayList<>();
+		List<Integer> sampleCounts = new ArrayList<>();
+		List<Integer> residualDf = new ArrayList<>();
+		for (QMissingnessScan.Pattern pattern : scan.patterns()) {
+			int[] observed = complement(pattern.missingSamples(), alignment.sampleCount());
+			double[][] selectedModel = selectRows(model.values(), observed);
+			QRDecomposition qr = new QRDecomposition(selectedModel);
+			assertEquals(3, qr.getRank());
+			int dfe = observed.length - qr.getRank() - 1;
+			BitSet selectedTraits = new BitSet((int) scan.rowCount());
+			for (long row : pattern.rowIndices())
+				selectedTraits.set((int) row);
+			QMatrixRowSource selectedExpression = new QPolicyMatrixSource(expression, scan,
+				QMissingValuePolicy.ERROR, selectedTraits);
+			QMatrixRowSource.Block genotypeBlock;
+			QMatrixRowSource.Block expressionBlock;
+			try (QMatrixRowSource.BlockReader reader = genotype.open(
+				select(alignment.genotypeColumnOrder(), observed))) {
+				genotypeBlock = reader.readBlock(16);
+			}
+			try (QMatrixRowSource.BlockReader reader = selectedExpression.open(
+				select(alignment.expressionColumnOrder(), observed))) {
+				expressionBlock = reader.readBlock(16);
+			}
+			PreparedBlock snps = QeQTLPreprocessor.prepare(genotypeBlock,
+				qr.getQ().getArray(), "Genotype");
+			PreparedBlock traits = QeQTLPreprocessor.prepare(expressionBlock,
+				qr.getQ().getArray(), "Expression");
+			for (int snp = 0; snp < snps.values().length; snp++) {
+				for (int trait = 0; trait < traits.values().length; trait++) {
+					double correlation = QeQTLPreprocessor.correlation(
+						snps.values()[snp], traits.values()[trait]);
+					QeQTLStatistics.Result result = QeQTLStatistics.calculate(correlation,
+						traits.standardDeviations()[trait], snps.standardDeviations()[snp], dfe, 0);
+					identifiers.add(snps.rowIds()[snp] + "/" + traits.rowIds()[trait]);
+					rSquared.add(result.rSquared());
+					effects.add(result.effect());
+					tStatistics.add(result.tStatistic());
+					sampleCounts.add(observed.length);
+					residualDf.add(dfe);
+				}
+			}
+		}
+
+		assertArrayEquals(new String[] {"rs1/iso1", "rs2/iso1", "rs3/iso1",
+			"rs1/iso2", "rs2/iso2", "rs3/iso2"}, identifiers.toArray(String[]::new));
+		assertArrayEquals(new Integer[] {8, 8, 8, 7, 7, 7}, sampleCounts.toArray(Integer[]::new));
+		assertArrayEquals(new Integer[] {4, 4, 4, 3, 3, 3}, residualDf.toArray(Integer[]::new));
+		assertArrayEquals(new double[] {0.33429286679254133, 0.18924585599861957,
+			0.2735057531379482, 0.22047136051758234, 0.03308959550638096,
+			0.35070209723441076}, toArray(rSquared), 1e-12);
+		assertArrayEquals(new double[] {0.2594575510480451, -0.24749432530757393,
+			0.38742926434923264, -0.11012349969527942, 0.05316436390087009,
+			-0.23150143426852185}, toArray(effects), 1e-12);
+		assertArrayEquals(new double[] {1.4172678817212558, -0.9662702228081002,
+			1.2271485511712632, -0.921129477588173, 0.32041529561311494,
+			-1.272939634032138}, toArray(tStatistics), 1e-12);
+	}
+
+	private static int[] complement(BitSet excluded, int size) {
+		int[] result = new int[size - excluded.cardinality()];
+		int output = 0;
+		for (int i = excluded.nextClearBit(0); i < size; i = excluded.nextClearBit(i + 1))
+			result[output++] = i;
+		return result;
+	}
+
+	private static int[] select(int[] values, int[] indices) {
+		int[] result = new int[indices.length];
+		for (int i = 0; i < indices.length; i++)
+			result[i] = values[indices[i]];
+		return result;
+	}
+
+	private static double[][] selectRows(double[][] values, int[] indices) {
+		double[][] result = new double[indices.length][];
+		for (int i = 0; i < indices.length; i++)
+			result[i] = values[indices[i]].clone();
+		return result;
+	}
 
     private static double[] toArray(List<Double> values) {
         double[] result = new double[values.size()];

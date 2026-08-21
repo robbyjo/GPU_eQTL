@@ -4,6 +4,7 @@ package gov.nih.eqtl;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,9 +52,61 @@ class QeQTLCommandLineTest {
             "--threshold", "pval", "1e-4", "--validate-only" });
         assertEquals("pval", result.config().getThresholdType());
         assertEquals(1e-4, result.config().getThresholdValue());
-        assertEquals("csv", result.config().getGenotypeFileFormat());
+        assertEquals("auto", result.config().getGenotypeFileFormat());
         assertTrue(result.config().getValidateOnly());
         assertEquals(0, result.config().getNumThreads());
 		assertEquals(QResidualizationMode.AUTO, result.config().getResidualizationMode());
     }
+
+    @Test
+    void variantQcArgumentsAreParsed(@TempDir Path directory) throws Exception {
+        Path qc = directory.resolve("variants.tsv");
+        QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+            "--genotype", directory.resolve("g.vcf.gz").toString(),
+            "--expression", directory.resolve("e.csv").toString(),
+            "--output", directory.resolve("o.csv").toString(),
+            "--genotype-format", "vcf.gz", "--genotype-field", "GT",
+            "--genotype-missing", "mean", "--multiallelic", "error",
+            "--min-maf", "0.01", "--min-mac", "5", "--variant-qc-output", qc.toString() });
+        assertEquals("vcf.gz", result.config().getGenotypeFileFormat());
+        assertEquals("GT", result.config().getGenotypeField());
+        assertEquals("mean", result.config().getGenotypeMissingPolicy());
+        assertEquals("error", result.config().getMultiallelicPolicy());
+        assertEquals(0.01, result.config().getMinimumMaf());
+        assertEquals(5, result.config().getMinimumMac());
+        assertEquals(qc.toAbsolutePath().normalize().toString(), result.config().getVariantQcOutputFilename());
+    }
+
+	@Test
+	void explicitMatrixTypesAndMissingnessPoliciesAreParsed(@TempDir Path directory) throws Exception {
+		Path qc = directory.resolve("missingness.tsv");
+		QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+			"--predictor", directory.resolve("methylation.csv").toString(),
+			"--traits", directory.resolve("proteomics.csv").toString(),
+			"--output", directory.resolve("result.csv").toString(),
+			"--predictor-type", "methylation", "--trait-type", "proteomics",
+			"--predictor-missing", "mean", "--trait-missing", "pattern",
+			"--predictor-flanks", "2", "--covariate-missing", "complete-samples",
+			"--missingness-qc-output", qc.toString(), "--inspect-missingness" });
+		assertEquals(QDataType.METHYLATION, result.config().getPredictorDataType());
+		assertEquals(QDataType.PROTEOMICS, result.config().getTraitDataType());
+		assertEquals(QMissingValuePolicy.MEAN, result.config().getPredictorMissingPolicy());
+		assertEquals(QMissingValuePolicy.PATTERN, result.config().getTraitMissingPolicy());
+		assertEquals(2, result.config().getPredictorFlankCount());
+		assertTrue(result.config().getInspectMissingness());
+		assertEquals(qc.toAbsolutePath().normalize().toString(),
+			result.config().getMissingnessQcOutputFilename());
+	}
+
+	@Test
+	void genericMatrixNamesRequireExplicitBiologicalTypes(@TempDir Path directory) {
+		assertThrows(IllegalArgumentException.class, () -> QeQTLCommandLine.parse(new String[] {
+			"--predictor", directory.resolve("p.csv").toString(),
+			"--expression", directory.resolve("e.csv").toString(),
+			"--output", directory.resolve("o.csv").toString() }));
+		assertThrows(IllegalArgumentException.class, () -> QeQTLCommandLine.parse(new String[] {
+			"--genotype", directory.resolve("g.csv").toString(),
+			"--traits", directory.resolve("t.csv").toString(),
+			"--output", directory.resolve("o.csv").toString() }));
+	}
 }

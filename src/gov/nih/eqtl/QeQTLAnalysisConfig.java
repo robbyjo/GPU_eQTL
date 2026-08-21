@@ -131,6 +131,64 @@ public class QeQTLAnalysisConfig {
 		return s == null ? "additive" : s.toLowerCase(Locale.ENGLISH);  //$NON-NLS-1$
 	}
 
+	public String getGenotypeField()
+	{ return mIni.get("genotype_field"); }
+
+	public String getGenotypeMissingPolicy()
+	{
+		String value = mIni.get("predictor_missing");
+		if (value == null)
+			value = mIni.get("genotype_missing");
+		return value == null ? "mean" : value;
+	}
+
+	public QDataType getPredictorDataType()
+	{ return QDataType.parse(mIni.get("predictor_type"), QDataType.GENOTYPE); }
+
+	public QDataType getTraitDataType()
+	{ return QDataType.parse(mIni.get("trait_type"), QDataType.EXPRESSION); }
+
+	public QMissingValuePolicy getPredictorMissingPolicy()
+	{ return QMissingValuePolicy.parse(getGenotypeMissingPolicy(), QMissingValuePolicy.MEAN); }
+
+	public QMissingValuePolicy getTraitMissingPolicy()
+	{ return QMissingValuePolicy.parse(mIni.get("trait_missing"), QMissingValuePolicy.PATTERN); }
+
+	public int getPredictorFlankCount()
+	{
+		String value = mIni.get("predictor_flanks");
+		if (value == null)
+			return 1;
+		int parsed = Integer.parseInt(value);
+		if (parsed < 1)
+			throw new IllegalArgumentException("predictor_flanks must be at least 1");
+		return parsed;
+	}
+
+	public String getCovariateMissingPolicy()
+	{
+		String value = mIni.get("covariate_missing");
+		return value == null ? "complete-samples" : value.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+	}
+
+	public boolean getInspectMissingness()
+	{ return getBoolean("inspect_missingness"); }
+
+	public String getMissingnessQcOutputFilename()
+	{ return expandPath(mIni.get("missingness_qc_output"), getIniPath()); }
+
+	public String getMultiallelicPolicy()
+	{ return mIni.get("multiallelic"); }
+
+	public double getMinimumMaf()
+	{ return getNonNegativeDouble("min_maf"); }
+
+	public double getMinimumMac()
+	{ return getNonNegativeDouble("min_mac"); }
+
+	public String getVariantQcOutputFilename()
+	{ return expandPath(mIni.get("variant_qc_output"), getIniPath()); }
+
 	public String[] getFixedCovariates()
 	{
 		String s = mIni.get("covariate_fixed"); //$NON-NLS-1$
@@ -263,6 +321,17 @@ public class QeQTLAnalysisConfig {
 		int parsed = Integer.parseInt(value);
 		if (parsed < 0)
 			throw new IllegalArgumentException(key + " must not be negative");
+		return parsed;
+	}
+
+	private double getNonNegativeDouble(String key)
+	{
+		String value = mIni.get(key);
+		if (value == null)
+			return 0;
+		double parsed = Double.parseDouble(value);
+		if (!Double.isFinite(parsed) || parsed < 0)
+			throw new IllegalArgumentException(key + " must be a finite non-negative number");
 		return parsed;
 	}
 

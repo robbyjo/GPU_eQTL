@@ -17,7 +17,7 @@ package gov.nih.eqtl;
 import static gov.nih.utils.QDataUtils.kUndefinedValue;
 import static gov.nih.utils.QStatsUtils.calcStdDevAndStandardize;
 
-import gov.nih.eqtl.io.QDelimitedMatrixSource.Block;
+import gov.nih.eqtl.io.QMatrixRowSource.Block;
 import gov.nih.utils.matrix.EMultiplicationMode;
 import gov.nih.utils.matrix.QMatrixUtils;
 

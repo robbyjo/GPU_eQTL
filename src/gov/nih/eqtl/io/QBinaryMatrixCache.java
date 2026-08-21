@@ -98,14 +98,14 @@ public final class QBinaryMatrixCache implements AutoCloseable {
     }
 
     public static QBinaryMatrixCache openOrBuild(Path cacheDirectory, String kind, String signature,
-        QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
+        QMatrixRowSource source, int[] columnOrder, double[][] covariateQ,
         int rowsPerBuildBlock, boolean rebuild) throws IOException {
 		return openOrBuild(cacheDirectory, kind, signature, source, columnOrder, covariateQ,
 			rowsPerBuildBlock, rebuild, null);
 	}
 
 	public static QBinaryMatrixCache openOrBuild(Path cacheDirectory, String kind, String signature,
-		QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
+		QMatrixRowSource source, int[] columnOrder, double[][] covariateQ,
 		int rowsPerBuildBlock, boolean rebuild, QeQTLPreprocessor.Residualizer residualizer) throws IOException {
         Files.createDirectories(cacheDirectory);
         Path cachePath = cachePath(cacheDirectory, source.metadata().path(), kind, signature);
@@ -125,16 +125,18 @@ public final class QBinaryMatrixCache implements AutoCloseable {
     }
 
     private static void build(Path cachePath, String kind, String signature,
-        QDelimitedMatrixSource source, int[] columnOrder, double[][] covariateQ,
+        QMatrixRowSource source, int[] columnOrder, double[][] covariateQ,
 		int rowsPerBuildBlock, QeQTLPreprocessor.Residualizer residualizer) throws IOException {
         Path parent = cachePath.toAbsolutePath().getParent();
         Path temporary = Files.createTempFile(parent, cachePath.getFileName().toString(), ".partial");
         boolean complete = false;
         try (RandomAccessFile output = new RandomAccessFile(temporary.toFile(), "rw");
-             QDelimitedMatrixSource.BlockReader reader = source.open(columnOrder)) {
+             QMatrixRowSource.BlockReader reader = source.open(columnOrder)) {
             output.writeInt(MAGIC);
             output.writeInt(VERSION);
-            output.writeInt(source.metadata().columnCount());
+            int selectedSampleCount = columnOrder == null
+                ? source.metadata().columnCount() : columnOrder.length;
+            output.writeInt(selectedSampleCount);
             long rowCountPosition = output.getFilePointer();
             output.writeLong(0);
             long indexOffsetPosition = output.getFilePointer();
@@ -148,17 +150,17 @@ public final class QBinaryMatrixCache implements AutoCloseable {
             long[] offsets = new long[(int) expectedRows];
             int written = 0;
 			int concurrency = preparationConcurrency(residualizer, rowsPerBuildBlock,
-				source.metadata().columnCount());
+				selectedSampleCount);
 			ExecutorService executor = concurrency > 1 ? Executors.newFixedThreadPool(concurrency) : null;
 			Deque<Future<PreparedBlock>> pending = new ArrayDeque<>();
 			try {
-				QDelimitedMatrixSource.Block raw;
+				QMatrixRowSource.Block raw;
 				while ((raw = reader.readBlock(rowsPerBuildBlock)) != null) {
 					if (executor == null) {
 						PreparedBlock prepared = QeQTLPreprocessor.prepare(raw, covariateQ, kind, residualizer);
 						written = writePrepared(output, prepared, offsets, written, source);
 					} else {
-						QDelimitedMatrixSource.Block submitted = raw;
+						QMatrixRowSource.Block submitted = raw;
 						pending.addLast(executor.submit(() ->
 							QeQTLPreprocessor.prepare(submitted, covariateQ, kind, residualizer)));
 						if (pending.size() >= concurrency)
@@ -222,7 +224,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
 	}
 
 	private static int writePrepared(RandomAccessFile output, PreparedBlock prepared,
-		long[] offsets, int written, QDelimitedMatrixSource source) throws IOException {
+		long[] offsets, int written, QMatrixRowSource source) throws IOException {
 		for (int row = 0; row < prepared.values().length; row++) {
 			if (written >= offsets.length)
 				throw new IOException("Source grew while building cache: " + source.metadata().path());
@@ -319,12 +321,12 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         file.close();
     }
 
-    public static String signature(String kind, QDelimitedMatrixSource source,
+    public static String signature(String kind, QMatrixRowSource source,
         int[] columnOrder, double[][] covariateQ) throws IOException {
 		return signature(kind, source, columnOrder, covariateQ, null);
 	}
 
-	public static String signature(String kind, QDelimitedMatrixSource source,
+	public static String signature(String kind, QMatrixRowSource source,
 		int[] columnOrder, double[][] covariateQ, String preprocessingTag) throws IOException {
         MessageDigest digest = sha256();
         update(digest, "gpu-eqtl-cache-v" + VERSION);
@@ -336,6 +338,8 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         update(digest, modified.toMillis());
         update(digest, source.metadata().rowCount());
         update(digest, source.metadata().columnCount());
+        if (source.metadata().cacheSignatureTag() != null)
+            update(digest, source.metadata().cacheSignatureTag());
         for (String sampleId : source.metadata().sampleIds())
             update(digest, sampleId);
         for (int column : columnOrder)
@@ -358,6 +362,15 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         int genotypeRows, int expressionRows, int degreesOfFreedomOffset,
         int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify,
         boolean rSquaredOnly, GpuPrecision precision) {
+		return analysisSignature(genotype, expression, genotypeRows, expressionRows,
+			degreesOfFreedomOffset, errorDegreesOfFreedom, rSquaredThreshold, simplify,
+			rSquaredOnly, precision, false);
+	}
+
+    public static String analysisSignature(QBinaryMatrixCache genotype, QBinaryMatrixCache expression,
+        int genotypeRows, int expressionRows, int degreesOfFreedomOffset,
+        int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify,
+        boolean rSquaredOnly, GpuPrecision precision, boolean includeSampleStatistics) {
         MessageDigest digest = sha256();
         update(digest, "gpu-eqtl-checkpoint-v1");
         update(digest, genotype.signature());
@@ -370,6 +383,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         update(digest, simplify ? 1 : 0);
         update(digest, rSquaredOnly ? 1 : 0);
         update(digest, precision.optionName());
+		update(digest, includeSampleStatistics ? 1 : 0);
         return HexFormat.of().formatHex(digest.digest());
     }
 

@@ -39,12 +39,14 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final double rSquaredThreshold;
     private final GpuPrecision precision;
     private final QeQTLProfiler profiler;
+    private final boolean includeSampleStatistics;
+    private final int sampleCount;
 
     QeQTLStreamedJobReal(PreparedBlock genotype, QBinaryMatrixCache expressionCache,
         QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
         int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold,
-        GpuPrecision precision, QeQTLProfiler profiler) {
+        GpuPrecision precision, QeQTLProfiler profiler, boolean includeSampleStatistics) {
         this.genotype = genotype;
         this.expressionCache = expressionCache;
         this.checkpoint = checkpoint;
@@ -58,6 +60,8 @@ final class QeQTLStreamedJobReal implements Runnable {
         this.rSquaredThreshold = rSquaredThreshold;
         this.precision = precision;
         this.profiler = profiler;
+        this.includeSampleStatistics = includeSampleStatistics;
+        sampleCount = genotype.values()[0].length;
     }
 
     @Override
@@ -196,13 +200,17 @@ final class QeQTLStreamedJobReal implements Runnable {
                 t = Math.copySign(t, correlation);
             }
             output.append(snps.rowIds()[snp]).append(',').append(traits.rowIds()[trait]).append(',')
-                .append(rSquared).append(',').append(effect).append(',').append(t).append(',').append(p).append(sLn);
+                .append(rSquared).append(',').append(effect).append(',').append(t).append(',').append(p);
         } else {
             if (QeQTLAnalysis.simplifyResult)
                 rSquared = Math.round(rSquared * 10000) / 10000.0;
             output.append(snps.rowIds()[snp]).append(',').append(traits.rowIds()[trait]).append(',')
-                .append(rSquared).append(correlation < 0 ? ",-" : ",+").append(sLn);
+                .append(rSquared).append(correlation < 0 ? ",-" : ",+");
         }
+        if (includeSampleStatistics)
+            output.append(',').append(sampleCount).append(',')
+                .append(errorDegreesOfFreedom - degreesOfFreedomOffset);
+        output.append(sLn);
     }
 
     private void flush(StringBuilder output, Writer writer) {

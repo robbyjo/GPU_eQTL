@@ -41,6 +41,8 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 - Before changing matrix layout, padding, work sizes, covariate residualization, or statistical formulas, add a small deterministic reference dataset and compare identifiers, pair counts, R-squared values, p-values, and degrees of freedom.
 - FP32 must remain opt-in. GPU residualization follows the requested precision, while QR/rank decisions, prepared-cache encoding, standardization, and CPU statistical work stay FP64. Cache/checkpoint signatures must distinguish approximate preprocessing. Any expansion of FP32 behavior requires an explicit accuracy study and user approval.
 - Treat missing, duplicated, reordered, or mismatched sample IDs as fatal unless an explicit alignment policy is selected and reported.
+- Missingness must be audited before replacement or deletion. Keep predictor, trait, and selected-covariate policies explicit in the QC output. Pattern-wise trait deletion must recompute the covariate QR/rank, threshold, effective N, and residual degrees of freedom for every exact sample mask.
+- `local-pattern` genotype filling is an unphased nearest-flanking-dosage proxy, not haplotype/reference-panel imputation. It is valid only for a declared genotype predictor, must respect chromosome boundaries when `CHROM:POS` metadata are present, must warn when trusting row order, and must retain row-mean fallback behavior in tests. Mean remains the default predictor policy.
 
 ## Data and compatibility
 
