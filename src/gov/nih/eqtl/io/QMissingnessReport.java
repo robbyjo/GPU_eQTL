@@ -27,6 +27,15 @@ public final class QMissingnessReport {
         QMissingValuePolicy predictorPolicy, QMissingnessScan trait, QDataType traitType,
         QMissingValuePolicy traitPolicy, QCovariateTable.Missingness covariates,
         String covariatePolicy, String[] canonicalSampleIds) throws IOException {
+        write(output, predictor, predictorType, predictorPolicy, trait, traitType,
+            traitPolicy, covariates, covariatePolicy, canonicalSampleIds, null);
+    }
+
+    public static void write(Path output, QMissingnessScan predictor, QDataType predictorType,
+        QMissingValuePolicy predictorPolicy, QMissingnessScan trait, QDataType traitType,
+        QMissingValuePolicy traitPolicy, QCovariateTable.Missingness covariates,
+        String covariatePolicy, String[] canonicalSampleIds,
+        QSampleAlignment alignment) throws IOException {
         Path normalized = output.toAbsolutePath().normalize();
         Path parent = normalized.getParent();
         if (parent != null)
@@ -35,6 +44,8 @@ public final class QMissingnessReport {
         boolean complete = false;
         try (BufferedWriter writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
             writer.write("record_type\tmatrix\tentity_index\tentity_id\ttotal_values\tmissing_values\tmissing_rate\tpattern_id\tpattern_rows\tpolicy\tdetail\n");
+            if (alignment != null)
+                writeAlignment(writer, alignment);
             writeScan(writer, predictor, predictorType.optionName(), predictorPolicy.optionName());
             writeScan(writer, trait, traitType.optionName(), traitPolicy.optionName());
             if (covariates != null) {
@@ -67,6 +78,25 @@ public final class QMissingnessReport {
             else
                 Files.deleteIfExists(temporary);
         }
+    }
+
+    private static void writeAlignment(BufferedWriter writer, QSampleAlignment alignment)
+        throws IOException {
+        alignment(writer, "predictor", alignment.genotypeIdColumn(), alignment.sampleCount(),
+            alignment.genotypeExtraSampleCount(), alignment.genotypeReorderedCount(),
+            alignment.genotypeIdStripPrefix(), alignment.genotypeIdsStripped(), alignment.policy());
+        alignment(writer, "trait", alignment.expressionIdColumn(), alignment.sampleCount(),
+            alignment.expressionExtraSampleCount(), alignment.expressionReorderedCount(),
+            alignment.expressionIdStripPrefix(), alignment.expressionIdsStripped(), alignment.policy());
+    }
+
+    private static void alignment(BufferedWriter writer, String matrix, String idColumn,
+        int selected, int extra, int reordered, String prefix, int stripped,
+        QSampleAlignmentPolicy policy) throws IOException {
+        record(writer, "ALIGNMENT", matrix, -1, idColumn, (long) selected + extra, extra,
+            -1, -1, policy.optionName(), "selected_samples=" + selected
+                + ";matrix_only_samples_excluded=" + extra + ";reordered_samples=" + reordered
+                + ";strip_prefix=" + prefix + ";prefixes_stripped=" + stripped);
     }
 
     private static void writeScan(BufferedWriter writer, QMissingnessScan scan,

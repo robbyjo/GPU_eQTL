@@ -67,6 +67,7 @@ public final class QCovariateTable {
     }
 
     private record EncodedColumns(double[][] columns, String[] names, boolean automaticFactor) { }
+    private record NormalizedIds(String[] values, int transformedCount) { }
 
     private final Path path;
     private final String[] columnNames;
@@ -123,38 +124,66 @@ public final class QCovariateTable {
 
     public QSampleAlignment align(String[] genotypeIds, String[] expressionIds,
         String requestedGenotypeIdColumn, String requestedExpressionIdColumn) {
-        validateUnique(genotypeIds, "genotype sample");
-        validateUnique(expressionIds, "expression sample");
-        if (genotypeIds.length != rows.length || expressionIds.length != rows.length)
-            throw new IllegalArgumentException("Sample counts do not match: genotype=" + genotypeIds.length
-                + ", expression=" + expressionIds.length + ", covariates=" + rows.length);
+        return align(genotypeIds, expressionIds, requestedGenotypeIdColumn,
+            requestedExpressionIdColumn, QSampleAlignmentPolicy.STRICT, null, null);
+    }
 
-        int genotypeIdIndex = resolveIdColumn(genotypeIds, requestedGenotypeIdColumn, "genotype");
-        int expressionIdIndex = resolveIdColumn(expressionIds, requestedExpressionIdColumn, "expression");
-        int[] genotypeOrder = orderFor(genotypeIds, genotypeIdIndex, "genotype");
-        int[] expressionOrder = orderFor(expressionIds, expressionIdIndex, "expression");
+    public QSampleAlignment align(String[] genotypeIds, String[] expressionIds,
+        String requestedGenotypeIdColumn, String requestedExpressionIdColumn,
+        QSampleAlignmentPolicy policy, String genotypeIdStripPrefix,
+        String expressionIdStripPrefix) {
+        if (policy == null)
+            throw new IllegalArgumentException("Sample alignment policy is required");
+        NormalizedIds genotype = normalizeIds(genotypeIds, genotypeIdStripPrefix, "genotype sample");
+        NormalizedIds expression = normalizeIds(expressionIds, expressionIdStripPrefix, "expression sample");
+        if (policy == QSampleAlignmentPolicy.STRICT
+            && (genotypeIds.length != rows.length || expressionIds.length != rows.length))
+            throw new IllegalArgumentException("Sample counts do not match under strict alignment: genotype="
+                + genotypeIds.length + ", expression=" + expressionIds.length + ", covariates=" + rows.length
+                + "; use --sample-alignment covariate-subset only when matrix-only samples should be excluded");
+        if (genotypeIds.length < rows.length || expressionIds.length < rows.length)
+            throw new IllegalArgumentException("A matrix has fewer samples than the covariate table: genotype="
+                + genotypeIds.length + ", expression=" + expressionIds.length + ", covariates=" + rows.length);
+
+        int genotypeIdIndex = resolveIdColumn(genotype.values(), requestedGenotypeIdColumn,
+            "genotype", policy);
+        int expressionIdIndex = resolveIdColumn(expression.values(), requestedExpressionIdColumn,
+            "expression", policy);
+        int[] genotypeOrder = orderFor(genotype.values(), genotypeIdIndex, "genotype");
+        int[] expressionOrder = orderFor(expression.values(), expressionIdIndex, "expression");
         return new QSampleAlignment(genotypeOrder, expressionOrder,
             columnNames[genotypeIdIndex], columnNames[expressionIdIndex],
-            reorderedCount(genotypeOrder), reorderedCount(expressionOrder));
+            reorderedCount(genotypeOrder), reorderedCount(expressionOrder), policy,
+            normalizedPrefix(genotypeIdStripPrefix), normalizedPrefix(expressionIdStripPrefix),
+            genotype.transformedCount(), expression.transformedCount(),
+            genotypeIds.length - rows.length, expressionIds.length - rows.length);
     }
 
     public static QSampleAlignment alignDirectly(String[] genotypeIds, String[] expressionIds) {
-        validateUnique(genotypeIds, "genotype sample");
-        validateUnique(expressionIds, "expression sample");
+        return alignDirectly(genotypeIds, expressionIds, null, null);
+    }
+
+    public static QSampleAlignment alignDirectly(String[] genotypeIds, String[] expressionIds,
+        String genotypeIdStripPrefix, String expressionIdStripPrefix) {
+        NormalizedIds genotype = normalizeIds(genotypeIds, genotypeIdStripPrefix, "genotype sample");
+        NormalizedIds expression = normalizeIds(expressionIds, expressionIdStripPrefix, "expression sample");
         if (genotypeIds.length != expressionIds.length)
             throw new IllegalArgumentException("Genotype and expression sample counts differ");
-        Map<String, Integer> expressionIndex = index(expressionIds, "expression sample");
+        Map<String, Integer> expressionIndex = index(expression.values(), "expression sample");
         int[] identity = new int[genotypeIds.length];
         int[] expressionOrder = new int[genotypeIds.length];
         for (int i = 0; i < genotypeIds.length; i++) {
             identity[i] = i;
-            Integer source = expressionIndex.get(genotypeIds[i]);
+            Integer source = expressionIndex.get(genotype.values()[i]);
             if (source == null)
-                throw new IllegalArgumentException("Expression data are missing genotype sample '" + genotypeIds[i] + "'");
+                throw new IllegalArgumentException("Expression data are missing genotype sample '"
+                    + genotype.values()[i] + "'");
             expressionOrder[i] = source;
         }
         return new QSampleAlignment(identity, expressionOrder, "matrix header", "matrix header",
-            0, reorderedCount(expressionOrder));
+            0, reorderedCount(expressionOrder), QSampleAlignmentPolicy.STRICT,
+            normalizedPrefix(genotypeIdStripPrefix), normalizedPrefix(expressionIdStripPrefix),
+            genotype.transformedCount(), expression.transformedCount(), 0, 0);
     }
 
     public ModelMatrix buildModelMatrix(String[] terms, String[] forcedFactors) {
@@ -315,20 +344,21 @@ public final class QCovariateTable {
         return new EncodedColumns(columns, names, left.automaticFactor() || right.automaticFactor());
     }
 
-    private int resolveIdColumn(String[] matrixIds, String requested, String matrixName) {
+    private int resolveIdColumn(String[] matrixIds, String requested, String matrixName,
+        QSampleAlignmentPolicy policy) {
         if (requested != null) {
             requireColumn(requested);
-            if (!columnMatches(requested, matrixIds))
-                throw new IllegalArgumentException("Covariate column '" + requested + "' does not exactly match "
-                    + matrixName + " sample IDs");
+            if (!columnMatches(requested, matrixIds, policy))
+                throw new IllegalArgumentException("Covariate column '" + requested + "' does not match "
+                    + matrixName + " sample IDs under " + policy.optionName() + " alignment");
             return columnIndices.get(requested);
         }
         List<Integer> matches = new ArrayList<>();
         for (int column = 0; column < columnNames.length; column++)
-            if (columnMatches(columnNames[column], matrixIds))
+            if (columnMatches(columnNames[column], matrixIds, policy))
                 matches.add(column);
         if (matches.isEmpty())
-            throw new IllegalArgumentException("No covariate column exactly matches " + matrixName
+            throw new IllegalArgumentException("No covariate column matches " + matrixName
                 + " sample IDs; specify --" + matrixName + "-id-column");
         if (matches.size() > 1)
             throw new IllegalArgumentException("More than one covariate column matches " + matrixName
@@ -336,7 +366,8 @@ public final class QCovariateTable {
         return matches.get(0);
     }
 
-    private boolean columnMatches(String columnName, String[] identifiers) {
+    private boolean columnMatches(String columnName, String[] identifiers,
+        QSampleAlignmentPolicy policy) {
         int column = columnIndices.get(columnName);
         Set<String> expected = new HashSet<>(Arrays.asList(identifiers));
         Set<String> actual = new HashSet<>();
@@ -345,7 +376,8 @@ public final class QCovariateTable {
             if (value.isEmpty() || !actual.add(value))
                 return false;
         }
-        return actual.equals(expected);
+        return policy == QSampleAlignmentPolicy.STRICT
+            ? actual.equals(expected) : expected.containsAll(actual);
     }
 
     private int[] orderFor(String[] matrixIds, int covariateIdColumn, String matrixName) {
@@ -397,6 +429,28 @@ public final class QCovariateTable {
         if (identifiers == null)
             throw new IllegalArgumentException("Missing " + kind + " identifiers");
         index(identifiers, kind);
+    }
+
+    private static NormalizedIds normalizeIds(String[] identifiers, String prefix, String kind) {
+        if (identifiers == null)
+            throw new IllegalArgumentException("Missing " + kind + " identifiers");
+        String literalPrefix = normalizedPrefix(prefix);
+        String[] normalized = new String[identifiers.length];
+        int transformed = 0;
+        for (int i = 0; i < identifiers.length; i++) {
+            String id = identifiers[i] == null ? "" : identifiers[i].trim();
+            if (!literalPrefix.isEmpty() && id.startsWith(literalPrefix)) {
+                id = id.substring(literalPrefix.length());
+                transformed++;
+            }
+            normalized[i] = id;
+        }
+        index(normalized, kind + " after prefix normalization");
+        return new NormalizedIds(normalized, transformed);
+    }
+
+    private static String normalizedPrefix(String prefix) {
+        return prefix == null ? "" : prefix;
     }
 
     private static Map<String, Integer> index(String[] identifiers, String kind) {

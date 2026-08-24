@@ -24,6 +24,7 @@ public final class QeQTLProfiler {
         CACHE_SIGNATURES("cache_signatures"),
         GENOTYPE_CACHE_OPEN_OR_BUILD("genotype_cache_open_or_build"),
         EXPRESSION_CACHE_OPEN_OR_BUILD("expression_cache_open_or_build"),
+        TRAIT_CACHE_MEMORY_LOAD("trait_cache_memory_load"),
         GENOTYPE_CACHE_READ("genotype_cache_read"),
         EXPRESSION_CACHE_READ("expression_cache_read"),
         GENOTYPE_PACK("genotype_pack"),

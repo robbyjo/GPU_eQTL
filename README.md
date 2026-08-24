@@ -201,15 +201,30 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
 
 The current variant model is biallelic, diploid, and additive. Multiallelic records are excluded by default and annotated as such; use `--multiallelic error` to make one fatal. Monomorphic variants are always detected, reported, and excluded because their standardized association row is undefined. `--min-maf` accepts values from 0 through 0.5, and `--min-mac` accepts a non-negative value; when both are present a variant must pass both. MAC may be fractional for imputed dosages. Singletons and doubletons are identified only when the computed MAC is within numerical tolerance of one or two.
 
-Every VCF/BCF scan writes a tab-separated variant report, defaulting to `<output>.variants.tsv`. `--variant-qc-output FILE` changes its location. It contains the canonical association identifier `CHROM:POS:REF:ALT`, rs ID, REF, ALT, original VCF FILTER, selected field, called/missing counts, effect-allele count and allele number, EAF, MAF, MAC, exact biallelic HWE p-value, classification, inclusion status, and exclusion reason. HWE uses available diploid `GT` calls even when `DS` supplies the association dosage; it is `NA` when no usable GT calls exist. Original VCF FILTER values are annotated but are not an implicit analysis filter.
+Every VCF/BCF analysis performs an aligned-sample QC scan and writes a tab-separated variant report, defaulting to `<output>.variants.tsv`. `--variant-qc-output FILE` changes its location. It contains the canonical association identifier `CHROM:POS:REF:ALT`, rs ID, REF, ALT, original VCF FILTER, selected field, called/missing counts, effect-allele count and allele number, EAF, MAF, MAC, exact biallelic HWE p-value, classification, inclusion status, and exclusion reason. HWE uses available diploid `GT` calls even when `DS` supplies the association dosage; it is `NA` when no usable GT calls exist. Original VCF FILTER values are annotated but are not an implicit analysis filter.
 
-Variant QC and frequency filters are computed over the complete genotype sample set after validating unique header IDs; expression and covariate alignment then verifies that this is the same analysis sample set and applies the required permutation. The unified missingness report describes the final aligned sample set after the selected-covariate policy. Association output uses the canonical variant identifier so missing or duplicated rs IDs cannot collide. The reader scans the variant file for metadata/QC and rereads it by blocks for preparation; it does not materialize the full genotype matrix in RAM when `--genotype-block-rows` is set.
+Large sequential variant passes report progress approximately every 15 seconds (or every million input records, whichever comes first). The aligned-sample QC pass reports records scanned, variants retained, elapsed time, and throughput; its total is not known until that first pass ends. Later missingness and cache-building rereads also report percentage and ETA using the input-record count learned during QC. These counts describe decoded VCF/BCF records rather than compressed bytes, and the QC report remains a `.partial` file until its atomic completion.
+
+Variant QC and frequency filters are computed over the final aligned analysis samples after validating unique header IDs and applying selected-covariate complete-sample removal. This is important under `covariate-subset`: VCF-only samples cannot make an analysis-set monomorphic or rare variant pass MAF/MAC filtering. The QC file's called/missing counts, EAF, MAF, MAC, HWE, singleton/doubleton classification, and monomorphic exclusion all describe that aligned set; the console reports its sample count. Strict alignment (the default) requires genotype, trait, and covariate sample sets to agree exactly. An explicitly requested covariate-subset alignment may instead select the canonical covariate rows from a larger genotype or trait header; all covariate samples must still be present and matrix-only extras are counted in the unified missingness/alignment audit. Association output uses the canonical variant identifier so missing or duplicated rs IDs cannot collide. The reader scans the variant file for metadata/QC only after alignment and rereads it by blocks for preparation; it does not materialize the full genotype matrix in RAM when `--genotype-block-rows` is set.
 
 If genotype and expression headers use different identifiers, the program searches for covariate columns whose unique values exactly match each header. Ambiguous cases must be resolved explicitly:
 
 ```powershell
   --genotype-id-column NWDID --expression-id-column TORID
 ```
+
+Use `--predictor-id-strip-prefix X` or `--trait-id-strip-prefix X` to remove a literal leading prefix before matching IDs. The prefix is removed only where it is present; IDs that do not start with it are unchanged. Blank IDs or collisions created by the transformation are fatal. The compatibility aliases are `--genotype-id-strip-prefix` and `--expression-id-strip-prefix`, and the INI keys are `predictor_id_strip_prefix` and `trait_id_strip_prefix`.
+
+When a VCF contains a superset of the samples represented by the covariate rows, opt in explicitly:
+
+```powershell
+  --sample-alignment covariate-subset `
+  --genotype-id-column framid `
+  --expression-id-column SampleName `
+  --trait-id-strip-prefix X
+```
+
+`strict` remains the default. `covariate-subset` never computes a silent intersection: every covariate ID must occur exactly once in each normalized matrix header. Matrix-only exclusions, transformed prefix counts, bridge columns, and reorder counts are written as `ALIGNMENT` records in the missingness QC file.
 
 Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode covariates, check model rank, and report degrees of freedom without running the association analysis.
 
@@ -235,6 +250,18 @@ By default, caches are placed in `.gpu-eqtl-cache` beside the output file. Choos
 Use `--rebuild-cache` after an intentional forced rebuild. Cache signatures include the input path, size, modification time, row/sample metadata, column permutation, covariate projection, and GPU projection precision/backend family when applicable. A changed signature creates a different cache rather than silently reusing incompatible prepared values. Switching an existing run from CPU to automatic GPU residualization therefore creates a new cache; use `--residualization cpu` to reuse the prior CPU-prepared cache. Old cache versions are not automatically deleted. For the complete WHI chromosome example, allow roughly 6–7 GB of additional uncompressed cache storage.
 
 Prepared rows are encoded and decoded in checksummed bulk records. This preserves the existing cache format and per-row CRC validation while avoiding a file operation and checksum update for every individual double. Caches created by the earlier version remain reusable.
+
+Prepared traits can remain resident in heap memory while genotype blocks stream:
+
+```powershell
+  --genotype-block-rows 10240 `
+  --expression-block-rows 10240 `
+  --trait-cache memory
+```
+
+This does not residualize the trait matrix again. The source is aligned, residualized, standardized, and checksummed once while its reusable FP64 prepared cache is built; memory mode then reads that prepared cache once and retains its row blocks for every genotype block. GPU association still consumes bounded trait tiles. `--trait-cache auto` is the default and chooses memory only when the JVM heap can hold the complete prepared traits plus all configured worker buffers and conservative headroom; otherwise it reports the estimate and uses disk. `--trait-cache disk` always uses indexed disk reads. Explicit `memory` fails before association with `-Xmx`/block/thread guidance when the estimate is unsafe. INI files use `trait_cache = auto|memory|disk`.
+
+For 114,406 traits by 4,746 samples, the numeric FP64 values alone require about 4.05 GiB, before Java row/identifier overhead and active worker buffers. Therefore “in memory” means once-prepared, chunk-built host residency—not one monolithic GPU projection or one giant GPU allocation. With exact trait-pattern deletion, each missingness pattern has a different sample set and covariate projection, so each pattern must still be prepared separately; within a pattern, its prepared trait rows are residualized only once and may use the same memory policy.
 
 ### Performance profiling
 

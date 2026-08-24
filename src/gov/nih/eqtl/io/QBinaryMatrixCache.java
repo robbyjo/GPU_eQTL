@@ -40,7 +40,7 @@ import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.gpu.GpuPrecision;
 
 /** Indexed, reusable FP64 rows after alignment, residualization, and standardization. */
-public final class QBinaryMatrixCache implements AutoCloseable {
+public final class QBinaryMatrixCache implements QPreparedMatrix, AutoCloseable {
     private static final int MAGIC = 0x514d4348; // QMCH
     private static final int INDEX_MAGIC = 0x514d4958; // QMIX
     private static final int VERSION = 1;
@@ -358,7 +358,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    public static String analysisSignature(QBinaryMatrixCache genotype, QBinaryMatrixCache expression,
+    public static String analysisSignature(QPreparedMatrix genotype, QPreparedMatrix expression,
         int genotypeRows, int expressionRows, int degreesOfFreedomOffset,
         int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify,
         boolean rSquaredOnly, GpuPrecision precision) {
@@ -367,7 +367,7 @@ public final class QBinaryMatrixCache implements AutoCloseable {
 			rSquaredOnly, precision, false);
 	}
 
-    public static String analysisSignature(QBinaryMatrixCache genotype, QBinaryMatrixCache expression,
+    public static String analysisSignature(QPreparedMatrix genotype, QPreparedMatrix expression,
         int genotypeRows, int expressionRows, int degreesOfFreedomOffset,
         int errorDegreesOfFreedom, double rSquaredThreshold, boolean simplify,
         boolean rSquaredOnly, GpuPrecision precision, boolean includeSampleStatistics) {

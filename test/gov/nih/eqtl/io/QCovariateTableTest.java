@@ -56,6 +56,40 @@ class QCovariateTableTest {
             genotype.metadata().sampleIds(), expression.metadata().sampleIds(), "subject_id", "expression_id"));
     }
 
+    @Test
+    void stripsLiteralPrefixesAndSelectsCovariateSamplesFromLargerMatrices(
+        @TempDir Path directory) throws Exception {
+        Path file = directory.resolve("covariates.csv");
+        Files.writeString(file, "sample,predictor_id,trait_id\nC1,G1,1\nC2,G2,2\n");
+        QCovariateTable covariates = QCovariateTable.load(file, cCommonDelimiter, "#");
+
+        assertThrows(IllegalArgumentException.class, () -> covariates.align(
+            new String[] {"G2", "EXTRA", "G1"}, new String[] {"X1", "X2"},
+            "predictor_id", "trait_id", QSampleAlignmentPolicy.STRICT, null, "X"));
+
+        QSampleAlignment alignment = covariates.align(
+            new String[] {"G2", "EXTRA", "G1"}, new String[] {"X1", "X2"},
+            "predictor_id", "trait_id", QSampleAlignmentPolicy.COVARIATE_SUBSET, null, "X");
+        assertArrayEquals(new int[] {2, 0}, alignment.genotypeColumnOrder());
+        assertArrayEquals(new int[] {0, 1}, alignment.expressionColumnOrder());
+        assertEquals(QSampleAlignmentPolicy.COVARIATE_SUBSET, alignment.policy());
+        assertEquals(1, alignment.genotypeExtraSampleCount());
+        assertEquals(0, alignment.expressionExtraSampleCount());
+        assertEquals(0, alignment.genotypeIdsStripped());
+        assertEquals(2, alignment.expressionIdsStripped());
+        assertEquals("X", alignment.expressionIdStripPrefix());
+    }
+
+    @Test
+    void rejectsAnIdCollisionCreatedByPrefixNormalization(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("covariates.csv");
+        Files.writeString(file, "id\n1\n2\n");
+        QCovariateTable covariates = QCovariateTable.load(file, cCommonDelimiter, "#");
+        assertThrows(IllegalArgumentException.class, () -> covariates.align(
+            new String[] {"1", "2"}, new String[] {"X1", "1"},
+            "id", "id", QSampleAlignmentPolicy.STRICT, null, "X"));
+    }
+
 	@Test
 	void inspectsSelectedCovariatesAndBuildsOnlyCompleteSamples(@TempDir Path directory) throws Exception {
 		Path file = directory.resolve("covariates.csv");

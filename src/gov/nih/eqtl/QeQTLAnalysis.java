@@ -49,12 +49,15 @@ import gov.nih.eqtl.io.QPlinkLoader;
 import gov.nih.eqtl.io.QCovariateTable;
 import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QInMemoryPreparedMatrix;
 import gov.nih.eqtl.io.QLocalPatternImputedSource;
 import gov.nih.eqtl.io.QMatrixRowSource;
 import gov.nih.eqtl.io.QMissingnessReport;
 import gov.nih.eqtl.io.QMissingnessScan;
 import gov.nih.eqtl.io.QPolicyMatrixSource;
+import gov.nih.eqtl.io.QPreparedMatrix;
 import gov.nih.eqtl.io.QSampleAlignment;
+import gov.nih.eqtl.io.QSampleAlignmentPolicy;
 import gov.nih.eqtl.io.QVariantMatrixSource;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.eqtl.datastructure.QSNPDataReal;
@@ -353,7 +356,7 @@ public class QeQTLAnalysis implements IJobOwner
 	}
 
 	public void eSNPAnalysisStreamed(QBinaryMatrixCache genotypeCache,
-		QBinaryMatrixCache expressionCache, double rsq0, int dfo, int dfe,
+		QPreparedMatrix expressionCache, double rsq0, int dfo, int dfe,
 		int genotypeRowsPerBlock, int expressionRowsPerBlock)
 	{
 		eSNPAnalysisStreamed(genotypeCache, expressionCache, rsq0, dfo, dfe,
@@ -366,7 +369,7 @@ public class QeQTLAnalysis implements IJobOwner
 	}
 
 	private void eSNPAnalysisStreamed(QBinaryMatrixCache genotypeCache,
-		QBinaryMatrixCache expressionCache, double rsq0, int dfo, int dfe,
+		QPreparedMatrix expressionCache, double rsq0, int dfo, int dfe,
 		int genotypeRowsPerBlock, int expressionRowsPerBlock,
 		Path outputPath, Path checkpointDirectory, boolean resume,
 		boolean keepCheckpoints, boolean closeGpuContexts, boolean includeSampleStatistics)
@@ -690,6 +693,8 @@ public class QeQTLAnalysis implements IJobOwner
 		QMissingValuePolicy predictorMissing = config.getPredictorMissingPolicy();
 		QMissingValuePolicy traitMissing = config.getTraitMissingPolicy();
 		String covariateMissing = config.getCovariateMissingPolicy();
+		QSampleAlignmentPolicy sampleAlignmentPolicy = config.getSampleAlignmentPolicy();
+		QTraitCacheMode traitCacheMode = config.getTraitCacheMode();
 		if (!genotypeFormat.equals("csv") && !predictorType.isGenotype())
 			throw new IllegalArgumentException("VCF/BCF input requires --predictor-type genotype");
 		if (predictorMissing == QMissingValuePolicy.LOCAL_PATTERN && !predictorType.isGenotype())
@@ -699,6 +704,8 @@ public class QeQTLAnalysis implements IJobOwner
 		if (!(covariateMissing.equals("error") || covariateMissing.equals("complete-samples")))
 			throw new IllegalArgumentException("covariate_missing must be error or complete-samples");
 		QMatrixRowSource genotypeSource;
+		QVariantMatrixSource variantSource = null;
+		Path variantQcOutput = null;
 		if (genotypeFormat.equals("csv")) {
 			genotypeSource = new QDelimitedMatrixSource(Path.of(genotypeFilename), cCommonDelimiter, "#");
 		} else {
@@ -719,23 +726,13 @@ public class QeQTLAnalysis implements IJobOwner
 					: QVariantMatrixSource.MissingPolicy.PRESERVE,
 				QVariantMatrixSource.MultiallelicPolicy.parse(config.getMultiallelicPolicy()),
 				config.getMinimumMaf(), config.getMinimumMac(), qcOutput);
-			QVariantMatrixSource variantSource = new QVariantMatrixSource(
+			variantQcOutput = qcOutput.toAbsolutePath().normalize();
+			variantSource = QVariantMatrixSource.openForAlignment(
 				Path.of(genotypeFilename), variantOptions);
 			genotypeSource = variantSource;
-			QVariantMatrixSource.Summary variantSummary = variantSource.summary();
-			System.out.println("Variant genotype field = " + variantSource.selectedField());
-			System.out.println("Variant QC: input=" + variantSummary.inputRecords()
-				+ ", included=" + variantSummary.includedVariants()
-				+ ", monomorphic=" + variantSummary.monomorphicVariants()
-				+ ", singletons=" + variantSummary.singletons()
-				+ ", doubletons=" + variantSummary.doubletons());
-			System.out.println("Variant annotation/QC output: " + qcOutput.toAbsolutePath().normalize());
 		}
 		QMatrixRowSource expressionSource = new QDelimitedMatrixSource(
 			Path.of(expressionFilename), cCommonDelimiter, "#");
-		if (genotypeSource.metadata().rowCount() > Integer.MAX_VALUE
-			|| expressionSource.metadata().rowCount() > Integer.MAX_VALUE)
-			throw new IllegalArgumentException("This release supports at most " + Integer.MAX_VALUE + " rows per matrix");
 
 		System.out.println("Declared matrix types: predictor=" + predictorType.optionName()
 			+ ", trait=" + traitType.optionName());
@@ -755,7 +752,9 @@ public class QeQTLAnalysis implements IJobOwner
 			System.out.println("Loading and validating covariate data...");
 			covariates = QCovariateTable.load(Path.of(covariateFilename), cCommonDelimiter, "#");
 			fullAlignment = covariates.align(genotypeSource.metadata().sampleIds(),
-				expressionSource.metadata().sampleIds(), config.getGenotypeIdColumn(), config.getExpressionIdColumn());
+				expressionSource.metadata().sampleIds(), config.getGenotypeIdColumn(),
+				config.getExpressionIdColumn(), sampleAlignmentPolicy,
+				config.getGenotypeIdStripPrefix(), config.getExpressionIdStripPrefix());
 			canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), fullAlignment.genotypeColumnOrder());
 			covariateMissingness = covariates.inspectMissingness(fixedCovariates);
 			retainedCovariateRows = covariateMissingness.completeRows();
@@ -769,11 +768,34 @@ public class QeQTLAnalysis implements IJobOwner
 						+ " sample(s) missing a selected covariate.");
 			}
 		} else {
+			if (sampleAlignmentPolicy != QSampleAlignmentPolicy.STRICT)
+				throw new IllegalArgumentException("covariate-subset alignment requires --covariates and explicit canonical rows");
 			fullAlignment = QCovariateTable.alignDirectly(genotypeSource.metadata().sampleIds(),
-				expressionSource.metadata().sampleIds());
+				expressionSource.metadata().sampleIds(), config.getGenotypeIdStripPrefix(),
+				config.getExpressionIdStripPrefix());
 			alignment = fullAlignment;
 			canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
 		}
+		if (variantSource != null) {
+			System.out.println("Scanning aligned-sample variant QC for " + alignment.sampleCount()
+				+ " sample(s) in " + Path.of(genotypeFilename).toAbsolutePath().normalize()
+				+ "; progress will be reported periodically...");
+			System.out.flush();
+			variantSource.selectAnalysisSamples(alignment.genotypeColumnOrder());
+			QVariantMatrixSource.Summary variantSummary = variantSource.summary();
+			System.out.println("Variant genotype field = " + variantSource.selectedField());
+			System.out.println("Variant QC samples = " + variantSource.analysisSampleCount()
+				+ " aligned sample(s)");
+			System.out.println("Variant QC: input=" + variantSummary.inputRecords()
+				+ ", included=" + variantSummary.includedVariants()
+				+ ", monomorphic=" + variantSummary.monomorphicVariants()
+				+ ", singletons=" + variantSummary.singletons()
+				+ ", doubletons=" + variantSummary.doubletons());
+			System.out.println("Variant annotation/QC output: " + variantQcOutput);
+		}
+		if (genotypeSource.metadata().rowCount() > Integer.MAX_VALUE
+			|| expressionSource.metadata().rowCount() > Integer.MAX_VALUE)
+			throw new IllegalArgumentException("This release supports at most " + Integer.MAX_VALUE + " rows per matrix");
 
 		System.out.println("Inspecting matrix missingness...");
 		QMissingnessScan predictorScan = QMissingnessScan.scan("predictor", genotypeSource,
@@ -785,7 +807,8 @@ public class QeQTLAnalysis implements IJobOwner
 			Path.of(config.getOutputFilename()).toAbsolutePath().normalize()))
 			throw new IllegalArgumentException("Missingness QC output must differ from association output");
 		QMissingnessReport.write(missingnessOutput, predictorScan, predictorType, predictorMissing,
-			traitScan, traitType, traitMissing, covariateMissingness, covariateMissing, canonicalSampleIds);
+			traitScan, traitType, traitMissing, covariateMissingness, covariateMissing,
+			canonicalSampleIds, fullAlignment);
 		canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
 		System.out.println("Missingness QC output: " + missingnessOutput);
 		System.out.println("Missing values: predictor=" + predictorScan.totalMissingValues()
@@ -836,9 +859,19 @@ public class QeQTLAnalysis implements IJobOwner
 		int numSnps = (int) genotypeRowCount;
 		int numTraits = (int) expressionRowCount;
 		System.out.println("Sample alignment: genotype via " + alignment.genotypeIdColumn()
-			+ ", expression via " + alignment.expressionIdColumn());
+			+ ", expression via " + alignment.expressionIdColumn()
+			+ ", policy=" + alignment.policy().optionName());
 		System.out.println("Samples reordered: genotype=" + alignment.genotypeReorderedCount()
 			+ ", expression=" + alignment.expressionReorderedCount());
+		if (fullAlignment.genotypeIdsStripped() > 0 || fullAlignment.expressionIdsStripped() > 0)
+			System.out.println("Sample-ID prefixes stripped: genotype=" + fullAlignment.genotypeIdsStripped()
+				+ " ('" + fullAlignment.genotypeIdStripPrefix() + "'), expression="
+				+ fullAlignment.expressionIdsStripped() + " ('"
+				+ fullAlignment.expressionIdStripPrefix() + "')");
+		if (fullAlignment.genotypeExtraSampleCount() > 0 || fullAlignment.expressionExtraSampleCount() > 0)
+			System.out.println("Matrix-only samples excluded by covariate-subset alignment: genotype="
+				+ fullAlignment.genotypeExtraSampleCount() + ", expression="
+				+ fullAlignment.expressionExtraSampleCount());
 		System.out.println("Number of SNPs = " + numSnps);
 		System.out.println("Number of e-traits = " + numTraits);
 		System.out.println("Number of aligned individuals = " + numIndividuals);
@@ -970,8 +1003,14 @@ public class QeQTLAnalysis implements IJobOwner
 						gpuResidualizer.close();
 						gpuResidualizer = null;
 					}
-					plugin.eSNPAnalysisStreamed(genotypeCache, expressionCache, rSquaredThreshold, dfOffset,
-						errorDegreesOfFreedom, genotypeRows, expressionRows);
+					QPreparedMatrix preparedTraits = selectPreparedTraitMatrix(expressionCache,
+						expressionRows, numIndividuals, genotypeRows, traitCacheMode);
+					try {
+						plugin.eSNPAnalysisStreamed(genotypeCache, preparedTraits, rSquaredThreshold, dfOffset,
+							errorDegreesOfFreedom, genotypeRows, expressionRows);
+					} finally {
+						closeMemoryPreparedMatrix(preparedTraits);
+					}
 				}
 			}
 		} else {
@@ -1091,9 +1130,16 @@ public class QeQTLAnalysis implements IJobOwner
 						}
 						Path groupOutput = work.resolve(suffix + ".csv");
 						Path checkpoint = work.resolve(suffix + ".checkpoint");
-						plugin.eSNPAnalysisStreamed(predictorCache, traitCache, patternThreshold,
-							dfOffset, errorDegreesOfFreedom, predictorRowsPerBlock, traitRowsPerBlock,
-							groupOutput, checkpoint, false, false, false, true);
+						QPreparedMatrix preparedTraits = selectPreparedTraitMatrix(traitCache,
+							traitRowsPerBlock, observed.length, predictorRowsPerBlock,
+							config.getTraitCacheMode());
+						try {
+							plugin.eSNPAnalysisStreamed(predictorCache, preparedTraits, patternThreshold,
+								dfOffset, errorDegreesOfFreedom, predictorRowsPerBlock, traitRowsPerBlock,
+								groupOutput, checkpoint, false, false, false, true);
+						} finally {
+							closeMemoryPreparedMatrix(preparedTraits);
+						}
 						appendWithoutHeader(groupOutput, combined);
 						Files.deleteIfExists(groupOutput);
 					}
@@ -1130,6 +1176,72 @@ public class QeQTLAnalysis implements IJobOwner
 			errorDegreesOfFreedom - dfOffset, false, false);
 		tValue *= tValue;
 		return tValue / (errorDegreesOfFreedom + tValue);
+	}
+
+	private static QPreparedMatrix selectPreparedTraitMatrix(QBinaryMatrixCache diskCache,
+		int traitRowsPerBlock, int sampleCount, int predictorRowsPerBlock,
+		QTraitCacheMode mode) throws IOException {
+		if (mode == QTraitCacheMode.DISK) {
+			System.out.println("Prepared trait cache residency = disk (residualization/standardization was performed once)");
+			return diskCache;
+		}
+		long estimate = QInMemoryPreparedMatrix.estimateResidentBytes(
+			diskCache.rowCount(), diskCache.sampleCount());
+		Runtime runtime = Runtime.getRuntime();
+		long used = runtime.totalMemory() - runtime.freeMemory();
+		long available = Math.max(0, runtime.maxMemory() - used);
+		long workerBytes = GpuTuning.estimateStreamedWorkerBytes(sampleCount,
+			predictorRowsPerBlock, traitRowsPerBlock, gpuPrecision);
+		long workerReserve = saturatedMultiply(workerBytes, Math.max(1, config.getNumThreads()));
+		long safetyReserve = Math.max(256L * 1024 * 1024, runtime.maxMemory() / 10);
+		long required = saturatedAdd(estimate, saturatedAdd(workerReserve, safetyReserve));
+		boolean safe = required <= available;
+		if (!safe && mode == QTraitCacheMode.AUTO) {
+			System.out.println("Prepared trait cache residency = disk (memory estimate "
+				+ humanBytes(estimate) + "; available JVM heap " + humanBytes(available)
+				+ " after reserving workers/headroom)");
+			return diskCache;
+		}
+		if (!safe)
+			throw new IllegalArgumentException("--trait-cache memory needs about "
+				+ humanBytes(required) + " of currently available JVM heap including worker/headroom reserves, but "
+				+ humanBytes(available) + " is available; increase -Xmx, reduce block rows/threads, or use --trait-cache disk");
+		System.out.println("Prepared trait cache residency = memory (estimated " + humanBytes(estimate)
+			+ "; residualization/standardization was performed once)");
+		long started = profiler.start();
+		QInMemoryPreparedMatrix memory = QInMemoryPreparedMatrix.load(diskCache, traitRowsPerBlock);
+		profiler.record(QeQTLProfiler.Phase.TRAIT_CACHE_MEMORY_LOAD, started,
+			diskCache.rowCount(), saturatedMultiply(saturatedMultiply(
+				diskCache.sampleCount(), diskCache.rowCount()), Double.BYTES));
+		return memory;
+	}
+
+	private static void closeMemoryPreparedMatrix(QPreparedMatrix prepared) {
+		if (prepared instanceof QInMemoryPreparedMatrix memory)
+			memory.close();
+	}
+
+	private static long saturatedMultiply(long left, long right) {
+		try {
+			return Math.multiplyExact(left, right);
+		} catch (ArithmeticException e) {
+			return Long.MAX_VALUE;
+		}
+	}
+
+	private static long saturatedAdd(long left, long right) {
+		try {
+			return Math.addExact(left, right);
+		} catch (ArithmeticException e) {
+			return Long.MAX_VALUE;
+		}
+	}
+
+	private static String humanBytes(long bytes) {
+		if (bytes == Long.MAX_VALUE)
+			return "more than the addressable heap";
+		double gib = bytes / (1024.0 * 1024 * 1024);
+		return String.format(java.util.Locale.ROOT, "%.2f GiB", gib);
 	}
 
 	private static int[] complement(BitSet excluded, int size) {

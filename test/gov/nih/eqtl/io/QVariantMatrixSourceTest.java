@@ -85,6 +85,29 @@ class QVariantMatrixSourceTest {
         assertTrue(error.getMessage().contains("--genotype-missing"));
     }
 
+    @Test
+    void alignedSubsetControlsVariantFrequencyAndMonomorphicQc() throws Exception {
+        Path qc = temporaryDirectory.resolve("subset-qc.tsv");
+        QVariantMatrixSource source = QVariantMatrixSource.openForAlignment(gzipFixture(),
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.DS,
+                QVariantMatrixSource.MissingPolicy.PRESERVE, 0, 0, qc));
+        assertEquals(-1, source.metadata().rowCount());
+        assertThrows(IllegalStateException.class, source::summary);
+
+        source.selectAnalysisSamples(new int[] {0, 2, 3}); // Exclude S1, the only ALT carrier at 110/120.
+        assertEquals(3, source.analysisSampleCount());
+        assertEquals(3, source.metadata().rowCount());
+        assertEquals(3, source.summary().monomorphicVariants());
+        try (QMatrixRowSource.BlockReader reader = source.open(new int[] {0, 2, 3})) {
+            assertArrayEquals(new String[] {"1:130:T:C", "1:140:A:C", "1:150:G:T"},
+                reader.readBlock(10).rowIds());
+        }
+        String qcText = Files.readString(qc);
+        assertTrue(qcText.contains("1:120:G:A\t1\t120\trsDouble"));
+        assertTrue(qcText.contains("\tmonomorphic\tfalse\tmonomorphic"));
+        assertTrue(qcText.contains("1:140:A:C\t1\t140\trsMissing"));
+    }
+
 	@Test
 	void preservedMissingDosageRemainsVisibleToTheCommonQcScanner() throws Exception {
 		QVariantMatrixSource source = new QVariantMatrixSource(gzipFixture(),
@@ -121,6 +144,23 @@ class QVariantMatrixSourceTest {
         assertEquals(first, reversed, 0);
         assertTrue(first >= 0 && first <= 1);
         assertEquals(1, QVariantMatrixSource.hardyWeinbergExact(4, 0, 0), 0);
+    }
+
+    @Test
+    void formatsProgressWithCountsRatePercentageAndEta() {
+        String knownTotal = QVariantMatrixSource.progressMessage("Variant input", 250_000,
+            1_000_000, 200_000, 600_000_000_000L, false);
+        assertTrue(knownTotal.contains("250,000 / 1,000,000 records (25.0%)"));
+        assertTrue(knownTotal.contains("retained=200,000"));
+        assertTrue(knownTotal.contains("elapsed=10.0 min"));
+        assertTrue(knownTotal.contains("rate=416.7 records/s"));
+        assertTrue(knownTotal.contains("ETA=30.0 min"));
+
+        String unknownTotal = QVariantMatrixSource.progressMessage("Variant QC", 250_000,
+            -1, 200_000, 60_000_000_000L, false);
+        assertTrue(unknownTotal.contains("250,000 records scanned"));
+        assertTrue(!unknownTotal.contains("%"));
+        assertTrue(!unknownTotal.contains("ETA="));
     }
 
     @Test

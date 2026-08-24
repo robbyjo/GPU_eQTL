@@ -18,6 +18,7 @@
 package gov.nih.eqtl;
 
 import gov.nih.eqtl.io.QIniLoader;
+import gov.nih.eqtl.io.QSampleAlignmentPolicy;
 import gov.nih.gpu.GpuPrecision;
 
 import java.io.File;
@@ -285,6 +286,24 @@ public class QeQTLAnalysisConfig {
 
 	public String getExpressionIdColumn()
 	{ return mIni.get("expression_id_column"); }
+
+	public QSampleAlignmentPolicy getSampleAlignmentPolicy()
+	{ return QSampleAlignmentPolicy.parse(mIni.get("sample_alignment")); }
+
+	public String getGenotypeIdStripPrefix()
+	{
+		String value = mIni.get("predictor_id_strip_prefix");
+		return value == null ? mIni.get("genotype_id_strip_prefix") : value;
+	}
+
+	public String getExpressionIdStripPrefix()
+	{
+		String value = mIni.get("trait_id_strip_prefix");
+		return value == null ? mIni.get("expression_id_strip_prefix") : value;
+	}
+
+	public QTraitCacheMode getTraitCacheMode()
+	{ return QTraitCacheMode.parse(mIni.get("trait_cache")); }
 
 	public String getCacheDirectory()
 	{ return expandPath(mIni.get("cache_dir"), getIniPath()); }

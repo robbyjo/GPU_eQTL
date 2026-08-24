@@ -5,6 +5,7 @@ This list contains work remaining after the correctness, CLI, bounded-RAM cache,
 ## Missing-data production follow-up
 
 - Cross-check the new common missingness audit on representative CSV, VCF.gz, and BCF cohorts, including covariate-driven sample removal, and compare exact row/sample/pattern counts with independent R or bcftools summaries.
+- For exact trait-pattern deletion, define and audit pattern-specific handling when a rare predictor becomes monomorphic after that pattern's additional sample removal. Global VCF QC now uses the final aligned cohort, but an individual trait mask can be smaller still.
 - Add a deterministic end-to-end CPU association reference for exact trait-pattern deletion and compare identifiers, effective N, residual DF, effects, and p-values with the GPU path. The first implementation is exact but deliberately conservative: it rebuilds prepared predictor rows once per pattern, groups output by pattern, and disables checkpoint resume.
 - Add resumable pattern scheduling and reusable pattern-specific predictor caches without weakening cache signatures. Investigate batching compatible masks only if it preserves each trait's exact sample set, projection, rank, threshold, and output N/DF.
 - Benchmark `local-pattern` genotype imputation against row-mean and standard reference-panel imputation. Define maximum distance, minimum comparable flanks/donors, phased-input behavior, and richer per-imputation QC before treating the proxy as a production default. Mean remains the default.
@@ -19,7 +20,7 @@ This list contains work remaining after the correctness, CLI, bounded-RAM cache,
 
 ## Performance follow-up
 
-- Use `--profile` on the complete WHI chromosome run to determine whether rereading the full prepared expression cache once per genotype block remains material after bulk-row I/O. Only then consider expression-block sharing or a different loop/checkpoint schedule.
+- The prepared-trait residency layer now supports `auto`, `memory`, and `disk`: memory reads the once-residualized FP64 trait cache once and shares immutable rows across genotype workers; auto reserves heap for worker buffers and falls back to disk. Profile all three modes on the complete WHI chromosome and 4,746-sample batch1234 inputs before changing the default heuristic or loop/checkpoint schedule.
 - Validate automatic block/worker tuning on real multi-GPU machines and on larger 5,100–5,700-sample cohorts. Revisit the 1-GiB output target and four-worker pipeline only with those measurements.
 - Profile GPU fixed-effect residualization at 5,100–5,700 samples, higher covariate ranks, and on real multi-GPU/Intel/AMD systems. The 2,005-sample NVIDIA study was cache-I/O-bound even though projection compute itself was fast; do not claim a universal wall-time gain.
 - Benchmark FP32 versus FP64 on Intel and AMD hardware. The larger NVIDIA WHI study found one reporting-threshold classification difference, so retain FP64 verification for borderline FP32 findings.

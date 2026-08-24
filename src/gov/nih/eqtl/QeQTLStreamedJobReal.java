@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.io.Writer;
 
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
-import gov.nih.eqtl.io.QBinaryMatrixCache;
+import gov.nih.eqtl.io.QPreparedMatrix;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
 import gov.nih.gpu.GpuExecutionMetrics;
@@ -27,7 +27,7 @@ final class QeQTLStreamedJobReal implements Runnable {
     private static final int OUTPUT_BUFFER_CHARACTERS = 1024 * 1024;
 
     private final PreparedBlock genotype;
-    private final QBinaryMatrixCache expressionCache;
+    private final QPreparedMatrix expressionCache;
     private final QAnalysisCheckpoint checkpoint;
     private final int genotypeBlockNumber;
     private final GpuContextPool contextPool;
@@ -42,7 +42,7 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final boolean includeSampleStatistics;
     private final int sampleCount;
 
-    QeQTLStreamedJobReal(PreparedBlock genotype, QBinaryMatrixCache expressionCache,
+    QeQTLStreamedJobReal(PreparedBlock genotype, QPreparedMatrix expressionCache,
         QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
         int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold,

@@ -49,6 +49,9 @@ import htsjdk.variant.vcf.VCFIteratorBuilder;
 public final class QVariantMatrixSource implements QMatrixRowSource {
     private static final int BUFFER_SIZE = 16 * 1024 * 1024;
     private static final double INTEGER_TOLERANCE = 1e-8;
+    private static final long PROGRESS_CHECK_RECORDS = 1_000;
+    private static final long PROGRESS_REPORT_RECORDS = 1_000_000;
+    private static final long PROGRESS_REPORT_NANOS = 15_000_000_000L;
 
     public enum Format {
         VCF, BCF;
@@ -185,9 +188,56 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         double alternateAlleleCount, double alleleNumber, double eaf, double maf, double mac,
         double hweP, int hweSamples, String classification, boolean included, String exclusionReason) { }
 
+    private static final class VariantProgress {
+        private final String label;
+        private final long totalRecords;
+        private final long startNanos = System.nanoTime();
+        private long lastCheckRecords;
+        private long lastReportRecords;
+        private long lastReportNanos = startNanos;
+        private boolean reported;
+        private boolean completed;
+
+        VariantProgress(String label, long totalRecords) {
+            this.label = label;
+            this.totalRecords = totalRecords;
+        }
+
+        void update(long processedRecords, long retainedRecords) {
+            if (processedRecords - lastCheckRecords < PROGRESS_CHECK_RECORDS)
+                return;
+            lastCheckRecords = processedRecords;
+            long now = System.nanoTime();
+            if (processedRecords - lastReportRecords < PROGRESS_REPORT_RECORDS
+                && now - lastReportNanos < PROGRESS_REPORT_NANOS)
+                return;
+            print(processedRecords, retainedRecords, now, false);
+        }
+
+        void complete(long processedRecords, long retainedRecords) {
+            if (completed)
+                return;
+            completed = true;
+            long now = System.nanoTime();
+            if (reported || now - startNanos >= PROGRESS_REPORT_NANOS)
+                print(processedRecords, retainedRecords, now, true);
+        }
+
+        private void print(long processedRecords, long retainedRecords, long now, boolean complete) {
+            System.out.println(progressMessage(label, processedRecords, totalRecords,
+                retainedRecords, now - startNanos, complete));
+            System.out.flush();
+            reported = true;
+            lastReportRecords = processedRecords;
+            lastReportNanos = now;
+        }
+    }
+
     private final class Reader implements BlockReader {
         private final VariantCursor cursor;
         private final int[] columnOrder;
+        private final VariantProgress progress;
+        private long inputRecords;
         private long nextRowOffset;
         private boolean closed;
         private boolean exhausted;
@@ -195,6 +245,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         Reader(int[] requestedColumnOrder) throws IOException {
             cursor = openCursor();
             columnOrder = normalizeColumnOrder(requestedColumnOrder, metadata.columnCount());
+            progress = new VariantProgress("Variant input pass (" + path.getFileName() + ")",
+                summary.inputRecords());
         }
 
         @Override
@@ -211,17 +263,20 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             long blockOffset = nextRowOffset;
             while (rows.size() < maximumRows && cursor.hasNext()) {
                 Evaluation evaluation = evaluate(cursor.next());
-                if (!evaluation.included())
-                    continue;
-                double[] reordered = new double[columnOrder.length];
-                for (int i = 0; i < columnOrder.length; i++)
-                    reordered[i] = evaluation.values()[columnOrder[i]];
-                rowIds.add(evaluation.rowId());
-                rows.add(reordered);
-                nextRowOffset++;
+                inputRecords++;
+                if (evaluation.included()) {
+                    double[] reordered = new double[columnOrder.length];
+                    for (int i = 0; i < columnOrder.length; i++)
+                        reordered[i] = evaluation.values()[columnOrder[i]];
+                    rowIds.add(evaluation.rowId());
+                    rows.add(reordered);
+                    nextRowOffset++;
+                }
+                progress.update(inputRecords, nextRowOffset);
             }
             if (!cursor.hasNext()) {
                 exhausted = true;
+                progress.complete(inputRecords, nextRowOffset);
                 if (nextRowOffset != metadata.rowCount())
                     throw new IOException("Variant source changed while it was being read: expected "
                         + metadata.rowCount() + " accepted rows, found " + nextRowOffset);
@@ -244,10 +299,21 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private final Options options;
     private final GenotypeField selectedField;
     private final String[] sourceSampleIds;
-    private final Metadata metadata;
-    private final Summary summary;
+    private Metadata metadata;
+    private Summary summary;
+    private boolean[] analysisSamples;
+    private int analysisSampleCount;
+    private boolean scanComplete;
 
     public QVariantMatrixSource(Path path, Options options) throws IOException {
+        this(path, options, false);
+    }
+
+    public static QVariantMatrixSource openForAlignment(Path path, Options options) throws IOException {
+        return new QVariantMatrixSource(path, options, true);
+    }
+
+    private QVariantMatrixSource(Path path, Options options, boolean deferScan) throws IOException {
         this.path = path.toAbsolutePath().normalize();
         this.options = options;
         if (!Files.isRegularFile(this.path))
@@ -257,18 +323,50 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             sourceSampleIds = cursor.header().getGenotypeSamples().toArray(String[]::new);
             selectedField = selectField(cursor.header(), options.genotypeField());
         }
-        ScanResult scan = scanMetadata();
-        metadata = scan.metadata();
-        summary = scan.summary();
+        analysisSampleCount = sourceSampleIds.length;
+        if (deferScan) {
+            metadata = new Metadata(this.path, -1, sourceSampleIds.length,
+                sourceSampleIds, "variant-unscanned");
+        } else {
+            completeScan();
+        }
     }
 
     @Override public Metadata metadata() { return metadata; }
-    public Summary summary() { return summary; }
+    public Summary summary() {
+        ensureScanned();
+        return summary;
+    }
     public GenotypeField selectedField() { return selectedField; }
+    public int analysisSampleCount() { return analysisSampleCount; }
+
+    public void selectAnalysisSamples(int[] columnOrder) throws IOException {
+        if (scanComplete)
+            throw new IllegalStateException("Variant QC sample selection is already finalized");
+        int[] selected = normalizeColumnOrder(columnOrder, sourceSampleIds.length);
+        analysisSamples = new boolean[sourceSampleIds.length];
+        for (int column : selected)
+            analysisSamples[column] = true;
+        analysisSampleCount = selected.length;
+        completeScan();
+    }
 
     @Override
     public BlockReader open(int[] columnOrder) throws IOException {
+        ensureScanned();
         return new Reader(columnOrder);
+    }
+
+    private void completeScan() throws IOException {
+        ScanResult scan = scanMetadata();
+        metadata = scan.metadata();
+        summary = scan.summary();
+        scanComplete = true;
+    }
+
+    private void ensureScanned() {
+        if (!scanComplete)
+            throw new IllegalStateException("Variant QC must be finalized after sample alignment before reading rows");
     }
 
     private record ScanResult(Metadata metadata, Summary summary) { }
@@ -289,6 +387,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         long multiallelic = 0;
         Set<String> rowIds = new HashSet<>();
         String[] samples;
+        VariantProgress progress = new VariantProgress("Variant QC (" + path.getFileName() + ")", -1);
         try {
             if (qcOutput != null) {
                 if (path.equals(qcOutput))
@@ -322,8 +421,10 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                         included++;
                     if (writer != null)
                         writeQc(writer, variant, evaluation);
+                    progress.update(inputRecords, included);
                 }
             }
+            progress.complete(inputRecords, included);
             if (included == 0)
                 throw new IOException("No variants remain after QC/filtering in " + path);
             if (writer != null) {
@@ -340,9 +441,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         }
 
         String signatureTag = String.format(Locale.ROOT,
-            "variant-v1;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g",
+            "variant-v1;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g;qc-samples=%d",
             options.format(), selectedField, options.missingPolicy(), options.multiallelicPolicy(),
-            options.minimumMaf(), options.minimumMac());
+            options.minimumMaf(), options.minimumMac(), analysisSampleCount);
         Metadata scanned = new Metadata(path, included, samples.length, samples, signatureTag);
         Summary counts = new Summary(inputRecords, included, monomorphic, singletons, doubletons,
             excludedByMaf, excludedByMac, excludedForMissingness, multiallelic);
@@ -379,14 +480,17 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 ? dosageFromDs(genotype, variant) : dosageFromGt(genotype, alternate, variant);
             if (dosage == null) {
                 missing[sample] = true;
-                missingSamples++;
+                if (isAnalysisSample(sample))
+                    missingSamples++;
             } else {
                 values[sample] = dosage;
-                alternateAlleleCount += dosage;
-                calledSamples++;
+                if (isAnalysisSample(sample)) {
+                    alternateAlleleCount += dosage;
+                    calledSamples++;
+                }
             }
 
-            if (genotype != null && !genotype.isFiltered() && genotype.isCalled()
+            if (isAnalysisSample(sample) && genotype != null && !genotype.isFiltered() && genotype.isCalled()
                 && genotype.getPloidy() == 2) {
                 int alternateCopies = 0;
                 boolean valid = true;
@@ -453,6 +557,10 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         return new Evaluation(rowId, values, calledSamples, missingSamples, alternateAlleleCount,
             alleleNumber, eaf, maf, mac, hweP, hweSamples, classification, accepted,
             String.join(";", reasons));
+    }
+
+    private boolean isAnalysisSample(int sample) {
+        return analysisSamples == null || analysisSamples[sample];
     }
 
     private Double dosageFromDs(Genotype genotype, VariantContext variant) throws IOException {
@@ -540,6 +648,36 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             if (probability <= observedProbability + 1e-12)
                 p += probability;
         return Math.min(1.0, p);
+    }
+
+    static String progressMessage(String label, long processedRecords, long totalRecords,
+        long retainedRecords, long elapsedNanos, boolean complete) {
+        double elapsedSeconds = Math.max(0, elapsedNanos) / 1_000_000_000.0;
+        double recordsPerSecond = elapsedSeconds > 0 ? processedRecords / elapsedSeconds : 0;
+        StringBuilder message = new StringBuilder(label)
+            .append(complete ? " complete: " : " progress: ");
+        if (totalRecords > 0) {
+            double percent = Math.min(100, 100.0 * processedRecords / totalRecords);
+            message.append(String.format(Locale.ROOT, "%,d / %,d records (%.1f%%)",
+                processedRecords, totalRecords, percent));
+        } else {
+            message.append(String.format(Locale.ROOT, "%,d records scanned", processedRecords));
+        }
+        message.append(String.format(Locale.ROOT, "; retained=%,d; elapsed=%s; rate=%,.1f records/s",
+            retainedRecords, duration(elapsedSeconds), recordsPerSecond));
+        if (!complete && totalRecords > processedRecords && recordsPerSecond > 0) {
+            double etaSeconds = (totalRecords - processedRecords) / recordsPerSecond;
+            message.append("; ETA=").append(duration(etaSeconds));
+        }
+        return message.toString();
+    }
+
+    private static String duration(double seconds) {
+        if (seconds < 60)
+            return String.format(Locale.ROOT, "%.1f s", seconds);
+        if (seconds < 3600)
+            return String.format(Locale.ROOT, "%.1f min", seconds / 60);
+        return String.format(Locale.ROOT, "%.2f h", seconds / 3600);
     }
 
     private static Evaluation excludedEvaluation(String rowId, String classification, String reason) {

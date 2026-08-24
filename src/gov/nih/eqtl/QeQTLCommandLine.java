@@ -57,6 +57,11 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--factor-covariates", "covariate_factor");
         VALUE_OPTIONS.put("--genotype-id-column", "genotype_id_column");
         VALUE_OPTIONS.put("--expression-id-column", "expression_id_column");
+        VALUE_OPTIONS.put("--sample-alignment", "sample_alignment");
+        VALUE_OPTIONS.put("--predictor-id-strip-prefix", "predictor_id_strip_prefix");
+        VALUE_OPTIONS.put("--genotype-id-strip-prefix", "predictor_id_strip_prefix");
+        VALUE_OPTIONS.put("--trait-id-strip-prefix", "trait_id_strip_prefix");
+        VALUE_OPTIONS.put("--expression-id-strip-prefix", "trait_id_strip_prefix");
         VALUE_OPTIONS.put("--df-offset", "df_offset");
         VALUE_OPTIONS.put("--block-size", "block_size");
         VALUE_OPTIONS.put("--threads", "num_threads");
@@ -64,6 +69,8 @@ public final class QeQTLCommandLine {
 		VALUE_OPTIONS.put("--residualization", "residualization");
         VALUE_OPTIONS.put("--genotype-block-rows", "genotype_block_rows");
         VALUE_OPTIONS.put("--expression-block-rows", "expression_block_rows");
+        VALUE_OPTIONS.put("--trait-cache", "trait_cache");
+        VALUE_OPTIONS.put("--expression-cache", "trait_cache");
         VALUE_OPTIONS.put("--cache-dir", "cache_dir");
         VALUE_OPTIONS.put("--checkpoint-dir", "checkpoint_dir");
         VALUE_OPTIONS.put("--profile-output", "profile_output");
@@ -218,12 +225,16 @@ public final class QeQTLCommandLine {
               --factor-covariates LIST         Force numeric-looking variables to be categorical
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
               --expression-id-column NAME      Covariate column containing expression sample IDs
+              --sample-alignment {strict|covariate-subset} (default: strict)
+              --predictor-id-strip-prefix TEXT Remove a literal leading prefix before ID matching
+              --trait-id-strip-prefix TEXT     Remove a literal leading prefix before ID matching
               --threshold {none|pval|rsq} VALUE
               --precision {fp64|fp32}         GPU matrix-product precision (default: fp64)
 			  --residualization {auto|gpu|cpu} Fixed-effect projection location (default: auto)
               --df-offset N  --block-size N  --threads N
               --genotype-block-rows N          Enable bounded-RAM genotype analysis
               --expression-block-rows N        Enable bounded-RAM expression analysis
+              --trait-cache {auto|memory|disk} Prepared trait residency (default: auto)
               --cache-dir DIR  --rebuild-cache
               --checkpoint-dir DIR  --resume  --keep-checkpoints
               --profile  --profile-output FILE  Phase timing summary and CSV

@@ -21,11 +21,27 @@ public record QSampleAlignment(
     String genotypeIdColumn,
     String expressionIdColumn,
     int genotypeReorderedCount,
-    int expressionReorderedCount) {
+    int expressionReorderedCount,
+    QSampleAlignmentPolicy policy,
+    String genotypeIdStripPrefix,
+    String expressionIdStripPrefix,
+    int genotypeIdsStripped,
+    int expressionIdsStripped,
+    int genotypeExtraSampleCount,
+    int expressionExtraSampleCount) {
 
     public QSampleAlignment {
         genotypeColumnOrder = genotypeColumnOrder.clone();
         expressionColumnOrder = expressionColumnOrder.clone();
+        if (genotypeColumnOrder.length != expressionColumnOrder.length)
+            throw new IllegalArgumentException("Aligned predictor and trait sample counts differ");
+        if (policy == null)
+            throw new IllegalArgumentException("Sample alignment policy is required");
+        genotypeIdStripPrefix = genotypeIdStripPrefix == null ? "" : genotypeIdStripPrefix;
+        expressionIdStripPrefix = expressionIdStripPrefix == null ? "" : expressionIdStripPrefix;
+        if (genotypeIdsStripped < 0 || expressionIdsStripped < 0
+            || genotypeExtraSampleCount < 0 || expressionExtraSampleCount < 0)
+            throw new IllegalArgumentException("Sample alignment audit counts must not be negative");
     }
 
     @Override
@@ -61,7 +77,10 @@ public record QSampleAlignment(
             output++;
         }
         return new QSampleAlignment(genotype, expression, genotypeIdColumn, expressionIdColumn,
-            reorderedCount(genotype), reorderedCount(expression));
+            reorderedCount(genotype), reorderedCount(expression), policy,
+            genotypeIdStripPrefix, expressionIdStripPrefix,
+            genotypeIdsStripped, expressionIdsStripped,
+            genotypeExtraSampleCount, expressionExtraSampleCount);
     }
 
     private static int reorderedCount(int[] order) {

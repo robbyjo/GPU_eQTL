@@ -87,12 +87,20 @@ class QeQTLCommandLineTest {
 			"--predictor-type", "methylation", "--trait-type", "proteomics",
 			"--predictor-missing", "mean", "--trait-missing", "pattern",
 			"--predictor-flanks", "2", "--covariate-missing", "complete-samples",
+			"--sample-alignment", "covariate-subset",
+			"--predictor-id-strip-prefix", "P", "--trait-id-strip-prefix", "X",
+			"--trait-cache", "memory",
 			"--missingness-qc-output", qc.toString(), "--inspect-missingness" });
 		assertEquals(QDataType.METHYLATION, result.config().getPredictorDataType());
 		assertEquals(QDataType.PROTEOMICS, result.config().getTraitDataType());
 		assertEquals(QMissingValuePolicy.MEAN, result.config().getPredictorMissingPolicy());
 		assertEquals(QMissingValuePolicy.PATTERN, result.config().getTraitMissingPolicy());
 		assertEquals(2, result.config().getPredictorFlankCount());
+		assertEquals(gov.nih.eqtl.io.QSampleAlignmentPolicy.COVARIATE_SUBSET,
+			result.config().getSampleAlignmentPolicy());
+		assertEquals("P", result.config().getGenotypeIdStripPrefix());
+		assertEquals("X", result.config().getExpressionIdStripPrefix());
+		assertEquals(QTraitCacheMode.MEMORY, result.config().getTraitCacheMode());
 		assertTrue(result.config().getInspectMissingness());
 		assertEquals(qc.toAbsolutePath().normalize().toString(),
 			result.config().getMissingnessQcOutputFilename());

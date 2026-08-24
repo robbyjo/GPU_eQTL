@@ -75,7 +75,10 @@ class QMissingnessPolicyTest {
             QMissingValuePolicy.LOCAL_PATTERN,
             QMissingnessScan.scan("trait", traits, null), QDataType.PROTEOMICS,
             QMissingValuePolicy.PATTERN, null, "complete-samples",
-            new String[] {"S1", "S2", "S3", "S4"});
+            new String[] {"S1", "S2", "S3", "S4"},
+            QCovariateTable.alignDirectly(
+                new String[] {"S1", "S2", "S3", "S4"},
+                new String[] {"XS1", "XS2", "XS3", "XS4"}, null, "X"));
 
         String text = Files.readString(report);
         assertTrue(text.contains("SUMMARY\tpredictor"));
@@ -83,6 +86,8 @@ class QMissingnessPolicyTest {
         assertTrue(text.contains("SUMMARY\ttrait"));
         assertTrue(text.contains("proteomics"));
         assertTrue(text.contains("local-pattern"));
+        assertTrue(text.contains("ALIGNMENT\ttrait"));
+        assertTrue(text.contains("strip_prefix=X;prefixes_stripped=4"));
     }
 
     private QDelimitedMatrixSource source(Path directory) throws Exception {

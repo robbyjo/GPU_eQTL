@@ -100,6 +100,17 @@ class QBinaryMatrixCacheTest {
             assertEquals(3, cache.rowCount());
             assertEquals(8, cache.sampleCount());
             cached = cache.readBlock(1, 2);
+            try (QInMemoryPreparedMatrix memory = QInMemoryPreparedMatrix.load(cache, 1)) {
+                PreparedBlock resident = memory.readBlock(1, 2);
+                assertArrayEquals(cached.rowIds(), resident.rowIds());
+                assertArrayEquals(cached.standardDeviations(), resident.standardDeviations(), 0.0);
+                for (int row = 0; row < cached.values().length; row++)
+                    assertArrayEquals(cached.values()[row], resident.values()[row], 0.0);
+                assertEquals(QBinaryMatrixCache.analysisSignature(cache, cache,
+                        16, 16, 0, 4, 0.0, false, false, GpuPrecision.FP64),
+                    QBinaryMatrixCache.analysisSignature(cache, memory,
+                        16, 16, 0, 4, 0.0, false, false, GpuPrecision.FP64));
+            }
             assertNotEquals(QBinaryMatrixCache.analysisSignature(cache, cache,
                     16, 16, 0, 4, 0.0, false, false, GpuPrecision.FP64),
                 QBinaryMatrixCache.analysisSignature(cache, cache,
