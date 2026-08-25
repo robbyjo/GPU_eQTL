@@ -213,6 +213,8 @@ class QVariantMatrixSourceTest {
 
         assertEquals(1, sequential.qcThreadCount());
         assertEquals(4, parallel.qcThreadCount());
+        assertTrue(parallel.directVcfQcParses() > 0,
+            "Unsorted VCF sample headers must still use direct worker QC parsing");
         assertEquals(sequential.summary(), parallel.summary());
         assertArrayEquals(Files.readAllBytes(sequentialQc), Files.readAllBytes(parallelQc));
         try (QMatrixRowSource.BlockReader sequentialReader = sequential.open(new int[] {1, 0, 2, 3});
@@ -222,6 +224,45 @@ class QVariantMatrixSourceTest {
             assertArrayEquals(sequentialBlock.rowIds(), parallelBlock.rowIds());
             for (int row = 0; row < sequentialBlock.rowCount(); row++)
                 assertArrayEquals(sequentialBlock.values()[row], parallelBlock.values()[row], 0);
+        }
+    }
+
+    @Test
+    void directVcfQcParsesLazyGenotypesInsideWorkers() throws Exception {
+        Path genotype = sortedSampleVcf();
+        Path sequentialQc = temporaryDirectory.resolve("sorted-sequential-qc.tsv");
+        Path parallelQc = temporaryDirectory.resolve("sorted-parallel-qc.tsv");
+        QVariantMatrixSource sequential = new QVariantMatrixSource(genotype,
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+                QVariantMatrixSource.MissingPolicy.MEAN, 0, 0, sequentialQc, 1));
+        QVariantMatrixSource parallel = new QVariantMatrixSource(genotype,
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+                QVariantMatrixSource.MissingPolicy.MEAN, 0, 0, parallelQc, 4));
+
+        assertEquals(0, sequential.directVcfQcParses());
+        assertTrue(parallel.directVcfQcParses() > 0);
+        assertTrue(parallel.averageQcWorkerConcurrency() > 0);
+        assertEquals(sequential.summary(), parallel.summary());
+        assertArrayEquals(Files.readAllBytes(sequentialQc), Files.readAllBytes(parallelQc));
+    }
+
+    @Test
+    void directWorkerParserMatchesHtsjdkForFiltersPartialCallsAndChangingFormats() throws Exception {
+        Path genotype = qcFormatEdgeCaseVcf();
+        for (QVariantMatrixSource.GenotypeField field : List.of(
+            QVariantMatrixSource.GenotypeField.DS, QVariantMatrixSource.GenotypeField.GT)) {
+            Path sequentialQc = temporaryDirectory.resolve(field + "-edge-sequential.tsv");
+            Path parallelQc = temporaryDirectory.resolve(field + "-edge-parallel.tsv");
+            QVariantMatrixSource sequential = new QVariantMatrixSource(genotype,
+                options(QVariantMatrixSource.Format.VCF, field,
+                    QVariantMatrixSource.MissingPolicy.MEAN, 0, 0, sequentialQc, 1));
+            QVariantMatrixSource parallel = new QVariantMatrixSource(genotype,
+                options(QVariantMatrixSource.Format.VCF, field,
+                    QVariantMatrixSource.MissingPolicy.MEAN, 0, 0, parallelQc, 4));
+
+            assertEquals(sequential.summary(), parallel.summary());
+            assertArrayEquals(Files.readAllBytes(sequentialQc), Files.readAllBytes(parallelQc));
+            assertTrue(parallel.directVcfQcParses() > 0);
         }
     }
 
@@ -300,6 +341,35 @@ class QVariantMatrixSourceTest {
     }
 
     @Test
+    void unrestrictedUnsortedVcfResumeAvoidsEagerIndexedGenotypeDecoding() throws Exception {
+        IndexedFixture fixture = makeIndexedVcfFixture();
+        Path qc = temporaryDirectory.resolve("sequential-indexed-resume.tsv");
+        Path checkpoint = temporaryDirectory.resolve("sequential-indexed-resume-checkpoint");
+        String batchProperty = "eqtl.variant.qc.checkpoint.records";
+        String failProperty = "eqtl.test.variant.qc.fail.after";
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, qc, 2, checkpoint,
+            fixture.index(), null, null, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+        System.setProperty(batchProperty, "2");
+        System.setProperty(failProperty, "4");
+        try {
+            assertThrows(IOException.class, () -> new QVariantMatrixSource(fixture.vcf(), options));
+            System.clearProperty(failProperty);
+            QVariantMatrixSource resumed = new QVariantMatrixSource(fixture.vcf(), options);
+            assertEquals(4, resumed.resumedQcRecords());
+            assertTrue(!resumed.indexedResumeUsed());
+            assertTrue(resumed.directVcfQcParses() > 0);
+            assertEquals(7, resumed.summary().inputRecords());
+        } finally {
+            System.clearProperty(batchProperty);
+            System.clearProperty(failProperty);
+        }
+    }
+
+    @Test
     void rejectsIndexMutationBetweenAlignmentAndQc() throws Exception {
         IndexedFixture fixture = makeIndexedVcfFixture();
         QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
@@ -343,7 +413,7 @@ class QVariantMatrixSourceTest {
         assertEquals(1, QVariantMatrixSource.recommendQcThreads(1));
         assertEquals(4, QVariantMatrixSource.recommendQcThreads(4));
         int automatic = QVariantMatrixSource.recommendQcThreads(0);
-        assertTrue(automatic >= 1 && automatic <= 16);
+        assertTrue(automatic >= 1 && automatic <= 8);
         if (Runtime.getRuntime().availableProcessors() > 1)
             assertTrue(automatic >= 2);
     }
@@ -399,6 +469,47 @@ class QVariantMatrixSourceTest {
              GZIPOutputStream gzip = new GZIPOutputStream(raw)) {
             input.transferTo(gzip);
         }
+        return output;
+    }
+
+    private Path sortedSampleVcf() throws IOException {
+        List<String> lines = Files.readAllLines(fixturePath());
+        List<String> sorted = new java.util.ArrayList<>(lines.size());
+        for (String line : lines) {
+            if (line.startsWith("#CHROM")) {
+                String[] fields = line.split("\\t", -1);
+                String temporary = fields[9];
+                fields[9] = fields[10];
+                fields[10] = temporary;
+                sorted.add(String.join("\t", fields));
+            } else if (!line.startsWith("#")) {
+                String[] fields = line.split("\\t", -1);
+                String temporary = fields[9];
+                fields[9] = fields[10];
+                fields[10] = temporary;
+                sorted.add(String.join("\t", fields));
+            } else {
+                sorted.add(line);
+            }
+        }
+        Path output = temporaryDirectory.resolve("sorted-samples.vcf");
+        Files.write(output, sorted);
+        return output;
+    }
+
+    private Path qcFormatEdgeCaseVcf() throws IOException {
+        Path output = temporaryDirectory.resolve("qc-format-edge.vcf");
+        Files.writeString(output, """
+            ##fileformat=VCFv4.2
+            ##contig=<ID=1,length=1000>
+            ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+            ##FORMAT=<ID=DS,Number=A,Type=Float,Description="Dosage">
+            ##FORMAT=<ID=FT,Number=1,Type=String,Description="Sample filter">
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS2\tS1\tS3\tS4
+            1\t100\tfiltered\tA\tG\t.\tPASS\t.\tGT:DS:FT\t0/0:0:PASS\t0/1:1:.\t1/1:2:LowGQ\t./1:1:.
+            1\t110\tshort\tC\tT\t.\tPASS\t.\tGT:DS:FT\t0/0:0.25\t0/1:0.75\t1/1:1.75\t./.:.
+            1\t120\tdsOnly\tG\tA\t.\tPASS\t.\tDS\t0\t1\t2\t.
+            """);
         return output;
     }
 

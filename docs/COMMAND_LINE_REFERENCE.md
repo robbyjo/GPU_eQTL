@@ -177,6 +177,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--genotype-missing POLICY` | Same as predictor policy | `genotype_missing` | Compatibility alias. `predictor_missing` takes precedence if both keys exist. |
 | `--predictor-flanks N` | Integer at least 1; default `1` | `predictor_flanks` | Variants on each side used by genotype-only local-pattern imputation. |
 | `--trait-missing POLICY` | `pattern` (default), `mean`, `zero`, `error`, `exclude-row` | `trait_missing` | `pattern` groups exact complete-sample masks for dynamic deletion. Aliases include `dynamic`, `complete-case`, `exclude`, and `exclude-trait`. |
+| `--max-trait-patterns N` | `256` (default); `0` disables | `max_trait_patterns` | Fail-fast safety limit for exact pattern deletion. Preflight also reports the observed-N range and estimated repeated predictor-preparation work. Raising/disabling this limit does not bypass non-positive-DF checks. |
 | `--covariate-missing POLICY` | `complete-samples` (default), `error` | `covariate_missing` | Removes samples missing selected fixed covariates across all aligned matrices, or fails. |
 | `--inspect-missingness` | Flag; off | `inspect_missingness = true` | Writes the missingness/alignment QC report and stops before backend initialization. Cannot be combined with `--preprocess-only`. |
 | `--missingness-qc-output FILE` | `<output>.missingness.tsv`; predictor-based name when no output | `missingness_qc_output` | Changes the missingness/alignment QC path. |
@@ -203,7 +204,7 @@ These options affect VCF/BCF genotype input. CSV predictors do not receive varia
 | `--min-mac VALUE` | `20` (default); `0` disables | `min_mac` | Minimum minor-allele count. When MAF and MAC are positive, both must pass. Use `--min-mac 0` for MAF-only or rare-variant preprocessing. |
 | `--frequency-scope SCOPE` | `aligned` (default), `pattern` | `frequency_scope` | Applies MAF/MAC once after final sample alignment, or separately for each exact trait mask. HWE remains aligned-cohort QC. |
 | `--variant-qc-output FILE` | `<output>.variants.tsv`; genotype-based name without output | `variant_qc_output` | Variant IDs/alleles, aligned counts, EAF/MAF/MAC, HWE, classifications, filters, and set membership. |
-| `--variant-qc-threads N` | `0` automatic; `1` sequential | `variant_qc_threads` | Parallel variant-statistics workers. Automatic mode is bounded and currently capped at 16. |
+| `--variant-qc-threads N` | `0` automatic; `1` sequential | `variant_qc_threads` | Parallel low-allocation VCF FORMAT/GT/DS/FT QC workers. Automatic mode leaves one logical processor free and is capped at 8 based on the observed throughput plateau; `1` uses the HTSJDK reference path, while BCF genotype expansion remains reader-thread-bound. |
 | `--variant-qc-checkpoint DIR` | `<variant-QC-output>.checkpoint` | `variant_qc_checkpoint` | Durable, signature-scoped QC state. Reuse resumes or avoids the aligned QC scan. |
 | `--variant-index FILE` | Neighboring index auto-detected | `variant_index` | Explicit tabix `.tbi` or HTSJDK Tribble `.idx`. Standard CSI is not currently supported. |
 | `--region [SET=]CHROM:START-END` | Repeatable; none | `regions` | Indexed one-based inclusive interval, optionally assigned to a set. Repeated INI regions are semicolon-separated. |
@@ -236,9 +237,9 @@ These options affect VCF/BCF genotype input. CSV predictors do not receive varia
 | --- | --- | --- | --- |
 | `--cache-dir DIR` | `.gpu-eqtl-cache` beside output/input | `cache_dir` | Persistent raw and prepared matrix caches, keyed by scientific preprocessing signatures. |
 | `--rebuild-cache` | Flag; off | `rebuild_cache = true` | Replaces matching matrix caches instead of reusing them. It does not replace variant-QC checkpoint state. |
-| `--checkpoint-dir DIR` | `<output>.checkpoint` | `checkpoint_dir` | Bounded-RAM association result-part directory. Distinct from variant-QC checkpoints and matrix caches. |
-| `--resume` | Flag; off | `resume = true` | Reuses completed, signature-matching association result parts. |
-| `--keep-checkpoints` | Flag; off | `keep_checkpoints = true` | Retains completed association parts after final assembly. |
+| `--checkpoint-dir DIR` | `<output>.checkpoint` | `checkpoint_dir` | Bounded-RAM association result-part directory. Exact deletion nests genotype-block state below durable ordered pattern groups. Distinct from variant-QC checkpoints and matrix caches. |
+| `--resume` | Flag; off | `resume = true` | Reuses completed, signature-matching genotype blocks and exact trait-pattern groups. |
+| `--keep-checkpoints` | Flag; off | `keep_checkpoints = true` | Retains completed block/pattern parts after final assembly. |
 | `--profile` | Flag; off | `profile = true` | Prints phase timing and transfer/byte summaries. |
 | `--profile-output FILE` | None | `profile_output` | Writes profiling CSV and implicitly enables profiling. |
 | `--validate-only` | Flag; off | `validate_only = true` | Validates modern IDs/alignment, covariate model/rank, missingness policies, and degrees of freedom without association. Does not create the VCF/BCF raw cache. |

@@ -25,6 +25,7 @@ class QeQTLCommandLineTest {
 			"--residualization", "gpu",
             "--cache-dir", directory.resolve("cache").toString(),
             "--checkpoint-dir", directory.resolve("checkpoint").toString(),
+			"--max-trait-patterns", "17",
             "--profile-output", directory.resolve("profile.csv").toString(),
             "--rebuild-cache", "--resume", "--keep-checkpoints", "--profile" });
         assertEquals(7, result.config().getNumThreads());
@@ -39,6 +40,7 @@ class QeQTLCommandLineTest {
         assertTrue(result.config().getRebuildCache());
         assertTrue(result.config().getResume());
         assertTrue(result.config().getKeepCheckpoints());
+		assertEquals(17, result.config().getMaximumTraitPatterns());
         assertTrue(result.config().getProfile());
         assertTrue(result.config().getProfileOutputFilename().startsWith(directory.toString()));
     }
@@ -58,6 +60,8 @@ class QeQTLCommandLineTest {
 		assertEquals(QResidualizationMode.AUTO, result.config().getResidualizationMode());
         assertEquals(QeQTLAnalysisConfig.DEFAULT_MINIMUM_MAC,
             result.config().getMinimumMac());
+		assertEquals(QeQTLAnalysisConfig.DEFAULT_MAXIMUM_TRAIT_PATTERNS,
+			result.config().getMaximumTraitPatterns());
     }
 
     @Test

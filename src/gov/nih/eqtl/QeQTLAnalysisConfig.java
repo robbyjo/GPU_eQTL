@@ -35,6 +35,7 @@ import java.util.Map;
  */
 public class QeQTLAnalysisConfig {
 	public static final double DEFAULT_MINIMUM_MAC = 20.0;
+	public static final int DEFAULT_MAXIMUM_TRAIT_PATTERNS = 256;
 
 	private Map<String, String> mIni = null;
 	
@@ -359,6 +360,17 @@ public class QeQTLAnalysisConfig {
 
 	public boolean getKeepCheckpoints()
 	{ return getBoolean("keep_checkpoints"); }
+
+	public int getMaximumTraitPatterns()
+	{
+		String value = mIni.get("max_trait_patterns");
+		if (value == null)
+			return DEFAULT_MAXIMUM_TRAIT_PATTERNS;
+		int parsed = Integer.parseInt(value);
+		if (parsed < 0)
+			throw new IllegalArgumentException("max_trait_patterns must not be negative");
+		return parsed;
+	}
 
 	public boolean getProfile()
 	{ return getBoolean("profile") || mIni.get("profile_output") != null; }

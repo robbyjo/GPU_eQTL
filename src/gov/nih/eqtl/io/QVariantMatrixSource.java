@@ -45,20 +45,23 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.zip.GZIPInputStream;
 
 import htsjdk.samtools.util.IOUtil;
+import htsjdk.samtools.util.CloserUtil;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.CloseableTribbleIterator;
 import htsjdk.tribble.FeatureReader;
+import htsjdk.tribble.readers.LineIterator;
 import htsjdk.tribble.readers.PositionalBufferedStream;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
+import htsjdk.variant.variantcontext.LazyGenotypesContext;
 import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.variantcontext.VariantContextBuilder;
 import htsjdk.variant.vcf.VCFHeader;
 import htsjdk.variant.vcf.VCFCodec;
-import htsjdk.variant.vcf.VCFIterator;
-import htsjdk.variant.vcf.VCFIteratorBuilder;
 
 /** Re-readable VCF/BCF dosage rows with deterministic variant QC. */
 public final class QVariantMatrixSource implements QMatrixRowSource {
@@ -67,8 +70,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private static final long PROGRESS_CHECK_RECORDS = 1_000;
     private static final long PROGRESS_REPORT_RECORDS = 1_000_000;
     private static final long PROGRESS_REPORT_NANOS = 15_000_000_000L;
-    private static final int MAX_AUTOMATIC_QC_THREADS = 16;
-    private static final int QC_TASKS_PER_THREAD = 2;
+    private static final int MAX_AUTOMATIC_QC_THREADS = 8;
+    private static final int QC_TASKS_PER_THREAD = 4;
     private static final int DECISION_CHUNK_SIZE = 1 << 16;
     private static final int DEFAULT_QC_CHECKPOINT_RECORDS = 10_000;
     private static final String QC_CHECKPOINT_RECORDS_PROPERTY = "eqtl.variant.qc.checkpoint.records";
@@ -210,16 +213,71 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
 
     private static final class VcfCursor implements VariantCursor {
-        private final VCFIterator iterator;
+        private final VCFCodec codec = new VCFCodec();
+        private final InputStream input;
+        private final LineIterator lines;
+        private final VCFHeader header;
 
         VcfCursor(Path path) throws IOException {
-            iterator = new VCFIteratorBuilder().open(path);
+            InputStream opened = new BufferedInputStream(Files.newInputStream(path), BUFFER_SIZE);
+            LineIterator openedLines = null;
+            try {
+                if (IOUtil.isGZIPInputStream(opened))
+                    opened = new BufferedInputStream(new GZIPInputStream(opened, BUFFER_SIZE), BUFFER_SIZE);
+                openedLines = codec.makeSourceFromStream(opened);
+                header = (VCFHeader) codec.readActualHeader(openedLines);
+                input = opened;
+                lines = openedLines;
+            } catch (IOException | RuntimeException e) {
+                CloserUtil.close(openedLines);
+                opened.close();
+                throw e;
+            }
         }
 
-        @Override public VCFHeader header() { return iterator.getHeader(); }
-        @Override public boolean hasNext() { return iterator.hasNext(); }
-        @Override public VariantContext next() { return iterator.next(); }
-        @Override public void close() { iterator.close(); }
+        @Override public VCFHeader header() { return header; }
+        @Override public boolean hasNext() { return lines.hasNext(); }
+
+        @Override
+        public VariantContext next() throws IOException {
+            if (!hasNext())
+                throw new NoSuchElementException();
+            String line = lines.next();
+            VariantContext fixedFields;
+            try {
+                fixedFields = (VariantContext) codec.decodeLoc(line);
+            } catch (RuntimeException e) {
+                throw new IOException("Cannot decode VCF record location", e);
+            }
+            if (header.getNGenotypeSamples() == 0)
+                return fixedFields;
+
+            String encodedGenotypes = encodedGenotypeColumns(line, fixedFields);
+            LazyGenotypesContext lazy = new LazyGenotypesContext(
+                data -> codec.createGenotypeMap((String) data, fixedFields.getAlleles(),
+                    fixedFields.getContig(), fixedFields.getStart()),
+                encodedGenotypes, header.getNGenotypeSamples());
+            return new VariantContextBuilder(fixedFields).genotypesNoValidation(lazy).make();
+        }
+
+        private static String encodedGenotypeColumns(String line, VariantContext variant)
+            throws IOException {
+            int nextField = 0;
+            for (int field = 0; field < 8; field++) {
+                nextField = line.indexOf('\t', nextField);
+                if (nextField < 0)
+                    throw new IOException("VCF record has no genotype columns at "
+                        + variant.getContig() + ":" + variant.getStart());
+                nextField++;
+            }
+            return line.substring(nextField);
+        }
+
+        @Override
+        public void close() throws IOException {
+            CloserUtil.close(lines);
+            input.close();
+        }
     }
 
     private static final class IndexedCursor implements VariantCursor {
@@ -410,6 +468,13 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         final VariantDecisions decisions = new VariantDecisions();
     }
 
+    private static final class QcPipelineMetrics {
+        final LongAdder workerNanos = new LongAdder();
+        final LongAdder workerRecords = new LongAdder();
+        final LongAdder directVcfParseNanos = new LongAdder();
+        final LongAdder directVcfParseRecords = new LongAdder();
+    }
+
     private static final class VariantProgress {
         private final String label;
         private final long totalRecords;
@@ -532,6 +597,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private final Options options;
     private final GenotypeField selectedField;
     private final String[] sourceSampleIds;
+    private final VCFHeader sourceHeader;
     private final int qcThreadCount;
     private final int qcCheckpointRecordBatchSize;
     private final Path qcCheckpointRoot;
@@ -546,11 +612,14 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private Summary summary;
     private VariantDecisions decisions;
     private int[] analysisSampleIndices;
+    private boolean[] analysisSampleMask;
     private int analysisSampleCount;
     private boolean scanComplete;
     private Path activeQcCheckpointDirectory;
     private long resumedQcRecords;
     private boolean indexedResumeUsed;
+    private long directVcfQcParses;
+    private double averageQcWorkerConcurrency;
 
     public QVariantMatrixSource(Path path, Options options) throws IOException {
         this(path, options, false);
@@ -567,7 +636,6 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IOException("Variant file does not exist: " + this.path);
         sourceSize = Files.size(this.path);
         sourceModifiedMillis = Files.getLastModifiedTime(this.path).toMillis();
-        VCFHeader sourceHeader;
         try (VariantCursor cursor = openSequentialCursor()) {
             validateSampleIds(cursor.header().getGenotypeSamples());
             sourceSampleIds = cursor.header().getGenotypeSamples().toArray(String[]::new);
@@ -601,6 +669,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IOException("Variant-QC checkpoint directory must differ from the genotype input: "
                 + this.path);
         analysisSampleIndices = identityColumnOrder(sourceSampleIds.length);
+        analysisSampleMask = selectedColumnMask(analysisSampleIndices, sourceSampleIds.length);
         analysisSampleCount = sourceSampleIds.length;
         if (deferScan) {
             metadata = new Metadata(this.path, -1, sourceSampleIds.length,
@@ -621,6 +690,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     public Path qcCheckpointDirectory() { return activeQcCheckpointDirectory; }
     public long resumedQcRecords() { return resumedQcRecords; }
     public boolean indexedResumeUsed() { return indexedResumeUsed; }
+    public long directVcfQcParses() { return directVcfQcParses; }
+    public double averageQcWorkerConcurrency() { return averageQcWorkerConcurrency; }
     public Path variantIndex() { return variantIndex; }
     public QGenomicRegions regions() { return regions; }
 
@@ -629,6 +700,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IllegalStateException("Variant QC sample selection is already finalized");
         int[] selected = normalizeColumnOrder(columnOrder, sourceSampleIds.length);
         analysisSampleIndices = selected;
+        analysisSampleMask = selectedColumnMask(selected, sourceSampleIds.length);
         analysisSampleCount = selected.length;
         completeScan();
     }
@@ -684,7 +756,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             System.out.println("Resuming variant QC after "
                 + String.format(Locale.ROOT, "%,d", state.inputRecords)
                 + " completed records from " + checkpoint.directory());
-            if (variantIndex != null && (!wholeSourceIntervals.isEmpty() || regions != null))
+            if (preferSequentialVcfResume())
+                System.out.println("The VCF sample header is unsorted, so indexed resume would decode genotypes serially; the completed prefix will be validated without genotype expansion before parallel QC resumes.");
+            else if (variantIndex != null && (!wholeSourceIntervals.isEmpty() || regions != null))
                 System.out.println("A matching variant index is available; resume will seek to and verify the durable boundary.");
             else
                 System.out.println("Sequential VCF/BCF input must decode past completed records; their sample QC and HWE will not be recomputed.");
@@ -697,6 +771,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             ? Executors.newFixedThreadPool(qcThreadCount) : null;
         Deque<Future<EvaluatedVariant>> pending = new ArrayDeque<>();
         int maximumPending = Math.max(1, qcThreadCount * QC_TASKS_PER_THREAD);
+        QcPipelineMetrics pipelineMetrics = new QcPipelineMetrics();
+        long pipelineStarted = System.nanoTime();
         List<String> checkpointBatch = checkpoint == null ? null
             : new ArrayList<>(qcCheckpointRecordBatchSize);
         try {
@@ -707,9 +783,10 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                         acceptQcEvaluation(new EvaluatedVariant(variant, evaluateQc(variant)),
                             state, checkpoint, checkpointBatch, progress);
                     } else {
-                        forceGenotypeDecoding(variant);
+                        if (options.format() == Format.BCF)
+                            forceGenotypeDecoding(variant);
                         pending.addLast(executor.submit(
-                            () -> new EvaluatedVariant(variant, evaluateQc(variant))));
+                            () -> evaluateQcInWorker(variant, pipelineMetrics)));
                         if (pending.size() >= maximumPending)
                             acceptQcEvaluation(awaitQcEvaluation(pending.removeFirst()),
                                 state, checkpoint, checkpointBatch, progress);
@@ -718,6 +795,18 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 while (!pending.isEmpty())
                     acceptQcEvaluation(awaitQcEvaluation(pending.removeFirst()),
                         state, checkpoint, checkpointBatch, progress);
+            }
+            long elapsedNanos = Math.max(1, System.nanoTime() - pipelineStarted);
+            directVcfQcParses = pipelineMetrics.directVcfParseRecords.sum();
+            averageQcWorkerConcurrency = pipelineMetrics.workerNanos.sum() / (double) elapsedNanos;
+            if (executor != null) {
+                System.out.printf(Locale.ROOT,
+                    "Variant QC pipeline: workers=%d; max in-flight records=%d; "
+                        + "worker evaluations=%,d; average active worker tasks=%.2f; "
+                        + "direct low-allocation VCF QC parses=%,d%n",
+                    qcThreadCount, maximumPending, pipelineMetrics.workerRecords.sum(),
+                    averageQcWorkerConcurrency, directVcfQcParses);
+                System.out.flush();
             }
             progress.complete(state.inputRecords, state.included);
             if (checkpoint != null) {
@@ -731,6 +820,26 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             shutdownQcExecutor(executor);
         }
         return scanResult(state, sourceSampleIds);
+    }
+
+    private EvaluatedVariant evaluateQcInWorker(VariantContext variant,
+        QcPipelineMetrics metrics) throws IOException {
+        long workerStarted = System.nanoTime();
+        try {
+            if (variant.getNAlleles() == 2 && variant.getNSamples() > 0
+                && variant.getGenotypes() instanceof LazyGenotypesContext lazy
+                && lazy.getUnparsedGenotypeData() instanceof String encoded) {
+                long parseStarted = System.nanoTime();
+                Evaluation evaluation = evaluateRawVcfQc(variant, encoded);
+                metrics.directVcfParseNanos.add(System.nanoTime() - parseStarted);
+                metrics.directVcfParseRecords.increment();
+                return new EvaluatedVariant(variant, evaluation);
+            }
+            return new EvaluatedVariant(variant, evaluateQc(variant));
+        } finally {
+            metrics.workerNanos.add(System.nanoTime() - workerStarted);
+            metrics.workerRecords.increment();
+        }
     }
 
     private void acceptQcEvaluation(EvaluatedVariant result, ScanState state,
@@ -853,6 +962,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         long completedRecords) throws IOException {
         if (checkpoint == null || completedRecords == 0)
             return;
+        VariantProgress validationProgress = new VariantProgress(
+            "Variant QC resume prefix validation (" + path.getFileName() + ")", completedRecords);
         long[] validated = {0};
         checkpoint.forEachLine(line -> {
             if (!cursor.hasNext())
@@ -865,10 +976,12 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 throw new IOException("Variant input no longer matches resumed checkpoint at record "
                     + (validated[0] + 1) + ": expected " + expected + ", found " + observed);
             validated[0]++;
+            validationProgress.update(validated[0], validated[0]);
         });
         if (validated[0] != completedRecords)
             throw new IOException("Variant-QC checkpoint loaded " + completedRecords
                 + " records but prefix validation found " + validated[0]);
+        validationProgress.complete(validated[0], validated[0]);
     }
 
     private VariantCursor openCursorForQcResume(QVariantQcCheckpoint checkpoint,
@@ -877,7 +990,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             return openCursor();
         List<QGenomicRegions.QueryInterval> intervals = regions == null
             ? wholeSourceIntervals : regions.queryIntervals();
-        if (variantIndex != null && !intervals.isEmpty() && state.lastRowId != null) {
+        if (!preferSequentialVcfResume()
+            && variantIndex != null && !intervals.isEmpty() && state.lastRowId != null) {
             validateSourceIdentity();
             VariantCursor indexed = indexedCursorAfter(state.lastRowId, intervals);
             indexedResumeUsed = true;
@@ -886,9 +1000,19 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             System.out.flush();
             return indexed;
         }
-        VariantCursor sequential = openCursor();
-        validateCheckpointPrefix(sequential, checkpoint, state.inputRecords);
-        return sequential;
+        VariantCursor sequential = preferSequentialVcfResume() ? openSequentialCursor() : openCursor();
+        try {
+            validateCheckpointPrefix(sequential, checkpoint, state.inputRecords);
+            return sequential;
+        } catch (IOException | RuntimeException e) {
+            sequential.close();
+            throw e;
+        }
+    }
+
+    private boolean preferSequentialVcfResume() {
+        return options.format() == Format.VCF && regions == null && variantIndex != null
+            && !sourceHeader.samplesWereAlreadySorted();
     }
 
     private VariantCursor indexedCursorAfter(String boundaryId,
@@ -1049,7 +1173,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         double[] values = new double[columnOrder.length];
         for (int outputColumn = 0; outputColumn < columnOrder.length; outputColumn++) {
             int sourceColumn = columnOrder[outputColumn];
-            Genotype genotype = variant.getGenotype(sourceSampleIds[sourceColumn]);
+            Genotype genotype = variant.getGenotype(sourceColumn);
             Double dosage = selectedField == GenotypeField.DS
                 ? dosageFromDs(genotype, variant) : dosageFromGt(genotype, alternate, variant);
             if (dosage != null) {
@@ -1065,6 +1189,20 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         return values;
     }
 
+    private static final class QcGenotypeCounts {
+        double alternateAlleleCount;
+        double dosageSumSquares;
+        int calledSamples;
+        int missingSamples;
+        int homRef;
+        int heterozygous;
+        int homAlt;
+        int hweSamples;
+    }
+
+    private record VcfFormatLayout(int formatEnd, int fieldCount,
+        int gtField, int dsField, int filterField) { }
+
     private Evaluation evaluateQc(VariantContext variant) throws IOException {
         if (variant.getNAlleles() != 2) {
             if (options.multiallelicPolicy() == MultiallelicPolicy.ERROR)
@@ -1076,28 +1214,21 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         Allele reference = variant.getReference();
         Allele alternate = variant.getAlternateAllele(0);
         int sampleCount = sourceSampleIds.length;
-        double alternateAlleleCount = 0;
-        double dosageSumSquares = 0;
-        int calledSamples = 0;
-        int missingSamples = 0;
-        int homRef = 0;
-        int heterozygous = 0;
-        int homAlt = 0;
-        int hweSamples = 0;
         if (variant.getNSamples() != sampleCount)
             throw new IOException("Variant sample count changed at " + variant.getContig()
                 + ":" + variant.getStart());
 
+        QcGenotypeCounts counts = new QcGenotypeCounts();
         for (int sample : analysisSampleIndices) {
-            Genotype genotype = variant.getGenotype(sourceSampleIds[sample]);
+            Genotype genotype = variant.getGenotype(sample);
             Double dosage = selectedField == GenotypeField.DS
                 ? dosageFromDs(genotype, variant) : dosageFromGt(genotype, alternate, variant);
             if (dosage == null) {
-                missingSamples++;
+                counts.missingSamples++;
             } else {
-                alternateAlleleCount += dosage;
-                dosageSumSquares += dosage * dosage;
-                calledSamples++;
+                counts.alternateAlleleCount += dosage;
+                counts.dosageSumSquares += dosage * dosage;
+                counts.calledSamples++;
             }
 
             if (genotype != null && !genotype.isFiltered() && genotype.isCalled()
@@ -1114,13 +1245,205 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                     }
                 }
                 if (valid) {
-                    if (alternateCopies == 0) homRef++;
-                    else if (alternateCopies == 1) heterozygous++;
-                    else homAlt++;
-                    hweSamples++;
+                    if (alternateCopies == 0) counts.homRef++;
+                    else if (alternateCopies == 1) counts.heterozygous++;
+                    else counts.homAlt++;
+                    counts.hweSamples++;
                 }
             }
         }
+        return finishQcEvaluation(variant, counts);
+    }
+
+    private Evaluation evaluateRawVcfQc(VariantContext variant, String encoded) throws IOException {
+        if (variant.getNAlleles() != 2)
+            return evaluateQc(variant);
+        VcfFormatLayout layout = vcfFormatLayout(encoded, variant);
+        QcGenotypeCounts counts = new QcGenotypeCounts();
+        int sampleStart = layout.formatEnd() + 1;
+        for (int sample = 0; sample < sourceSampleIds.length; sample++) {
+            if (sampleStart > encoded.length())
+                throw vcfSampleCountError(variant, sample);
+            int separator = encoded.indexOf('\t', sampleStart);
+            if (sample + 1 == sourceSampleIds.length) {
+                if (separator >= 0)
+                    throw vcfSampleCountError(variant, sourceSampleIds.length + 1);
+            } else if (separator < 0) {
+                throw vcfSampleCountError(variant, sample + 1);
+            }
+            int sampleEnd = separator < 0 ? encoded.length() : separator;
+            accumulateRawVcfSample(encoded, sampleStart, sampleEnd, layout,
+                analysisSampleMask[sample], variant, counts);
+            sampleStart = sampleEnd + 1;
+        }
+        return finishQcEvaluation(variant, counts);
+    }
+
+    private static VcfFormatLayout vcfFormatLayout(String encoded, VariantContext variant)
+        throws IOException {
+        int formatEnd = encoded.indexOf('\t');
+        if (formatEnd < 0)
+            throw new IOException("VCF record has no sample columns at " + canonicalId(variant));
+        int gtField = -1;
+        int dsField = -1;
+        int filterField = -1;
+        int field = 0;
+        int fieldStart = 0;
+        for (int position = 0; position <= formatEnd; position++) {
+            if (position != formatEnd && encoded.charAt(position) != ':')
+                continue;
+            if (position == fieldStart)
+                throw new IOException("VCF record has an empty FORMAT key at " + canonicalId(variant));
+            if (matches(encoded, fieldStart, position, "GT")) gtField = uniqueFormatField(gtField, field, "GT", variant);
+            else if (matches(encoded, fieldStart, position, "DS")) dsField = uniqueFormatField(dsField, field, "DS", variant);
+            else if (matches(encoded, fieldStart, position, "FT")) filterField = uniqueFormatField(filterField, field, "FT", variant);
+            field++;
+            fieldStart = position + 1;
+        }
+        if (gtField > 0)
+            throw new IOException("GT must be the first FORMAT key at " + canonicalId(variant));
+        return new VcfFormatLayout(formatEnd, field, gtField, dsField, filterField);
+    }
+
+    private static int uniqueFormatField(int previous, int current, String key,
+        VariantContext variant) throws IOException {
+        if (previous >= 0)
+            throw new IOException("Duplicate FORMAT/" + key + " at " + canonicalId(variant));
+        return current;
+    }
+
+    private static boolean matches(String text, int start, int end, String expected) {
+        return end - start == expected.length() && text.regionMatches(start, expected, 0, expected.length());
+    }
+
+    private void accumulateRawVcfSample(String encoded, int sampleStart, int sampleEnd,
+        VcfFormatLayout layout, boolean selected, VariantContext variant,
+        QcGenotypeCounts counts) throws IOException {
+        int gtStart = -1;
+        int gtEnd = -1;
+        int dsStart = -1;
+        int dsEnd = -1;
+        int filterStart = -1;
+        int filterEnd = -1;
+        int field = 0;
+        int fieldStart = sampleStart;
+        for (int position = sampleStart; position <= sampleEnd; position++) {
+            if (position != sampleEnd && encoded.charAt(position) != ':')
+                continue;
+            if (field == layout.gtField()) { gtStart = fieldStart; gtEnd = position; }
+            if (field == layout.dsField()) { dsStart = fieldStart; dsEnd = position; }
+            if (field == layout.filterField()) { filterStart = fieldStart; filterEnd = position; }
+            field++;
+            fieldStart = position + 1;
+        }
+        if (field > layout.fieldCount())
+            throw new IOException("VCF sample has more values than FORMAT keys at "
+                + canonicalId(variant));
+
+        boolean filtered = isFilteredRaw(encoded, filterStart, filterEnd, variant);
+        int ploidy = 0;
+        int alternateCopies = 0;
+        boolean called = false;
+        boolean completeBiallelicGt = false;
+        if (gtStart >= 0) {
+            int alleles = 1;
+            boolean sawNoCall = false;
+            boolean valid = true;
+            int alleleStart = gtStart;
+            for (int position = gtStart; position <= gtEnd; position++) {
+                char character = position == gtEnd ? '\0' : encoded.charAt(position);
+                if (position != gtEnd && character != '/' && character != '|')
+                    continue;
+                if (position == alleleStart)
+                    throw new IOException("Invalid empty GT allele at " + canonicalId(variant));
+                if (position - alleleStart == 1 && encoded.charAt(alleleStart) == '.') {
+                    sawNoCall = true;
+                } else if (position - alleleStart == 1 && encoded.charAt(alleleStart) == '0') {
+                    called = true;
+                } else if (position - alleleStart == 1 && encoded.charAt(alleleStart) == '1') {
+                    called = true;
+                    alternateCopies++;
+                } else {
+                    valid = false;
+                }
+                if (position != gtEnd) alleles++;
+                alleleStart = position + 1;
+            }
+            if (!valid)
+                throw new IOException("Invalid biallelic GT value at " + canonicalId(variant));
+            ploidy = alleles;
+            completeBiallelicGt = called && !sawNoCall && ploidy == 2;
+        }
+
+        if (!selected)
+            return;
+        double dosage = Double.NaN;
+        if (!filtered) {
+            if (selectedField == GenotypeField.DS) {
+                dosage = rawDosage(encoded, dsStart, dsEnd, variant);
+            } else if (called) {
+                if (ploidy != 2)
+                    throw new IOException("Only diploid GT values are supported at " + canonicalId(variant));
+                dosage = alternateCopies;
+            }
+        }
+        if (Double.isNaN(dosage)) {
+            counts.missingSamples++;
+        } else {
+            counts.alternateAlleleCount += dosage;
+            counts.dosageSumSquares += dosage * dosage;
+            counts.calledSamples++;
+        }
+        if (!filtered && completeBiallelicGt) {
+            if (alternateCopies == 0) counts.homRef++;
+            else if (alternateCopies == 1) counts.heterozygous++;
+            else counts.homAlt++;
+            counts.hweSamples++;
+        }
+    }
+
+    private static boolean isFilteredRaw(String encoded, int start, int end,
+        VariantContext variant) throws IOException {
+        if (start < 0)
+            return false;
+        if (start == end)
+            throw new IOException("Empty FORMAT/FT value at " + canonicalId(variant));
+        return !(matches(encoded, start, end, ".") || matches(encoded, start, end, "PASS"));
+    }
+
+    private static double rawDosage(String encoded, int start, int end,
+        VariantContext variant) throws IOException {
+        if (start < 0)
+            return Double.NaN;
+        while (start < end && Character.isWhitespace(encoded.charAt(start))) start++;
+        while (end > start && Character.isWhitespace(encoded.charAt(end - 1))) end--;
+        if (start == end || matches(encoded, start, end, "."))
+            return Double.NaN;
+        String text = encoded.substring(start, end);
+        try {
+            double value = Double.parseDouble(text);
+            if (!Double.isFinite(value) || value < -INTEGER_TOLERANCE || value > 2 + INTEGER_TOLERANCE)
+                throw new IOException("Invalid DS value '" + text + "' at " + canonicalId(variant));
+            return Math.max(0, Math.min(2, value));
+        } catch (NumberFormatException e) {
+            throw new IOException("Invalid DS value '" + text + "' at " + canonicalId(variant), e);
+        }
+    }
+
+    private static IOException vcfSampleCountError(VariantContext variant, int observedSamples) {
+        return new IOException("VCF sample count differs from its header at " + canonicalId(variant)
+            + "; observed approximately " + observedSamples + " sample column(s)");
+    }
+
+    private Evaluation finishQcEvaluation(VariantContext variant, QcGenotypeCounts counts)
+        throws IOException {
+        double alternateAlleleCount = counts.alternateAlleleCount;
+        int calledSamples = counts.calledSamples;
+        int missingSamples = counts.missingSamples;
+        int homRef = counts.homRef;
+        int heterozygous = counts.heterozygous;
+        int homAlt = counts.homAlt;
+        int hweSamples = counts.hweSamples;
 
         String rowId = canonicalId(variant);
         if (calledSamples == 0) {
@@ -1162,7 +1485,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             reasons.addAll(frequencyReasons);
         boolean accepted = reasons.isEmpty();
         return new Evaluation(rowId, calledSamples, missingSamples, alternateAlleleCount,
-            alleleNumber, dosageSumSquares, eaf, maf, mac, hweP, hweSamples,
+            alleleNumber, counts.dosageSumSquares, eaf, maf, mac, hweP, hweSamples,
             homRef, heterozygous, homAlt, classification, accepted,
             String.join(";", reasons), regionMemberships(variant),
             String.join(";", frequencyReasons));
@@ -1424,6 +1747,13 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         for (int i = 0; i < columnCount; i++)
             identity[i] = i;
         return identity;
+    }
+
+    private static boolean[] selectedColumnMask(int[] selected, int columnCount) {
+        boolean[] mask = new boolean[columnCount];
+        for (int column : selected)
+            mask[column] = true;
+        return mask;
     }
 
     static int recommendQcThreads(int configuredThreads) {

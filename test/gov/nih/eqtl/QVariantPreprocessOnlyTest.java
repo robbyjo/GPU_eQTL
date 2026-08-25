@@ -92,4 +92,47 @@ class QVariantPreprocessOnlyTest {
         assertEquals(modified, Files.getLastModifiedTime(rawCaches.get(0)));
         assertTrue(java.util.Arrays.equals(first, Files.readAllBytes(rawCaches.get(0))));
     }
+
+    @Test
+    void alignedRawCacheDoesNotReapplySourceColumnIndicesToCachedSampleIds(
+        @TempDir Path directory) throws Exception {
+        Path genotype = Path.of("test/resources/variant-reference/genotype.vcf")
+            .toAbsolutePath().normalize();
+        Path expression = Path.of("test/resources/variant-reference/expression.csv")
+            .toAbsolutePath().normalize();
+        Path covariates = directory.resolve("covariates.csv");
+        Files.writeString(covariates,
+            "genotype_id,expression_id\nS4,S4\nS1,S1\nS2,S2\n");
+        Path cache = directory.resolve("cache");
+        Path missingness = directory.resolve("missingness.tsv");
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("ini.path", directory.toString() + java.io.File.separator);
+        values.put("genotype_file", genotype.toString());
+        values.put("expression_file", expression.toString());
+        values.put("covariate_file", covariates.toString());
+        values.put("genotype_format", "vcf");
+        values.put("genotype_id_column", "genotype_id");
+        values.put("expression_id_column", "expression_id");
+        values.put("sample_alignment", "covariate-subset");
+        values.put("preprocess_only", "true");
+        values.put("trait_missing", "error");
+        values.put("min_mac", "0");
+        values.put("cache_dir", cache.toString());
+        values.put("variant_qc_output", directory.resolve("variants.tsv").toString());
+        values.put("missingness_qc_output", missingness.toString());
+        values.put("genotype_block_rows", "2");
+        QeQTLAnalysis.config = new QeQTLAnalysisConfig(values);
+        QeQTLAnalysis.profiler = new QeQTLProfiler(false);
+
+        QeQTLAnalysis.runMatrixAnalysis(new QeQTLAnalysis(), genotype.toString(),
+            expression.toString(), covariates.toString(), null, null,
+            "none", Double.NaN, 0, true, 0, 1, "vcf");
+        QeQTLAnalysis.runMatrixAnalysis(new QeQTLAnalysis(), genotype.toString(),
+            expression.toString(), covariates.toString(), null, null,
+            "none", Double.NaN, 0, true, 0, 1, "vcf");
+
+        String report = Files.readString(missingness);
+        assertTrue(report.contains("selected_samples=3;matrix_only_samples_excluded=1"));
+        assertTrue(report.contains("\nSAMPLE\tpredictor\t1\tS1\t"));
+    }
 }

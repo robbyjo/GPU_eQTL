@@ -846,3 +846,203 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - The Markdown reference is exhaustive for the current parser but is maintained manually. Future command-line additions should update both the short built-in help and `docs/COMMAND_LINE_REFERENCE.md`, then repeat the parser/reference audit.
 - The reference intentionally documents current behavior rather than implying roadmap features: random effects/familial mixed models, burden/SKAT/SKAT-O, SNP interactions, and forward selection remain pending.
 - Next: push the verified baseline to both remotes, exercise preprocessing/reuse on a copied production chromosome as recommended above, and use its timings and retained-variant counts to decide whether CSI support or the continuous-trait rare-variant foundation should be implemented next.
+
+## 2026-08-25T12:53:00-04:00 — Parallel VCF genotype decoding for variant QC
+
+### Baseline and goal
+
+- Baseline commit: `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`) in the canonical standalone checkout at `D:\projects\NIH-Project`.
+- Goal: explain and remove the bottleneck behind an automatic 15-worker VCF QC run using only about one third of a 16-logical-processor host, without interrupting the user's production process or changing aligned-sample QC results/order.
+
+### Decisions and files changed
+
+- Profiling the handoff showed that `VCFIteratorBuilder` caused HTSJDK to expand every sample genotype on the single traversal thread before the record reached the worker pool, especially when VCF header sample IDs were not already sorted. The workers therefore performed only the lighter dosage/count/HWE loop. The existing compressed-input buffer was already 16 MiB; buffer size alone could not remove this serial decode stage.
+- Replaced unrestricted sequential VCF iteration in `QVariantMatrixSource` with a raw-line cursor that parses fixed VCF fields on the traversal thread and retains FORMAT/sample columns in a `LazyGenotypesContext`. Each QC worker has its own header-configured `VCFCodec`, so mutable HTSJDK parser arrays/caches are never shared and genotype expansion plus aligned-sample statistics can proceed across variants. Both sorted and unsorted VCF sample headers take this path. Later sequential matrix passes still decode a record before advancing the owning cursor.
+- Preserved BCF's reader-thread genotype expansion because its lazy decoder shares codec/builders. Indexed VCF interval cursors and an indexed boundary-resume still use HTSJDK's indexed reader; these paths can remain decode-bound when an unsorted header forces eager expansion. Fresh unrestricted VCF/VCF.gz preprocessing uses the new parallel path even when a neighboring index exists.
+- Replaced sample-name map lookups in the hot aligned-sample loops with the already-validated header offsets. Increased the bounded queue from two to four in-flight records per worker (60 records for 15 workers), retaining source-ordered result consumption and bounded memory.
+- Added end-of-QC diagnostics for worker count, maximum in-flight records, worker evaluations, measured average active worker tasks, and records whose VCF genotypes were expanded by workers. `parallel VCF genotype decodes` should approach the number of biallelic genotype-bearing records on a new unrestricted VCF scan; a zero count indicates a BCF/indexed/eager or checkpoint-reuse path.
+- Added deterministic tests requiring worker decoding for both unsorted and sorted VCF headers, sequential/parallel summary and byte-identical QC output, and reordered dosage equality. Updated `README.md`, `docs/COMMAND_LINE_REFERENCE.md`, `TODO.md`, and the VCF/BCF concurrency rule in `AGENTS.md`.
+- The already-running production Java process was observed read-only and was not stopped, modified, or benchmarked against. It continues with the old loaded classes; this change applies only after starting the newly packaged JAR.
+
+### Verification and artifact
+
+- `.\mvnw.cmd "-Dtest=QVariantMatrixSourceTest" test` — 17 tests ran with 0 failures/errors and one intentional optional external-BCF skip. Sequential and four-worker VCF QC remained byte-identical, reordered rows/dosages were exact, and unsorted/sorted headers both reported worker-side genotype decodes.
+- `.\mvnw.cmd test` — 89 tests ran with 0 failures/errors and five intentional skips (four platform/profile-gated oneMKL checks and the optional independently generated BCF fixture). CUDA/cuBLAS and JOCL/OpenCL integration tests exercised the same Windows 11 / NVIDIA GeForce RTX 2080 host previously recorded (CUDA driver API 13.3, CUDA runtime 12.6, compute capability 7.5, FP64); no separate driver probe was rerun. CPU/OpenBLAS and deterministic reference tests also passed.
+- `.\mvnw.cmd -DskipTests package` — Java 17 shaded packaging succeeded. Artifact: `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`, 135,734,193 bytes, SHA-256 `4E2E68BD0413268D09E4FBE64B444673055B05A05A199F51099B7E5638E7CBB5`. Existing Shade duplicate-resource warnings were unchanged.
+- Packaged smoke test: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --genotype test\resources\variant-reference\genotype.vcf --genotype-format vcf --genotype-field auto --predictor-missing mean --expression test\resources\variant-reference\expression.csv --trait-missing error --sample-alignment strict --min-mac 0 --variant-qc-threads 4 --variant-qc-output target\qc-parallel-e2e-20260825\variants.tsv --variant-qc-checkpoint target\qc-parallel-e2e-20260825\variant-checkpoint --missingness-qc-output target\qc-parallel-e2e-20260825\missingness.tsv --cache-dir target\qc-parallel-e2e-20260825\cache --preprocess-only` — successful; seven records evaluated in source order, six biallelic genotype records decoded by workers, five variants retained, and the aligned raw cache completed.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF working-copy warnings.
+
+### Known limitations, compatibility, and next step
+
+- Compressed VCF traversal/decompression and source-ordered checkpoint/QC writing remain sequential. The intended result is substantially more than the prior approximately four effective workers, but 15 fully busy cores are not guaranteed; the final `average active worker tasks` value on a representative run identifies the remaining upstream/downstream ceiling.
+- A completed matching QC checkpoint bypasses the scan, so it will not demonstrate the change. An incomplete indexed resume and explicit indexed region query can still show zero worker-side VCF decodes because HTSJDK owns those indexed record cursors. BCF also remains reader-decode-bound. These are reported rather than silently presented as fully parallel.
+- Do not restart the expensive in-progress run solely for this optimization. Use its completed checkpoint/cache. On the next new unrestricted VCF/VCF.gz preprocessing input, keep `--variant-qc-threads 0` or the reported 15 and inspect `average active worker tasks` plus `parallel VCF genotype decodes`. Only compare 4/8/15 workers on a short representative chromosome slice if utilization remains low; a costly full-cohort thread sweep is not required.
+
+## 2026-08-25T13:16:20-04:00 — Corrected low-allocation VCF QC and eight-worker plateau
+
+### Baseline and goal
+
+- Baseline commit remains `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`); this corrective increment follows the uncommitted 12:53 VCF worker change in the canonical standalone checkout at `D:\projects\NIH-Project`.
+- Goal: respond to the production observation that the old reader achieved approximately 1,300 records/s while the first worker-decoding build regressed to roughly 1,000–1,100 records/s, determine why nominal parallelism was slower, and replace it with a measured lower-allocation design.
+
+### Decisions and files changed
+
+- The first parallel implementation was rejected as the default optimization: although it moved HTSJDK genotype decoding into workers, every worker still allocated full `Genotype` objects, allele lists, extended-attribute maps, and unused FORMAT values for thousands of samples. Concurrent object expansion increased garbage collection and memory-bandwidth contention enough to lose throughput. Increasing the already-16-MiB compressed input buffer could not fix that allocation bottleneck.
+- VCF QC workers now scan the raw genotype text directly and extract only FORMAT layout, `GT`, `DS`, and genotype filter `FT`. They validate the VCF sample-column count, FORMAT/value count, biallelic GT syntax/ploidy, dosage range, missing calls, and selected-sample filtering while accumulating dosage sum/squared sum, called/missing counts, and exact-HWE genotype counts without materializing per-sample HTSJDK objects. A boolean aligned-sample mask avoids name-map lookups and allows matrix-only samples to be skipped for scientific counts while retaining cheap GT syntax validation.
+- The one-worker mode remains the independent HTSJDK reference implementation. Parallel/raw versus sequential/HTSJDK tests require identical summaries and byte-identical QC TSVs for sorted and unsorted headers, aligned sample subsets/reordering, DS and GT selection, FT-filtered samples, partial calls, missing/trailing FORMAT values, and per-record FORMAT changes.
+- Automatic `--variant-qc-threads 0` is now capped at eight rather than 16/15. A bounded 4,746-sample benchmark plateaued at eight workers, so more threads are not presented as automatically better. Explicit thread values remain available. The queue remains bounded at four records per worker (32 records in automatic mode).
+- Console diagnostics now report `direct low-allocation VCF QC parses`; it should cover biallelic genotype-bearing records in an unrestricted VCF scan. Zero remains expected for the sequential reference, BCF, fully reused checkpoints, and some eager indexed paths. Updated `AGENTS.md`, `README.md`, `TODO.md`, and `docs/COMMAND_LINE_REFERENCE.md` to replace the discarded full-object worker design and document the measured cap.
+
+### Verification, benchmark, and artifact
+
+- `.\mvnw.cmd "-Dtest=QVariantMatrixSourceTest" test` — 18 tests ran with 0 failures/errors and one intentional optional external-BCF skip. New DS/GT, FT, partial-call, changing-FORMAT, and missing-field cases were byte-identical between the direct worker parser and HTSJDK reference.
+- Temporary bounded benchmark (test source removed afterward): 1,500 uncompressed biallelic DS+GT variants by 4,746 samples on the current 16-logical-processor Windows host. One HTSJDK worker: 2.503 s / 599.2 variants/s. Four direct workers: 0.328 s / 4,575.8 variants/s / 3.62 average active tasks. Eight: 0.185 s / 8,126.8 variants/s / 5.91 active. Fifteen: 0.185 s / 8,105.7 variants/s / 5.70 active. This establishes the allocation improvement and eight-worker plateau but is not a claim that compressed production VCF.gz will reach synthetic uncompressed rates.
+- Final `.\mvnw.cmd test` — 90 tests ran with 0 failures/errors and five intentional skips (four platform/profile-gated oneMKL checks and the optional independently generated BCF). The same previously documented NVIDIA GeForce RTX 2080 / CUDA 13.3 driver API / CUDA 12.6 runtime host was exercised; no driver change or separate probe occurred.
+- `.\mvnw.cmd -DskipTests package` — shaded Java 17 build succeeded. Final artifact: `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`, 135,737,763 bytes, SHA-256 `27B8A4B7CCC3CA5DEA7E45A0E3F4EBC8EA977612CAD28DC8B662FD769473246E`.
+- Packaged automatic-mode smoke preprocessing on `test\resources\variant-reference\genotype.vcf` succeeded with eight workers, 32 maximum in-flight records, six direct low-allocation parses, unchanged five retained variants, and a completed aligned raw cache.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF working-copy warnings.
+
+### Known limitations, compatibility, and next step
+
+- VCF.gz decompression, fixed-field parsing, ordered duplicate/QC/checkpoint consumption, and checkpoint storage remain serial stages. Production throughput may therefore plateau below eight active workers even though the worker parser itself scales. Overall record rate, not Task Manager utilization alone, is the optimization target.
+- BCF and certain indexed/eager record paths retain the HTSJDK object decoder. The direct parser intentionally supports the additive biallelic GT/DS model used by this application, not arbitrary unused FORMAT-field semantic validation; HTSJDK remains responsible for full decoding during later retained-row reads.
+- The previous 12:53 session entry records the superseded first attempt and must remain as history. Its recommendation to expect 15 useful workers is replaced by this measured eight-worker policy.
+- Next: run the new JAR on one fresh or separately signed short compressed VCF.gz slice with automatic workers, record the rate and final pipeline diagnostic, and compare its QC TSV byte-for-byte with `--variant-qc-threads 1`. Do not repeat an expensive whole-chromosome run solely to benchmark this correction.
+
+## 2026-08-25T13:49:54-04:00 — Unsorted VCF indexed-resume bottleneck identified and bypassed
+
+### Baseline and goal
+
+- Baseline commit remains `4524cbdd7161de9c6251411b62e4ccad9b8d666b`, with the 12:53 and 13:16 QC changes still uncommitted in the canonical `D:\projects\NIH-Project` checkout.
+- Goal: determine why the user's corrected-JAR run still held at approximately 1,100 records/s and whether a new argument was required.
+
+### Live evidence and decision
+
+- `jcmd -l` and `VM.command_line` confirmed PID 35960 was launched from the expected `D:\projects\NIH-Project\target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar` with `--variant-qc-threads 0`, the intended VCF, expression, covariate, checkpoint, cache, profile, and `--preprocess-only` arguments. No missing thread argument caused the result.
+- A live `jcmd 35960 Thread.print -l` showed `main` consuming approximately 1,610 CPU seconds in `AbstractVCFCodec.createGenotypeMap -> LazyGenotypesContext.decode -> VCFCodec.decode -> QVariantMatrixSource$IndexedCursor.advance`, while all eight `pool-1-thread-*` workers were parked after only about 58–62 CPU seconds each. Heap use was about 2.30 GiB of 2.81 GiB committed under `-Xmx12g`. This proved the run had resumed its existing checkpoint through the neighboring index and HTSJDK was eagerly decoding unsorted-header genotypes serially before worker submission.
+- The running process was inspected read-only and not stopped. Because it launched before this correction, overwriting the JAR on disk does not change its already loaded classes.
+- For unrestricted VCF with an unsorted sample header and an incomplete checkpoint, resume now deliberately avoids the eager indexed cursor. It opens the low-allocation sequential cursor, validates every durable checkpoint row against the raw source prefix without genotype expansion, reports prefix-validation progress, and then continues the remaining records through direct parallel QC. It retains the same checkpoint and does not recompute completed EAF/MAF/MAC/HWE.
+- Explicit region queries still require and use indexed access. Sorted-header unrestricted VCF and BCF/index-compatible paths may still seek directly to the durable boundary. Added cleanup if prefix validation fails so the source cursor is not leaked.
+- Updated `AGENTS.md`, `README.md`, and `TODO.md` with the resume-selection rule. No new user-facing argument was added or required.
+
+### Verification and artifact
+
+- `.\mvnw.cmd "-Dtest=QVariantMatrixSourceTest" test` — 19 tests ran with 0 failures/errors and one optional external-BCF skip. The new test interrupts an unrestricted unsorted VCF that has a tabix index, resumes its checkpoint, asserts indexed resume was not used, verifies worker direct parsing resumed, and preserves all seven ordered records. The explicit indexed-region resume test still seeks directly and passes.
+- `.\mvnw.cmd test` — 91 tests ran with 0 failures/errors and five intentional platform/fixture skips. Previously recorded Windows/NVIDIA RTX 2080 CUDA/OpenCL and CPU/OpenBLAS checks remained successful; no driver change occurred.
+- `.\mvnw.cmd -DskipTests package` — Java 17 shaded build succeeded. Artifact: `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`, 135,738,124 bytes, SHA-256 `C88F13215853D937746A7E4AEA0BEC97D9EA5874D215714EB67FE18F9DD7DE85`.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF warnings.
+
+### Compatibility and next step
+
+- The current PID 35960 can safely finish on its existing serial indexed path. To use the correction immediately, the user may terminate that process normally and rerun the exact same command; the new JAR will preserve and validate the durable checkpoint before resuming. Up to the current checkpoint batch, not necessarily the last displayed record, is durable.
+- `--variant-qc-threads 8` is equivalent to current automatic mode on this 16-logical-processor host and will not correct the indexed-resume issue by itself. A different checkpoint path would force a fresh parallel scan but unnecessarily discard useful durable work, so it is not recommended.
+- During a corrected restart, expect the explicit unsorted-header resume message, possibly a fast prefix-validation phase, then eight-worker direct parsing. A completed checkpoint is reused immediately and needs no scan.
+
+## 2026-08-25T14:44:00-04:00 — Aligned-cache sample-ID reorder fix
+
+### Baseline and goal
+
+- Baseline commit remains `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`), with the preceding VCF-QC performance work still uncommitted in the canonical `D:\projects\NIH-Project` checkout.
+- Goal: fix the production `ArrayIndexOutOfBoundsException: Index 4747 out of bounds for length 4746` from `QeQTLAnalysis.reorder` immediately after matrix missingness inspection, while preserving the validated genotype/expression/covariate sample order and reusable QC/cache artifacts.
+
+### Cause, decisions, and files changed
+
+- The aligned raw VCF cache contains only the 4,746 selected samples in canonical order. After scanning that cache with an identity column order, `QeQTLAnalysis` incorrectly rebuilt display/output sample IDs by applying the original VCF column permutation to the cache's already-reordered 4,746-element header. A valid original source position such as 4,747 was therefore out of range for the aligned cache header. Matrix values had already been read with the correct order; the exception occurred while reconstructing labels.
+- `QeQTLAnalysis` now snapshots the immutable genotype and expression source-header IDs before aligned QC or cache substitution. Alignment and canonical genotype sample labels are consistently derived from that source snapshot, while an aligned raw cache continues to use an identity matrix-column order. This also preserves the intended genotype-side canonical IDs when expression IDs have a stripped prefix.
+- Added an end-to-end `QVariantPreprocessOnlyTest` case with source VCF order `S2,S1,S3,S4`, covariate-subset order `S4,S1,S2`, and one excluded matrix-only sample. It covers both creation and reuse of the three-column aligned raw cache and verifies that missing genotype data for `S1` is reported at aligned position 1.
+- Recorded the user's production confirmation that the corrected unrestricted VCF.gz resume reached approximately 17,600 records/s, versus approximately 1,000–1,100 records/s on the eager indexed-resume path and approximately 1,300 records/s in the older implementation. Updated `TODO.md` so only the short independent byte-for-byte QC comparison remains for that throughput milestone.
+- Files changed in this increment: `src/gov/nih/eqtl/QeQTLAnalysis.java`, `test/gov/nih/eqtl/QVariantPreprocessOnlyTest.java`, `TODO.md`, and this append-only session record. Existing unrelated/uncommitted modernization changes were preserved.
+
+### Verification and artifact
+
+- `.\mvnw.cmd -Dtest=QVariantPreprocessOnlyTest test` — 3 tests ran with 0 failures, 0 errors, and 0 skips. The new reordered covariate-subset case successfully built and then reused the same aligned raw cache.
+- `.\mvnw.cmd clean package` — successful Java 17 build and shaded packaging; 92 tests ran with 0 failures, 0 errors, and five intentional skips (four platform/profile-gated oneMKL checks and the optional independently generated external BCF fixture).
+- `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo` — successful. Automatic discovery reported the NVIDIA GeForce RTX 2080 CUDA backend (CUDA driver API 13.3, CUDA Runtime 12.6, compute capability 7.5, FP64, 8,589,606,912 bytes global memory) and the Windows x64 CPU fallback (16 logical processors, bundled OpenBLAS 0.3.34, 15 BLAS threads).
+- Rebuilt artifact: `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`, 135,738,069 bytes, SHA-256 `E1D7F54E616EBF5D1613EFA7B5E8E620E3B37AC9FFD688E1FBAC05E5AE429796`. Existing Maven Shade duplicate-resource warnings were unchanged.
+
+### Compatibility, limitations, and next step
+
+- No cache or checkpoint format/signature changed. The user's completed variant-QC checkpoint and aligned raw predictor cache remain reusable; rerunning the same command with this JAR should proceed past missingness inspection without rebuilding them.
+- The full 4,746-sample production association was not rerun because it is expensive. The failure shape is covered deterministically at small scale, including cache reuse and a source index larger than the aligned-cache header.
+- Next: rerun the same production command with the rebuilt JAR. If it proceeds into residualization/analysis, retain the missingness QC file as the sample-order audit; separately perform the remaining short `--variant-qc-threads 1` versus automatic QC byte comparison when convenient.
+
+## 2026-08-25T15:52:37-04:00 — Production cache reuse and association profile completed
+
+### Baseline and goal
+
+- Baseline commit remains `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`), with the VCF-QC performance and aligned-cache sample-ID fixes still uncommitted in the canonical `D:\projects\NIH-Project` checkout.
+- Goal: record the user's successful Step #4 production run after the sample-ID fix, confirm that Step #3 artifacts were reusable, and identify the next optimization boundary from the measured profile without requiring another costly full run.
+
+### Production evidence and decisions
+
+- The run printed `Reusing completed variant-QC checkpoint` and proceeded through association progress to completion. This confirms that the aligned-cache sample-ID fix requires neither QC recomputation nor cache invalidation and that the corrected JAR passed the former missingness-inspection failure on the 4,746-sample production inputs.
+- Completed variant-QC reuse processed 15,979,340 durable records in 71.805116500 seconds (approximately 222,538 records/s). This is checkpoint reconstruction/materialization work, not genotype QC recomputation.
+- The prepared genotype cache contained 440,406 rows and 16,741,963,967 profiled bytes and opened in 0.962446500 seconds. The prepared expression cache contained 114,406 rows and 4,348,917,857 profiled bytes and opened in 0.253872700 seconds. The three files under the matrix-cache root occupied 37,824,081,886 bytes (35.23 GiB), consistent with aligned raw genotype, prepared genotype, and prepared expression storage.
+- The association evaluated 50,385,088,836 variant–trait pairs in 1,995.787424300 wall seconds (33.26 minutes), or approximately 25.25 million comparisons/s. There were 12,096 GPU-compute calls totaling 1,544.929592300 worker-seconds and 12,096 CPU result/filter/write calls totaling 1,269.687218700 worker-seconds. These phase totals overlap across scheduled work and must not be added to infer wall time; nevertheless, host-side result processing/output is now a substantial measured optimization target alongside GPU compute.
+- Updated `TODO.md` with the successful production checkpoint/cache reuse, storage, and `--trait-cache memory` association baseline. No source code, scientific output, cache, checkpoint, or user data was changed in this documentation-only increment.
+
+### Verification supplied by the user
+
+- `Import-Csv $associationProfile | Where-Object phase -In 'variant_qc','genotype_cache_open_or_build','expression_cache_open_or_build','gpu_compute','cpu_results_and_write','analysis_wall' | Format-Table phase,calls,total_seconds,units,bytes` — reported the exact phase measurements above and one completed `analysis_wall` call.
+- `Get-ChildItem -LiteralPath $matrixCache -File -Recurse | Measure-Object -Property Length -Sum` — reported 3 files totaling 37,824,081,886 bytes.
+- `Get-FileHash -Algorithm SHA256 $variantQc` — SHA-256 `60740BD16DFCAFD22F8408D07730F15673EBBAF64C0D4A208176D3673FE72F03` for the production variant-QC output.
+- No additional hardware test was run for this record. The analysis used the rebuilt artifact and NVIDIA RTX 2080/CUDA environment documented in the immediately preceding entry.
+
+### Compatibility, limitations, and next step
+
+- The production reuse and association portions of the VCF/QC milestone are now validated. The remaining closure check is a short independent QC comparison (automatic versus one-worker HTSJDK and/or bcftools/R); it does not require repeating the full chromosome association.
+- Association progress messages are periodic status reports over a 33-minute run, not evidence that checkpoint reuse failed. The checkpoint eliminates the expensive genotype-QC scan; it does not skip the requested 50.385-billion-pair association.
+- Before optimizing, inspect the association output size and retained row count so CPU result/filter/write time can be separated into statistical conversion, threshold filtering, formatting, and physical I/O. Then use a bounded representative slice to profile those subphases; do not rerun this full analysis merely to obtain finer timing.
+
+## 2026-08-25T15:55:16-04:00 — Production VCF/VCF.gz milestone closed
+
+### Baseline and goal
+
+- Baseline commit remains `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`), with the verified VCF-QC, cache-reuse, and sample-ID fixes still uncommitted in the canonical `D:\projects\NIH-Project` checkout.
+- Goal: formally close the current VCF/VCF.gz hardening milestone after the successful 15,979,340-record QC/cache reuse and 50,385,088,836-pair association, defer unavailable BCF production validation, and reprioritize the remaining roadmap.
+
+### Decisions and files changed
+
+- Declared the biallelic additive VCF/VCF.gz workflow production-hardened for the current use case: aligned-sample QC, EAF/MAF/MAC/HWE, missingness preservation/policies, multithreaded direct parsing, durable checkpoint/resume, aligned raw/prepared caches, indexed regions, progress reporting, and full production association have deterministic tests or production evidence.
+- Kept an independent short bcftools/R QC comparison as desirable release evidence rather than a gate. The existing automatic-versus-one-worker HTSJDK tests already require byte-identical QC for deterministic fixtures.
+- Deferred production BCF validation because the user does not currently have a representative BCF file. Standard CSI decoding, BCF throughput work, production indexed BCF/region validation, and multiallelic splitting remain explicit non-blocking extensions.
+- Changed the recommended dependency order to trait-pattern missingness correctness/resume, shared rare-variant set-test foundations, burden, GPU burden acceleration, SKAT, and SKAT-O. Bounded CPU result/output profiling and release validation can proceed alongside that sequence.
+- Files changed: `TODO.md` and this append-only `SESSION_HISTORY.md` entry. No source code, binary artifact, scientific output, checkpoint, cache, or user data changed.
+
+### Verification and next step
+
+- Documentation review confirmed the completed VCF/VCF.gz work is separated from deferred BCF/index extensions and that the roadmap no longer lists production VCF/QC validation as the leading dependency.
+- No build or hardware test was required for this documentation-only closure. The immediately preceding entry contains the successful 92-test package build, device probe, production cache reuse, association profile, cache sizes, and variant-QC checksum.
+- Next recommended implementation: add a deterministic end-to-end CPU reference for exact trait-pattern deletion and compare effective N, identifiers, residual degrees of freedom, effects, and p-values against the optimized/GPU path; then make completed pattern groups resumable. After that correctness boundary, begin the continuous-trait burden-test foundation.
+
+## 2026-08-25T16:33:38-04:00 — Exact missing-data correctness, pattern restart, and production preflight
+
+### Baseline and goal
+
+- Baseline commit: `4524cbdd7161de9c6251411b62e4ccad9b8d666b` (`Add reusable variant preprocessing and CLI reference`) in the canonical standalone checkout at `D:\projects\NIH-Project`; the previously recorded VCF-QC and aligned-cache fixes remain uncommitted in the same worktree and were preserved.
+- Goal: establish deterministic end-to-end correctness for exact expression-missingness deletion, make interrupted trait-pattern association work restartable, and validate feasibility against `D:\Research\topmed\sqtl\sqtl-batch1234\sqtl-batch1234-jointtmmfpkm-ratio-incompleteobs-4746.csv` without launching another expensive full association.
+
+### Decisions and files changed
+
+- Added `QTraitPatternCheckpoint`, a signature-bound durable root checkpoint with atomically committed ordered result and optional pattern-variant-QC parts. Every pattern owns a nested ordinary genotype-block checkpoint. An identical `--resume` run skips complete pattern groups, resumes an interrupted group's genotype blocks, recovers a group assembled immediately before interruption, and atomically assembles final output only after all groups complete. `--keep-checkpoints` retains the durable parts after success; otherwise only known checkpoint files are safely removed.
+- The checkpoint signature covers predictor/trait source signatures, sample alignment order, exact trait row masks/order, covariate-model values, missing/frequency policies, MAF/MAC, precision/residualization mode, thresholds, block sizes, DF offset, and output modes. A mismatch is rejected rather than reusing scientifically incompatible work.
+- Added a hardware-independent FP64 CPU end-to-end fixture with two exact trait masks. It anchors identifiers, R-squared, effect, t statistic, log10 p-value, effective N, and DF. An injected failure after the first pattern proves the resumed final CSV is byte-identical to an uninterrupted run and that the completed first group is skipped.
+- Added exact-pattern preflight before pattern-specific cache/checkpoint creation. It reports pattern count, observed-N range, equivalent full-cohort predictor-preparation passes, and an upper bound on numeric prepared-predictor storage. It rejects structurally non-positive residual DF and defaults `--max-trait-patterns` / `max_trait_patterns` to 256; `0` disables only the count limit, not estimability checks.
+- Updated `QeQTLAnalysis`, `QeQTLAnalysisConfig`, `QeQTLCommandLine`, `README.md`, `docs/COMMAND_LINE_REFERENCE.md`, `TODO.md`, and `AGENTS.md`; added `QTraitPatternCheckpointTest` and `QTraitPatternAnalysisTest`, and extended `QeQTLCommandLineTest`. Prior VCF source/test edits in the dirty worktree were left intact.
+
+### Verification and production evidence
+
+- `.\mvnw.cmd "-Dtest=QeQTLCommandLineTest,QTraitPatternCheckpointTest,QTraitPatternAnalysisTest,QeQTLReferenceTest" test` — 14 tests ran with 0 failures, 0 errors, and 0 skips. The safety-limit case also proved no `trait-patterns` cache directory or association checkpoint was created.
+- `.\mvnw.cmd clean package` — successful Java 17 compile, full test suite, and shaded packaging; 96 tests ran with 0 failures/errors and five intentional skips (optional platform/profile/fixture cases). Existing Maven Shade duplicate-resource warnings were unchanged.
+- Production command (PowerShell, successful invocation): `java -Xmx12g "-Deqtl.cpu.blas=java" --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend cpu --genotype D:\Research\topmed\sqtl\sqtl-batch1234\freeze.12c.chr22-fhs-framid.vcf.gz --genotype-format vcf --genotype-field auto --predictor-missing mean --expression D:\Research\topmed\sqtl\sqtl-batch1234\sqtl-batch1234-jointtmmfpkm-ratio-incompleteobs-4746.csv --trait-missing pattern --covariates D:\Research\topmed\sqtl\sqtl-batch1234\sqtl-batch1234-mastermat-withpcs-4746.csv --genotype-id-column framid --expression-id-column SampleName --trait-id-strip-prefix X --sample-alignment covariate-subset --fixed-covariates Sex,Age,Batch1,Batch2,Batch3,PCE1,PCE2,PCE3,PCE4,PCE5,PCE6,PCE7,PCE8,PCE9,PCE10,PCE11,PCE12,PCE13,PCE14,PCE15,PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10 --genotype-block-rows 2048 --expression-block-rows 2048 --trait-cache memory --cache-dir D:\Research\topmed\sqtl\sqtl-batch1234\gpu-eqtl-chr22-validation\cache --variant-qc-output D:\Research\topmed\sqtl\sqtl-batch1234\gpu-eqtl-chr22-validation\chr22.variants.tsv --variant-qc-checkpoint D:\Research\topmed\sqtl\sqtl-batch1234\gpu-eqtl-chr22-validation\variant-qc-checkpoint --missingness-qc-output D:\Research\topmed\sqtl\sqtl-batch1234\gpu-eqtl-chr22-validation\incomplete.missingness.tsv --precision fp64 --residualization auto --threshold pval 1e-4 --max-trait-patterns 256 --output D:\Research\topmed\sqtl\sqtl-batch1234\gpu-eqtl-chr22-validation\incomplete-preflight.csv`.
+- That bounded production run forced the portable Java CPU engine only to avoid GPU computation. It reused all 15,979,340 completed VCF-QC records and the existing 440,406-row aligned raw predictor cache, scanned the specified 3,950,614,528-byte expression CSV, and wrote the 15,861,901-byte missingness audit (SHA-256 `42A6D08A373AF187903C6F0AC2C403679E50DE612318455C61EA9E3B48CEEC8D`).
+- Production missingness: 178,105 trait rows, 275,746,428 missing cells, 16,862 exact masks, and observed N 20–4,745. With 31 covariate-model columns, 727 patterns covering 2,967 traits cannot leave positive DF for one tested predictor. The current pattern-outer schedule would perform approximately 7,771.9 equivalent full-cohort predictor preparations and write up to 118.19 TiB of FP64 numeric predictor values. Preflight rejected the run before association: the result file, result checkpoint, and `cache\trait-patterns` directory do not exist.
+- Rebuilt artifact: `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar`, 135,746,333 bytes, SHA-256 `09919EDABC31DBAB2EC33A15E3754FAB1EF9F4868AF695C8BAD65313F083B756`.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF working-copy warnings. No commit or push was requested or performed.
+
+### Compatibility, limitations, and next step
+
+- Exact pattern deletion is now numerically anchored and restartable, but only practical for a modest number of masks. Raising or disabling the new safety limit on the batch1234 file is not recommended; restartability prevents lost completed work but cannot make a roughly 118-TiB preparation schedule affordable.
+- Pattern output remains grouped by first-seen mask rather than global trait-row order. Rank loss caused by a categorical level disappearing can still be discovered during a particular pattern's QR even when its raw N is large enough; the preflight currently catches guaranteed non-positive-DF cases, not every subset-rank failure.
+- The exact missingness scan itself is deterministic but not cached/resumable, so an identical restart rereads the 3.95-GB expression CSV before it can reuse pattern association work. Persisting/signing this scan is now recorded in `TODO.md`.
+- Next: implement a genotype-block-outer or raw sufficient-statistics schedule that reads/prepares each genotype block once while preserving exact pattern-specific covariate projection, predictor imputation/statistics, N/DF, thresholds, output order, and durable restart. Define an explicit audited policy for the 2,967 unestimable traits (prefilter/skip versus an explicitly chosen trait-imputation policy) before attempting the production association. Only then begin the rare-variant set-test foundation.
