@@ -177,7 +177,9 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--genotype-missing POLICY` | Same as predictor policy | `genotype_missing` | Compatibility alias. `predictor_missing` takes precedence if both keys exist. |
 | `--predictor-flanks N` | Integer at least 1; default `1` | `predictor_flanks` | Variants on each side used by genotype-only local-pattern imputation. |
 | `--trait-missing POLICY` | `pattern` (default), `mean`, `zero`, `error`, `exclude-row` | `trait_missing` | `pattern` groups exact complete-sample masks for dynamic deletion. Aliases include `dynamic`, `complete-case`, `exclude`, and `exclude-trait`. |
-| `--max-trait-patterns N` | `256` (default); `0` disables | `max_trait_patterns` | Fail-fast safety limit for exact pattern deletion. Preflight also reports the observed-N range and estimated repeated predictor-preparation work. Raising/disabling this limit does not bypass non-positive-DF checks. |
+| `--max-trait-patterns N` | `256` (default); `0` disables | `max_trait_patterns` | Automatic scheduler switch threshold. Explicit pattern-outer scheduling treats it as a safety limit and reports repeated predictor-preparation work. It never bypasses rank/DF checks. |
+| `--trait-pattern-scheduler MODE` | `auto` (default), `pattern`, `genotype` | `trait_pattern_scheduler` | `auto` uses pattern-outer at or below the threshold and scalable genotype-outer above it. Genotype-outer is FP64, aligned-frequency-scope only, and writes deterministic genotype-block/trait-block/variant/original-trait order. |
+| `--unestimable-trait-patterns POLICY` | `error` (default), `skip` | `unestimable_trait_patterns` | Genotype-outer writes `<output>.trait-patterns.tsv`; `error` then stops if any mask is rank/DF-unestimable, while explicit `skip` excludes those audited traits. |
 | `--covariate-missing POLICY` | `complete-samples` (default), `error` | `covariate_missing` | Removes samples missing selected fixed covariates across all aligned matrices, or fails. |
 | `--inspect-missingness` | Flag; off | `inspect_missingness = true` | Writes the missingness/alignment QC report and stops before backend initialization. Cannot be combined with `--preprocess-only`. |
 | `--missingness-qc-output FILE` | `<output>.missingness.tsv`; predictor-based name when no output | `missingness_qc_output` | Changes the missingness/alignment QC path. |
@@ -235,10 +237,10 @@ These options affect VCF/BCF genotype input. CSV predictors do not receive varia
 
 | Command-line option | Values and default | Legacy INI key | Meaning |
 | --- | --- | --- | --- |
-| `--cache-dir DIR` | `.gpu-eqtl-cache` beside output/input | `cache_dir` | Persistent raw and prepared matrix caches, keyed by scientific preprocessing signatures. |
-| `--rebuild-cache` | Flag; off | `rebuild_cache = true` | Replaces matching matrix caches instead of reusing them. It does not replace variant-QC checkpoint state. |
-| `--checkpoint-dir DIR` | `<output>.checkpoint` | `checkpoint_dir` | Bounded-RAM association result-part directory. Exact deletion nests genotype-block state below durable ordered pattern groups. Distinct from variant-QC checkpoints and matrix caches. |
-| `--resume` | Flag; off | `resume = true` | Reuses completed, signature-matching genotype blocks and exact trait-pattern groups. |
+| `--cache-dir DIR` | `.gpu-eqtl-cache` beside output/input | `cache_dir` | Persistent signed missingness scans plus raw and prepared matrix caches, keyed by source/parser/sample-order and scientific preprocessing signatures. |
+| `--rebuild-cache` | Flag; off | `rebuild_cache = true` | Replaces matching missingness/matrix caches instead of reusing them. It does not replace variant-QC checkpoint state. |
+| `--checkpoint-dir DIR` | `<output>.checkpoint` | `checkpoint_dir` | Bounded-RAM association result parts. Pattern-outer nests blocks under ordered pattern groups; genotype-outer commits blocks spanning all estimable traits. |
+| `--resume` | Flag; off | `resume = true` | Reuses completed signature-matching association blocks/groups and separately reuses matching signed missingness and prepared-trait caches. |
 | `--keep-checkpoints` | Flag; off | `keep_checkpoints = true` | Retains completed block/pattern parts after final assembly. |
 | `--profile` | Flag; off | `profile = true` | Prints phase timing and transfer/byte summaries. |
 | `--profile-output FILE` | None | `profile_output` | Writes profiling CSV and implicitly enables profiling. |

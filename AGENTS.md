@@ -41,6 +41,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 - Hardware-independent unit tests must run without a physical GPU. Hardware tests must skip cleanly when no suitable runtime/device is installed.
 - Accelerated numerical tests must compare against a scalar CPU calculation with an explicit tolerance. Keep tests exercising the real production CUDA/OpenCL operations, native oneMKL/OpenBLAS, and the portable Java fallback.
 - Before changing matrix layout, padding, work sizes, covariate residualization, or statistical formulas, add a small deterministic reference dataset and compare identifiers, pair counts, R-squared values, p-values, and degrees of freedom.
+- Genotype-outer exact deletion relies on zero-padded pattern-residualized traits and FP64 sufficient statistics (`g'g`, called counts/sums, `X'g`, and missing-indicator trait products). Preserve pattern-specific predictor filling, QR rank, N, DF, thresholds, monomorphic decisions, and deterministic result order; compare it against explicit pattern QR whenever this layout changes.
 - FP32 must remain opt-in. GPU residualization follows the requested precision, while QR/rank decisions, prepared-cache encoding, standardization, and CPU statistical work stay FP64. Cache/checkpoint signatures must distinguish approximate preprocessing. Any expansion of FP32 behavior requires an explicit accuracy study and user approval.
 - Treat missing, duplicated, reordered, or mismatched sample IDs as fatal unless an explicit alignment policy is selected and reported.
 - Literal sample-ID prefix removal must be opt-in and audited. `strict` alignment remains the default; `covariate-subset` may exclude only matrix-header extras and must still find every unique covariate sample in both matrices. Reject blank normalized IDs and prefix-induced collisions.
@@ -74,7 +75,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 Use this dependency-aware order unless the user asks otherwise:
 
-Completed foundations: deterministic fixtures and ID validation/reordering; categorical-covariate encoding and rank checks; CLI plus legacy INI compatibility; bounded CSV blocks; reusable indexed prepared caches; atomic checkpoint/resume with deterministic streamed output assembly; opt-in FP32; backend-aware block/thread recommendations with multi-GPU context pooling; phase profiling; reusable CUDA/OpenCL fixed-effect block residualization; and an OpenBLAS/pure-Java CPU analysis backend.
+Completed foundations: deterministic fixtures and ID validation/reordering; categorical-covariate encoding and rank checks; CLI plus legacy INI compatibility; bounded CSV blocks; reusable indexed prepared caches and signed exact missingness scans; atomic checkpoint/resume with deterministic streamed output assembly; scalable FP64 genotype-outer exact missingness with per-mask sufficient statistics; opt-in FP32 for ordinary analysis; backend-aware block/thread recommendations with multi-GPU context pooling; phase profiling; reusable CUDA/OpenCL fixed-effect block residualization; and an OpenBLAS/pure-Java CPU analysis backend.
 
 The remaining ordered work is maintained in `TODO.md`. Profile the cache-backed schedule before kernel changes; add indexed VCF/BCF before forward selection; and treat categorical-SNP repair separately from categorical covariates.
 

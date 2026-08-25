@@ -29,6 +29,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -123,6 +124,102 @@ public final class QBinaryMatrixCache implements QPreparedMatrix, AutoCloseable 
 			rowsPerBuildBlock, residualizer);
         return open(cachePath, kind, signature);
     }
+
+	/** Build an indexed cache from rows that are already residualized and standardized. */
+	public static QBinaryMatrixCache openOrBuildPrepared(Path cacheDirectory, String kind,
+		String signature, Path sourcePath, QPreparedMatrix source, int rowsPerBuildBlock,
+		boolean rebuild) throws IOException {
+		if (source == null || source.rowCount() <= 0 || source.sampleCount() <= 0
+			|| rowsPerBuildBlock <= 0)
+			throw new IllegalArgumentException("Prepared cache source and dimensions must be positive");
+		Files.createDirectories(cacheDirectory);
+		Path cachePath = cachePath(cacheDirectory, sourcePath, kind, signature);
+		if (!rebuild && Files.isRegularFile(cachePath)) {
+			try {
+				QBinaryMatrixCache cache = open(cachePath, kind, signature);
+				System.out.println("Reusing " + kind + " cache: " + cachePath);
+				return cache;
+			} catch (IOException e) {
+				System.err.println("Prepared matrix cache is unusable and will be rebuilt: "
+					+ e.getMessage());
+			}
+		}
+		System.out.println("Building " + kind + " cache: " + cachePath);
+		buildPrepared(cachePath, kind, signature, source, rowsPerBuildBlock);
+		return open(cachePath, kind, signature);
+	}
+
+	private static void buildPrepared(Path cachePath, String kind, String signature,
+		QPreparedMatrix source, int rowsPerBuildBlock) throws IOException {
+		Path temporary = Files.createTempFile(cachePath.getParent(),
+			cachePath.getFileName().toString(), ".partial");
+		boolean complete = false;
+		try (RandomAccessFile output = new RandomAccessFile(temporary.toFile(), "rw")) {
+			output.writeInt(MAGIC);
+			output.writeInt(VERSION);
+			output.writeInt(source.sampleCount());
+			long rowCountPosition = output.getFilePointer();
+			output.writeLong(0);
+			long indexOffsetPosition = output.getFilePointer();
+			output.writeLong(0);
+			writeString(output, kind);
+			writeString(output, signature);
+			long[] offsets = new long[Math.toIntExact(source.rowCount())];
+			int written = 0;
+			long progressStarted = System.nanoTime();
+			long lastProgress = progressStarted;
+			System.out.println(kind + " cache preparation started: "
+				+ String.format(Locale.ROOT, "%,d", offsets.length)
+				+ " row(s); progress approximately every 15 seconds.");
+			while (written < offsets.length) {
+				PreparedBlock block = source.readBlock(written, rowsPerBuildBlock);
+				if (block == null || block.rowOffset() != written || block.values().length == 0)
+					throw new IOException("Prepared source ended before its declared row count");
+				if (block.values().length != block.rowIds().length
+					|| block.values().length != block.standardDeviations().length)
+					throw new IOException("Prepared source block dimensions differ");
+				for (int row = 0; row < block.values().length; row++) {
+					if (written >= offsets.length || block.values()[row].length != source.sampleCount())
+						throw new IOException("Prepared source dimensions changed while caching");
+					offsets[written++] = output.getFilePointer();
+					writeRow(output, block.rowIds()[row], block.standardDeviations()[row],
+						block.values()[row]);
+				}
+				long now = System.nanoTime();
+				if (written == offsets.length || now - lastProgress >= 15_000_000_000L) {
+					reportPreparedProgress(kind, written, offsets.length, progressStarted, now);
+					lastProgress = now;
+				}
+			}
+			long indexOffset = output.getFilePointer();
+			output.writeInt(INDEX_MAGIC);
+			output.writeLong(written);
+			for (long offset : offsets) output.writeLong(offset);
+			output.seek(rowCountPosition); output.writeLong(written);
+			output.seek(indexOffsetPosition); output.writeLong(indexOffset);
+			output.getFD().sync();
+			complete = true;
+		} finally {
+			if (complete) moveAtomically(temporary, cachePath);
+			else Files.deleteIfExists(temporary);
+		}
+	}
+
+	private static void reportPreparedProgress(String kind, int written, int total,
+		long started, long now) {
+		double elapsed = Math.max(0, now - started) / 1_000_000_000.0;
+		double rate = elapsed > 0 ? written / elapsed : 0;
+		StringBuilder message = new StringBuilder(kind).append(" cache preparation ")
+			.append(written == total ? "complete: " : "progress: ")
+			.append(String.format(Locale.ROOT, "%,d/%,d (%.1f%%); elapsed=%.1fs",
+				written, total, 100.0 * written / total, elapsed));
+		if (rate > 0) {
+			message.append(String.format(Locale.ROOT, "; rate=%,.0f rows/s", rate));
+			if (written < total)
+				message.append(String.format(Locale.ROOT, "; ETA=%.1fs", (total - written) / rate));
+		}
+		System.out.println(message);
+	}
 
     private static void build(Path cachePath, String kind, String signature,
         QMatrixRowSource source, int[] columnOrder, double[][] covariateQ,

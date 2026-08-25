@@ -372,6 +372,12 @@ public class QeQTLAnalysisConfig {
 		return parsed;
 	}
 
+	public QTraitPatternScheduler getTraitPatternScheduler()
+	{ return QTraitPatternScheduler.parse(mIni.get("trait_pattern_scheduler")); }
+
+	public QUnestimableTraitPolicy getUnestimableTraitPolicy()
+	{ return QUnestimableTraitPolicy.parse(mIni.get("unestimable_trait_patterns")); }
+
 	public boolean getProfile()
 	{ return getBoolean("profile") || mIni.get("profile_output") != null; }
 

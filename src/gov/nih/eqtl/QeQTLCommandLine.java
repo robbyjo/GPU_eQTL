@@ -81,6 +81,8 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--cache-dir", "cache_dir");
         VALUE_OPTIONS.put("--checkpoint-dir", "checkpoint_dir");
 		VALUE_OPTIONS.put("--max-trait-patterns", "max_trait_patterns");
+		VALUE_OPTIONS.put("--trait-pattern-scheduler", "trait_pattern_scheduler");
+		VALUE_OPTIONS.put("--unestimable-trait-patterns", "unestimable_trait_patterns");
         VALUE_OPTIONS.put("--profile-output", "profile_output");
     }
 
@@ -262,6 +264,8 @@ public final class QeQTLCommandLine {
               --cache-dir DIR  --rebuild-cache
               --checkpoint-dir DIR  --resume  --keep-checkpoints
 			  --max-trait-patterns N          Safety limit for exact deletion (default: 256; 0 disables)
+			  --trait-pattern-scheduler {auto|pattern|genotype} (default: auto)
+			  --unestimable-trait-patterns {error|skip} (default: error)
               --profile  --profile-output FILE  Phase timing summary and CSV
               --backend {auto|cuda|opencl|cpu}  Compute backend (default: auto)
 			  --gpu-backend VALUE             Compatibility alias for --backend

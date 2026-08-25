@@ -928,12 +928,14 @@ public class QeQTLAnalysis implements IJobOwner
 				predictorColumnOrder = identity(alignment.sampleCount());
 			}
 		}
+		QMatrixRowSource unfilledPredictorSource = genotypeSource;
 
 		System.out.println("Inspecting matrix missingness...");
-		QMissingnessScan predictorScan = QMissingnessScan.scan("predictor", genotypeSource,
-			predictorColumnOrder);
-		QMissingnessScan traitScan = QMissingnessScan.scan("trait", expressionSource,
-			alignment.expressionColumnOrder());
+		Path missingnessCacheDirectory = matrixCacheDirectory(genotypeFilename).resolve("missingness");
+		QMissingnessScan predictorScan = QMissingnessScan.scanOrLoad("predictor", genotypeSource,
+			predictorColumnOrder, missingnessCacheDirectory, config.getRebuildCache());
+		QMissingnessScan traitScan = QMissingnessScan.scanOrLoad("trait", expressionSource,
+			alignment.expressionColumnOrder(), missingnessCacheDirectory, config.getRebuildCache());
 		Path missingnessOutput = missingnessOutput(genotypeFilename);
 		if (config.getOutputFilename() != null && missingnessOutput.equals(
 			Path.of(config.getOutputFilename()).toAbsolutePath().normalize()))
@@ -1043,6 +1045,13 @@ public class QeQTLAnalysis implements IJobOwner
 			globalBlockSize = getDefaultBlockSize(numIndividuals, numSnps, numTraits);
 			if (globalBlockSize <= 0)
 				throw new IllegalArgumentException("Cannot infer a positive block size; specify --block-size");
+			int explicitStreamCapacity = Math.max(config.getGenotypeBlockRows(),
+				config.getExpressionBlockRows());
+			if (explicitStreamCapacity > globalBlockSize) {
+				globalBlockSize = roundUpNearestMultiple(explicitStreamCapacity, 16);
+				System.out.println("Automatic block capacity was raised to " + globalBlockSize
+					+ " to honor the explicitly requested streamed row blocks");
+			}
 			config.setBlockSize(globalBlockSize);
 			System.out.println("The block size was not specified; using " + globalBlockSize);
 		} else {
@@ -1094,11 +1103,36 @@ public class QeQTLAnalysis implements IJobOwner
 		if (dynamicTraitPatterns) {
 			if (!isAdditive)
 				throw new IllegalArgumentException("Pattern-wise trait deletion currently supports the additive model only");
-			System.err.println("WARNING: Exact pattern-wise trait deletion will run one compute pass per distinct "
-				+ "missingness pattern and can be very slow. Completed pattern groups are restartable. Patterns="
-				+ traitScan.patterns().size());
-			validateTraitPatternWorkload(traitScan, genotypeRowCount, covariateModel,
-				dfOffset, config.getMaximumTraitPatterns());
+			int maximumPatterns = config.getMaximumTraitPatterns();
+			QTraitPatternScheduler requestedScheduler = config.getTraitPatternScheduler();
+			QTraitPatternScheduler patternScheduler = requestedScheduler == QTraitPatternScheduler.AUTO
+				? ((maximumPatterns == 0 || traitScan.patterns().size() <= maximumPatterns)
+					? QTraitPatternScheduler.PATTERN : QTraitPatternScheduler.GENOTYPE)
+				: requestedScheduler;
+			System.out.println("Trait-pattern scheduler = " + patternScheduler.optionName()
+				+ (requestedScheduler == QTraitPatternScheduler.AUTO ? " (automatic)" : " (explicit)"));
+			if (patternScheduler == QTraitPatternScheduler.PATTERN) {
+				System.err.println("WARNING: Pattern-outer exact deletion runs one predictor preparation/compute "
+					+ "pass per distinct missingness pattern. Completed groups are restartable. Patterns="
+					+ traitScan.patterns().size());
+				validateTraitPatternWorkload(traitScan, genotypeRowCount, covariateModel,
+					dfOffset, maximumPatterns);
+				if (config.getUnestimableTraitPolicy() == QUnestimableTraitPolicy.SKIP)
+					throw new IllegalArgumentException("--unestimable-trait-patterns skip currently requires "
+						+ "--trait-pattern-scheduler genotype");
+			} else {
+				if (gpuPrecision != GpuPrecision.FP64)
+					throw new IllegalArgumentException("Genotype-outer exact deletion currently requires --precision fp64");
+				if (frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED)
+					throw new IllegalArgumentException("Genotype-outer exact deletion currently requires "
+						+ "--frequency-scope aligned");
+				System.out.println("Genotype-outer exact deletion prepares each predictor block once and "
+					+ "uses QR-equivalent pattern sufficient statistics; result order is genotype block, "
+					+ "trait block, variant, then original estimable trait row.");
+				if (predictorScan.hasMissingValues())
+					System.out.println("Predictor missing values are handled inside each exact trait mask using "
+						+ predictorMissing.optionName() + " policy.");
+			}
 			if (variantSource != null) {
 				Path cacheRoot = matrixCacheDirectory(genotypeFilename);
 				QRawMatrixCache rawPredictors = preprocessedPredictors;
@@ -1112,19 +1146,32 @@ public class QeQTLAnalysis implements IJobOwner
 					closeRawPredictors = true;
 				}
 				try {
-					runTraitPatternAnalysis(plugin, rawPredictors, expressionSource, traitScan,
-						alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
-						expressionRows, covariateFilename != null, true, true,
-						predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
+					if (patternScheduler == QTraitPatternScheduler.GENOTYPE)
+						runGenotypeOuterTraitPatternAnalysis(rawPredictors, identity(alignment.sampleCount()),
+							expressionSource, traitScan, alignment, covariateModel, thresholdType,
+							threshold, dfOffset, genotypeRows, expressionRows, predictorMissing);
+					else
+						runTraitPatternAnalysis(plugin, rawPredictors, expressionSource, traitScan,
+							alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
+							expressionRows, covariateFilename != null, true, true,
+							predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
 				} finally {
 					if (closeRawPredictors)
 						rawPredictors.close();
 				}
 			} else {
-				runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
-					alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
-					expressionRows, covariateFilename != null, false, false,
-					predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
+				if (patternScheduler == QTraitPatternScheduler.GENOTYPE) {
+					QMatrixRowSource genotypeOuterSource = predictorMissing == QMissingValuePolicy.MEAN
+						|| predictorMissing == QMissingValuePolicy.ZERO
+						? unfilledPredictorSource : genotypeSource;
+					runGenotypeOuterTraitPatternAnalysis(genotypeOuterSource, predictorColumnOrder,
+						expressionSource, traitScan, alignment, covariateModel, thresholdType,
+						threshold, dfOffset, genotypeRows, expressionRows, predictorMissing);
+				} else
+					runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
+						alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
+						expressionRows, covariateFilename != null, false, false,
+						predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
 			}
 			profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
 				(long) numSnps * numTraits, 0);
@@ -1214,6 +1261,165 @@ public class QeQTLAnalysis implements IJobOwner
 		profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
 			(long) numSnps * numTraits, 0);
 		System.out.println("Total analysis time (in seconds) = " + (System.currentTimeMillis() - start) / 1000.0);
+	}
+
+	private static void runGenotypeOuterTraitPatternAnalysis(QMatrixRowSource predictorSource,
+		int[] predictorColumns, QMatrixRowSource rawTraitSource, QMissingnessScan traitScan,
+		QSampleAlignment alignment, double[][] covariateModel, String thresholdType,
+		double threshold, int dfOffset, int predictorRowsPerBlock,
+		int traitRowsPerBlock, QMissingValuePolicy predictorMissing) throws Exception {
+		Path output = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
+		Path parent = output.getParent() == null
+			? Path.of(".").toAbsolutePath().normalize() : output.getParent();
+		Path cacheRoot = config.getCacheDirectory() == null
+			? parent.resolve(".gpu-eqtl-cache")
+			: Path.of(config.getCacheDirectory()).toAbsolutePath().normalize();
+		QTraitPatternModelSet models = QTraitPatternModelSet.create(traitScan,
+			covariateModel, dfOffset, thresholdType, threshold,
+			config.getUnestimableTraitPolicy());
+		Path audit = Path.of(output.toString() + ".trait-patterns.tsv");
+		models.writeAudit(audit, dfOffset, QTraitPatternScheduler.GENOTYPE.optionName());
+		System.out.println("Trait-pattern audit: " + audit);
+		if (models.excludedTraitRows() > 0
+			&& config.getUnestimableTraitPolicy() == QUnestimableTraitPolicy.ERROR)
+			throw new IllegalArgumentException("Unestimable trait missingness patterns are present; first: "
+				+ models.firstExclusion() + ". The complete audit was written to " + audit
+				+ ". Use --unestimable-trait-patterns skip to exclude and audit them.");
+		if (models.excludedTraitRows() > 0)
+			System.err.println("WARNING: Excluding " + models.excludedTraitRows()
+				+ " unestimable trait row(s); see " + audit);
+		if (models.estimableTraitRows() == 0)
+			throw new IllegalArgumentException("No estimable trait rows remain after pattern/rank checks");
+
+		try (QPatternPreparedTraitSource preparedSource = new QPatternPreparedTraitSource(
+			rawTraitSource, alignment.expressionColumnOrder(), models);
+			 QBinaryMatrixCache traitDiskCache = QBinaryMatrixCache.openOrBuildPrepared(
+				cacheRoot.resolve("trait-pattern-global"), "TraitPatternsGlobal",
+				preparedSource.signature(), rawTraitSource.metadata().path(), preparedSource,
+				traitRowsPerBlock, config.getRebuildCache())) {
+			QPreparedMatrix preparedTraits = selectPreparedTraitMatrix(traitDiskCache,
+				traitRowsPerBlock, alignment.sampleCount(), predictorRowsPerBlock,
+				config.getTraitCacheMode());
+			try {
+				runGenotypeOuterBlocks(predictorSource, predictorColumns, preparedTraits,
+					models, output, predictorRowsPerBlock, traitRowsPerBlock, dfOffset,
+					predictorMissing);
+			} finally {
+				closeMemoryPreparedMatrix(preparedTraits);
+			}
+		}
+	}
+
+	private static void runGenotypeOuterBlocks(QMatrixRowSource predictorSource,
+		int[] predictorColumns, QPreparedMatrix traits, QTraitPatternModelSet models,
+		Path output, int predictorRowsPerBlock, int traitRowsPerBlock, int dfOffset,
+		QMissingValuePolicy predictorMissing)
+		throws Exception {
+		int totalBlocks = (int) ((predictorSource.metadata().rowCount()
+			+ predictorRowsPerBlock - 1) / predictorRowsPerBlock);
+		Path checkpointDirectory = config.getCheckpointDirectory() == null
+			? Path.of(output.toString() + ".checkpoint")
+			: Path.of(config.getCheckpointDirectory()).toAbsolutePath().normalize();
+		String signature = genotypeOuterCheckpointSignature(predictorSource,
+			predictorColumns, traits, models, predictorRowsPerBlock, traitRowsPerBlock, dfOffset,
+			predictorMissing);
+		QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(checkpointDirectory,
+			signature, totalBlocks, config.getResume(), config.getKeepCheckpoints());
+		long completedComparisons = 0;
+		for (int block = 0; block < totalBlocks; block++)
+			if (checkpoint.isComplete(block)) {
+				long rows = Math.min(predictorRowsPerBlock,
+					predictorSource.metadata().rowCount() - (long) block * predictorRowsPerBlock);
+				completedComparisons += rows * traits.rowCount();
+			}
+		QAnalysisProgress progress = new QAnalysisProgress("Association genotype-outer trait patterns",
+			predictorSource.metadata().rowCount() * traits.rowCount(), completedComparisons);
+		GpuContextPool contextPool = new GpuContextPool(mContexts);
+		try {
+			String header = kernelHeader(16, GpuPrecision.FP64) + "#define N_MIN_1 1" + sLn;
+			long compileStarted = profiler.start();
+			for (GpuContext context : contextPool.getAllContexts()) {
+				context.setProfilingEnabled(profiler.isEnabled());
+				context.compileKernel(header + eqtlReal, "eqtlReal", GpuPrecision.FP64);
+			}
+			profiler.record(QeQTLProfiler.Phase.KERNEL_COMPILE, compileStarted,
+				contextPool.getAllContexts().size(), 0);
+			int numThreads = min(config.getNumThreads(),
+				min(Runtime.getRuntime().availableProcessors() + 1,
+					contextPool.getAllContexts().size()));
+			System.out.println("Num threads = " + numThreads);
+			threadPool = Executors.newFixedThreadPool(numThreads);
+			Deque<Future<?>> pending = new ArrayDeque<>();
+			try (QMatrixRowSource.BlockReader reader = predictorSource.open(predictorColumns)) {
+				for (int block = 0; block < totalBlocks; block++) {
+					QMatrixRowSource.Block raw = reader.readBlock(predictorRowsPerBlock);
+					if (raw == null || raw.rowOffset() != (long) block * predictorRowsPerBlock)
+						throw new IOException("Predictor source ended or reordered during genotype-outer analysis");
+					if (checkpoint.isComplete(block)) continue;
+					QGenotypeOuterPatternJob.QMatrixBlock submitted =
+						new QGenotypeOuterPatternJob.QMatrixBlock(raw.rowOffset(), raw.rowIds(), raw.values());
+					pending.addLast(threadPool.submit(new QGenotypeOuterPatternJob(submitted,
+						traits, models, checkpoint, block, contextPool, predictorRowsPerBlock,
+						traitRowsPerBlock, predictorMissing, dfOffset, profiler, progress)));
+					if (pending.size() >= numThreads) pending.removeFirst().get();
+				}
+				if (reader.readBlock(1) != null)
+					throw new IOException("Predictor source grew during genotype-outer analysis");
+			}
+			while (!pending.isEmpty()) pending.removeFirst().get();
+			threadPool.shutdown();
+			if (!threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS))
+				throw new RuntimeException("Timed out waiting for genotype-outer workers");
+			progress.complete();
+			maybeFailBeforeGenotypeOuterAssembly();
+			String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir,N,DF"
+				: "Rs_ID,ProbesetID,RSq,Fx,T,log10P,N,DF";
+			checkpoint.assemble(output, outputHeader);
+		} catch (Exception e) {
+			if (threadPool != null) {
+				threadPool.shutdownNow();
+				try {
+					if (!threadPool.awaitTermination(1, TimeUnit.MINUTES))
+						e.addSuppressed(new IOException(
+							"Genotype-outer workers did not stop within one minute"));
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+					e.addSuppressed(interrupted);
+				}
+			}
+			throw e;
+		} finally {
+			progress.close();
+			contextPool.close();
+		}
+	}
+
+	private static void maybeFailBeforeGenotypeOuterAssembly() throws IOException {
+		if (Boolean.parseBoolean(System.getProperty(
+			"eqtl.test.genotype.outer.fail.before.assembly", "false")))
+			throw new IOException("Injected test failure before genotype-outer assembly");
+	}
+
+	private static String genotypeOuterCheckpointSignature(QMatrixRowSource predictorSource,
+		int[] predictorColumns, QPreparedMatrix traits, QTraitPatternModelSet models,
+		int predictorRows, int traitRows, int dfOffset, QMissingValuePolicy predictorMissing)
+		throws IOException {
+		MessageDigest digest;
+		try { digest = MessageDigest.getInstance("SHA-256"); }
+		catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+		patternSignatureUpdate(digest, "gpu-eqtl-genotype-outer-pattern-v1");
+		patternSignatureUpdate(digest, QBinaryMatrixCache.signature("PatternGenotypeRoot",
+			predictorSource, predictorColumns, null));
+		patternSignatureUpdate(digest, traits.signature());
+		patternSignatureUpdate(digest, models.signature());
+		patternSignatureUpdate(digest, predictorRows);
+		patternSignatureUpdate(digest, traitRows);
+		patternSignatureUpdate(digest, dfOffset);
+		patternSignatureUpdate(digest, predictorMissing.optionName());
+		patternSignatureUpdate(digest, simplifyResult ? 1 : 0);
+		patternSignatureUpdate(digest, rsqOnly ? 1 : 0);
+		patternSignatureUpdate(digest, GpuPrecision.FP64.optionName());
+		return HexFormat.of().formatHex(digest.digest());
 	}
 
 	private static void validateTraitPatternWorkload(QMissingnessScan traitScan,
@@ -1553,7 +1759,7 @@ public class QeQTLAnalysis implements IJobOwner
 				+ completedPatternNumber);
 	}
 
-	private static double rSquaredThreshold(String type, double threshold,
+	static double rSquaredThreshold(String type, double threshold,
 		int errorDegreesOfFreedom, int dfOffset) {
 		if (type.equals("none"))
 			return 0;

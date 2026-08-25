@@ -24,8 +24,10 @@ class QeQTLCommandLineTest {
             "--fixed-covariates", "Age,Batch", "--gpu-backend", "cuda", "--precision", "fp32",
 			"--residualization", "gpu",
             "--cache-dir", directory.resolve("cache").toString(),
-            "--checkpoint-dir", directory.resolve("checkpoint").toString(),
+			"--checkpoint-dir", directory.resolve("checkpoint").toString(),
 			"--max-trait-patterns", "17",
+			"--trait-pattern-scheduler", "genotype",
+			"--unestimable-trait-patterns", "skip",
             "--profile-output", directory.resolve("profile.csv").toString(),
             "--rebuild-cache", "--resume", "--keep-checkpoints", "--profile" });
         assertEquals(7, result.config().getNumThreads());
@@ -41,6 +43,10 @@ class QeQTLCommandLineTest {
         assertTrue(result.config().getResume());
         assertTrue(result.config().getKeepCheckpoints());
 		assertEquals(17, result.config().getMaximumTraitPatterns());
+		assertEquals(QTraitPatternScheduler.GENOTYPE,
+			result.config().getTraitPatternScheduler());
+		assertEquals(QUnestimableTraitPolicy.SKIP,
+			result.config().getUnestimableTraitPolicy());
         assertTrue(result.config().getProfile());
         assertTrue(result.config().getProfileOutputFilename().startsWith(directory.toString()));
     }
@@ -62,6 +68,10 @@ class QeQTLCommandLineTest {
             result.config().getMinimumMac());
 		assertEquals(QeQTLAnalysisConfig.DEFAULT_MAXIMUM_TRAIT_PATTERNS,
 			result.config().getMaximumTraitPatterns());
+		assertEquals(QTraitPatternScheduler.AUTO,
+			result.config().getTraitPatternScheduler());
+		assertEquals(QUnestimableTraitPolicy.ERROR,
+			result.config().getUnestimableTraitPolicy());
     }
 
     @Test
