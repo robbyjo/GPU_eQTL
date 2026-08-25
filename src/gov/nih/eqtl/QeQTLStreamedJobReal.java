@@ -39,6 +39,7 @@ final class QeQTLStreamedJobReal implements Runnable {
     private final double rSquaredThreshold;
     private final GpuPrecision precision;
     private final QeQTLProfiler profiler;
+    private final QAnalysisProgress progress;
     private final boolean includeSampleStatistics;
     private final int sampleCount;
 
@@ -46,7 +47,8 @@ final class QeQTLStreamedJobReal implements Runnable {
         QAnalysisCheckpoint checkpoint, int genotypeBlockNumber, GpuContextPool contextPool,
         int genotypeCapacity, int expressionCapacity, int localBlockSize,
         int degreesOfFreedomOffset, int errorDegreesOfFreedom, double rSquaredThreshold,
-        GpuPrecision precision, QeQTLProfiler profiler, boolean includeSampleStatistics) {
+        GpuPrecision precision, QeQTLProfiler profiler, QAnalysisProgress progress,
+        boolean includeSampleStatistics) {
         this.genotype = genotype;
         this.expressionCache = expressionCache;
         this.checkpoint = checkpoint;
@@ -60,6 +62,7 @@ final class QeQTLStreamedJobReal implements Runnable {
         this.rSquaredThreshold = rSquaredThreshold;
         this.precision = precision;
         this.profiler = profiler;
+        this.progress = progress;
         this.includeSampleStatistics = includeSampleStatistics;
         sampleCount = genotype.values()[0].length;
     }
@@ -169,6 +172,7 @@ final class QeQTLStreamedJobReal implements Runnable {
         flush(output, writer);
         profiler.record(QeQTLProfiler.Phase.CPU_RESULTS_AND_WRITE, resultsStarted,
             (long) snps.values().length * traits.values().length, 0);
+        progress.addComparisons((long) snps.values().length * traits.values().length);
     }
 
     private void recordGpuMetrics(GpuExecutionMetrics metrics) {

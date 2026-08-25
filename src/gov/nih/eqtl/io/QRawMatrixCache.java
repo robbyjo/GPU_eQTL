@@ -38,10 +38,7 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
         if (rowsPerBlock <= 0)
             throw new IllegalArgumentException("Raw cache build block must be positive");
         Files.createDirectories(cacheDirectory);
-        String sourceName = source.metadata().path().getFileName().toString()
-            .replaceAll("[^A-Za-z0-9_.-]", "_");
-        Path cachePath = cacheDirectory.resolve(sourceName + "-" + signature + ".qraw")
-            .toAbsolutePath().normalize();
+        Path cachePath = cachePath(cacheDirectory, signature, source);
         if (!rebuild && Files.isRegularFile(cachePath)) {
             try {
                 QRawMatrixCache cache = open(cachePath, signature);
@@ -55,6 +52,16 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
         System.out.println("Building aligned raw predictor cache: " + cachePath);
         build(cachePath, signature, source, columnOrder, rowsPerBlock);
         return open(cachePath, signature);
+    }
+
+    public static QRawMatrixCache openIfPresent(Path cacheDirectory, String signature,
+        QMatrixRowSource source) throws IOException {
+        Path cachePath = cachePath(cacheDirectory, signature, source);
+        if (!Files.isRegularFile(cachePath))
+            return null;
+        QRawMatrixCache cache = open(cachePath, signature);
+        System.out.println("Reusing preprocessed aligned variant cache: " + cachePath);
+        return cache;
     }
 
     public static QRawMatrixCache open(Path path, String expectedSignature) throws IOException {
@@ -294,6 +301,14 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
     private static void update(MessageDigest digest, String value) {
         digest.update((byte) 0);
         digest.update(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Path cachePath(Path cacheDirectory, String signature,
+        QMatrixRowSource source) {
+        String sourceName = source.metadata().path().getFileName().toString()
+            .replaceAll("[^A-Za-z0-9_.-]", "_");
+        return cacheDirectory.resolve(sourceName + "-" + signature + ".qraw")
+            .toAbsolutePath().normalize();
     }
 
     private static int[] identity(int count) {

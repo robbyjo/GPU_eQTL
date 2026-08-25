@@ -57,6 +57,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 	protected boolean isAdditive;
 	protected GpuPrecision precision;
 	protected QSynchronizedCounter counter;
+	protected QAnalysisProgress progress;
 	protected Writer fw;
 
 	/**
@@ -75,7 +76,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 	public QeQTLSNPJobReal(QGeneticSNPData popn, QGeneExpressionData expDataTbl, double[] expSD, double[] snpSD, GpuContextPool contextPool,
 		int numETraitsPerBlock, int numSNPsPerBlock, int blockSize,
 		int dfo, int dfe, double RSq0, boolean isAdditive, GpuPrecision precision,
-		Writer fw, QSynchronizedCounter ct)
+		Writer fw, QSynchronizedCounter ct, QAnalysisProgress progress)
 	{
 		this.popn = popn;
 		this.expDataTbl = expDataTbl;
@@ -106,6 +107,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 		}
 		this.RSq0 = RSq0;
 		counter = ct;
+		this.progress = progress;
 	}
 
 	@Override
@@ -157,7 +159,8 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 
 		for (int curETraitOffset = 0; curETraitOffset < numETraits; curETraitOffset += numETraitsPerBlock)
 		{
-			System.out.println(curSNPOffset+","+curETraitOffset);
+			if (QeQTLAnalysis.DEBUG)
+				System.out.println(curSNPOffset+","+curETraitOffset);
 			//time1 = System.currentTimeMillis();
 			int
 				curNumETraits = min(numETraitsPerBlock, numETraits - curETraitOffset);
@@ -253,6 +256,7 @@ public class QeQTLSNPJobReal implements IGenericParallelJob, Runnable {
 			}
 			xyResult = null;
 			xyResult32 = null;
+			progress.addComparisons((long) curNumSNPs * curNumETraits);
 			QSystemUtils.runGC();
 			//time2 = System.currentTimeMillis();
 			//System.out.println("Post-processing time = " + (time2 - time1));

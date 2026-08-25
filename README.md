@@ -21,7 +21,7 @@ The real-valued eQTL calculation defaults to FP64 and is validated through CUDA,
 
 The legacy INI format remains supported, and every analysis setting now also has a command-line form. Headered CSV matrices are validated before computation: blank or duplicate row/sample IDs are fatal, genotype and expression samples are explicitly reordered, and a covariate table may bridge different ID namespaces. Text covariates are automatically one-hot encoded using the lexicographically first level as the reference; numeric-looking factors can be forced with `--factor-covariates`. Rank-deficient covariate models stop before analysis.
 
-Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. The first run creates indexed FP64 cache files after validation, reordering, covariate residualization, and standardization. GPU projection broadcasts the small Q matrix once to each context and prepares independent input blocks concurrently across selected devices while writing cache rows in source order. Later runs with the same source metadata, sample order, covariate projection, and preprocessing mode reuse those prepared rows instead of reparsing or reprocessing the CSV. Each cache row has an integrity checksum. SNP interactions, forward selection, and indexed VCF/BCF input remain on the roadmap.
+Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. The first run creates indexed FP64 cache files after validation, reordering, covariate residualization, and standardization. GPU projection broadcasts the small Q matrix once to each context and prepares independent input blocks concurrently across selected devices while writing cache rows in source order. Later runs with the same source metadata, sample order, covariate projection, and preprocessing mode reuse those prepared rows instead of reparsing or reprocessing the CSV. Each cache row has an integrity checksum. Indexed VCF/BCF regions are supported as described below; SNP interactions and forward selection remain on the roadmap.
 
 ## Build and test
 
@@ -151,6 +151,8 @@ The old `lambda` INI setting no longer controls memory or result storage and is 
 
 ## Run an analysis
 
+The exhaustive [command-line reference](docs/COMMAND_LINE_REFERENCE.md) includes a table of every accepted option, its default, legacy INI key, aliases, limitations, and copyable examples. The examples below introduce the most common workflows.
+
 With automatic backend selection:
 
 ```powershell
@@ -215,7 +217,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
   --genotype-field auto `
   --genotype-missing mean `
   --min-maf 0.01 `
-  --min-mac 5 `
+  --min-mac 20 `
   --variant-qc-output cohort.variant-qc.tsv `
   --variant-qc-checkpoint cohort.variant-qc.checkpoint `
   --variant-qc-threads 0 `
@@ -228,7 +230,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
 
 `--genotype-format auto` infers VCF/BCF from `.vcf`, `.vcf.gz`, and `.bcf`; otherwise it retains CSV behavior. `--genotype-field auto` chooses header-declared `DS` first and falls back to `GT`. Force either field with `--genotype-field DS` or `GT`. VCF/BCF calls remain missing through the common QC scan and are then handled by `--predictor-missing`; the compatibility spelling `--genotype-missing` selects the same policy. Predictor mean imputation is the default. Use `error` to require complete calls, `exclude-row`/`exclude-variant` to remove the variant, `zero` for an explicit zero fill, or `local-pattern` for the documented flanking proxy.
 
-The current variant model is biallelic, diploid, and additive. Multiallelic records are excluded by default and annotated as such; use `--multiallelic error` to make one fatal. Monomorphic variants are always detected, reported, and excluded because their standardized association row is undefined. `--min-maf` accepts values from 0 through 0.5, and `--min-mac` accepts a non-negative value; when both are present a variant must pass both. MAC may be fractional for imputed dosages. Singletons and doubletons are identified only when the computed MAC is within numerical tolerance of one or two.
+The current variant model is biallelic, diploid, and additive. Multiallelic records are excluded by default and annotated as such; use `--multiallelic error` to make one fatal. Monomorphic variants are always detected, reported, and excluded because their standardized association row is undefined. `--min-mac` defaults to 20 for VCF/BCF analysis; specify `--min-mac 0` to disable that default. `--min-maf` accepts values from 0 through 0.5 and defaults to 0 (disabled). When both thresholds are positive a variant must pass both, so a MAF-only analysis should explicitly use `--min-mac 0`. MAC may be fractional for imputed dosages. Singletons and doubletons are identified only when the computed MAC is within numerical tolerance of one or two. The effective thresholds and whether MAC came from the default are printed before the QC scan and are part of the checkpoint/cache signatures.
 
 By default, `--frequency-scope aligned` applies MAF/MAC once to the final genotype-expression-covariate aligned cohort; HWE is always cohort-level QC. Exact trait patterns still recompute their genotype mean, variance, EAF/MAF/MAC, and monomorphic status, and skip only variant-pattern combinations that become constant. Use `--frequency-scope pattern` with `--trait-missing pattern` to apply `--min-maf`/`--min-mac` independently after each trait sample mask. In that mode the cohort QC report retains frequency-filter candidates and records why they would have failed the aligned filter. The compact `<output>.pattern-variant-qc.tsv` summary records effective N and included/monomorphic/MAF/MAC counts per pattern. This explicit mode can test different variant sets for different traits, so use it only when that is the intended scientific contract.
 
@@ -253,6 +255,29 @@ Inline regions are one-based and inclusive, repeatable, and may have a set ID:
 
 Large variant passes report progress approximately every 15 seconds (or every million input records, whichever comes first). The aligned-sample QC pass reports records scanned, variants retained, elapsed time, and throughput; its total is not known until that first pass ends. Later sequential missingness and cache-building rereads also report percentage and ETA using the input-record count learned during QC. These counts describe decoded VCF/BCF records rather than compressed bytes. The final QC report is assembled atomically from the durable checkpoint parts only after a complete scan.
 
+Association computation also reports a start marker and progress approximately every 15 seconds. It counts actual variant–trait comparisons rather than padded GPU cells and prints completed/total comparisons, percentage, elapsed time, current-run throughput, and ETA. Streamed, full-memory, multi-device, CPU, and exact trait-pattern passes use the same thread-safe counter. A resumed streamed analysis starts at the exact comparison count represented by completed genotype-block checkpoints, while reused work is excluded from the current-run throughput estimate.
+
+#### VCF/BCF preprocessing without association
+
+Use `--preprocess-only` to perform sample alignment, selected-covariate validation, aligned-sample variant QC, MAF/MAC filtering, missingness reporting, and creation of a checksummed aligned FP64 dosage cache, then stop before compute-backend initialization and association. Expression and any selected covariates remain required because frequency statistics and the cache must describe the actual aligned analysis samples. `--output` is optional in this mode.
+
+```powershell
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --genotype cohort.vcf.gz `
+  --genotype-format vcf `
+  --genotype-field auto `
+  --expression expression.csv `
+  --covariates covariates.csv `
+  --fixed-covariates Age,Batch,PC1,PC2 `
+  --sample-alignment covariate-subset `
+  --min-mac 20 `
+  --cache-dir D:\eqtl-cache `
+  --variant-qc-output cohort.variant-qc.tsv `
+  --preprocess-only
+```
+
+Without explicit report paths, preprocessing writes `<genotype>.variants.tsv` and `<genotype>.missingness.tsv`. The raw cache is placed under `<cache-dir>/aligned-raw`; without `--cache-dir`, it uses `.gpu-eqtl-cache` beside the output, or beside the genotype when no output is requested. A later ordinary analysis automatically uses the matching raw cache instead of decoding the VCF/BCF again. Reuse requires the same source/index metadata, genotype field, regions, variant-inclusion policy, aligned sample order, MAF/MAC settings, and cache directory. Mean versus zero filling may safely share the raw cache because replacement occurs later in a separately signed prepared cache. To avoid repeating the initial QC scan as well, keep the same explicit `--variant-qc-output` and `--variant-qc-checkpoint` paths on the later analysis. `--rebuild-cache` forces replacement. The INI equivalent is `preprocess_only = true`.
+
 Variant QC and aligned-scope frequency filters are computed over the final aligned analysis samples after validating unique header IDs and applying selected-covariate complete-sample removal. This is important under `covariate-subset`: VCF-only samples cannot make an analysis-set monomorphic or rare variant pass MAF/MAC filtering. The QC file's called/missing counts, EAF, MAF, MAC, HWE, singleton/doubleton classification, and monomorphic exclusion all describe that aligned set; the console reports its sample count. Strict alignment (the default) requires genotype, trait, and covariate sample sets to agree exactly. An explicitly requested covariate-subset alignment may instead select the canonical covariate rows from a larger genotype or trait header; all covariate samples must still be present and matrix-only extras are counted in the unified missingness/alignment audit. Association output uses the canonical variant identifier so missing or duplicated rs IDs cannot collide. Ordinary bounded-RAM analysis rereads source blocks without materializing the full genotype matrix. Exact trait-pattern VCF/BCF analysis instead creates a persistent aligned raw FP64 cache so the compressed source is decoded only once; budget approximately `8 * aligned_samples * retained_variants` bytes plus row IDs/checksums.
 
 If genotype and expression headers use different identifiers, the program searches for covariate columns whose unique values exactly match each header. Ambiguous cases must be resolved explicitly:
@@ -274,7 +299,7 @@ When a VCF contains a superset of the samples represented by the covariate rows,
 
 `strict` remains the default. `covariate-subset` never computes a silent intersection: every covariate ID must occur exactly once in each normalized matrix header. Matrix-only exclusions, transformed prefix counts, bridge columns, and reorder counts are written as `ALIGNMENT` records in the missingness QC file.
 
-Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode covariates, check model rank, and report degrees of freedom without running the association analysis.
+Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode covariates, check model rank, and report degrees of freedom without running the association analysis. Unlike `--preprocess-only`, validation does not create an aligned raw VCF/BCF dosage cache.
 
 ### Bounded-RAM matrix mode
 
@@ -338,7 +363,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
 
 The default directory is `<output-file>.checkpoint`. `--checkpoint-dir DIR` selects a different location, and `--keep-checkpoints` retains completed parts after successful assembly. Resume is rejected when input/cache signatures, precision, thresholds, degrees of freedom, block sizes, or output modes do not match. The corresponding INI keys are `cache_dir`, `rebuild_cache`, `checkpoint_dir`, `resume`, and `keep_checkpoints`.
 
-Run `--help` for the complete argument list. See `TODO.md` for the remaining modernization work. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
+Run `--help` for a short argument summary, or use the [complete option table and examples](docs/COMMAND_LINE_REFERENCE.md) as the definitive user reference. See `TODO.md` for the remaining modernization work. The former `library_path` key is no longer used; runtime discovery is handled by the CUDA/OpenCL backends.
 
 See `AGENTS.md` for contributor constraints and the ordered roadmap. See `SESSION_HISTORY.md` for timestamped changes, verification, and known limitations.
 

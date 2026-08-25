@@ -174,6 +174,8 @@ public final class QeQTLCommandLine {
                 config.set("rsq_only", "true");
             } else if ("--validate-only".equals(argument)) {
                 config.set("validate_only", "true");
+            } else if ("--preprocess-only".equals(argument)) {
+                config.set("preprocess_only", "true");
             } else if ("--inspect-missingness".equals(argument)) {
                 config.set("inspect_missingness", "true");
             } else if ("--rebuild-cache".equals(argument)) {
@@ -230,15 +232,17 @@ public final class QeQTLCommandLine {
               --inspect-missingness            Write QC and stop before GPU initialization
               --missingness-qc-output FILE     Default: OUTPUT.missingness.tsv
               --multiallelic {exclude|error}  Current biallelic policy (default: exclude)
-              --min-maf VALUE  --min-mac VALUE
+              --min-maf VALUE                    Minimum MAF (default: 0, disabled)
+              --min-mac VALUE                    Minimum MAC (default: 20; use 0 to disable)
               --variant-qc-output FILE        Variant annotation/QC TSV (default: OUTPUT.variants.tsv)
               --variant-qc-threads N          Variant-level QC workers (default: auto; 1 is sequential)
               --variant-qc-checkpoint DIR     Resumable QC state root (default: QC_OUTPUT.checkpoint)
-              --variant-index FILE            Explicit .tbi/.csi index (otherwise auto-detected)
+              --variant-index FILE            Explicit .tbi/.idx index (otherwise auto-detected)
               --region [SET=]CHROM:START-END  Indexed one-based inclusive region; repeatable
               --regions-file FILE             CHROM/START/END or SET_ID/CHROM/START/END TSV
               --region-coordinates {one-based|bed}  Region-file coordinates (default: one-based)
               --frequency-scope {aligned|pattern}   MAF/MAC filtering scope (default: aligned)
+              --preprocess-only                 Align/QC/cache VCF or BCF, then stop before association
               --covariates FILE                 Mixed numeric/categorical covariate table
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
               --factor-covariates LIST         Force numeric-looking variables to be categorical

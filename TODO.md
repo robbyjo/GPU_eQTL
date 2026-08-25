@@ -1,6 +1,6 @@
 # GPU eQTL modernization to-do list
 
-This list contains work remaining after the correctness fixtures, CLI, sample alignment, categorical covariates, bounded-RAM caches, checkpointing, optional FP32, backend-aware tuning, missingness policies, VCF/BCF input, aligned-sample variant QC, initial profiling, and OpenBLAS/pure-Java CPU-backend milestones. Preserve the scientific and verification rules in `AGENTS.md`.
+This list contains work remaining after the correctness fixtures, CLI, sample alignment, categorical covariates, bounded-RAM caches, checkpointing, optional FP32, backend-aware tuning, missingness policies, VCF/BCF input, aligned-sample variant QC, association progress, reusable VCF/BCF preprocessing, initial profiling, and OpenBLAS/pure-Java CPU-backend milestones. Preserve the scientific and verification rules in `AGENTS.md`.
 
 Recommended dependency order:
 
@@ -10,8 +10,9 @@ Missing-data hardening and representative performance measurements should procee
 
 ## 0. Close and validate the current VCF/QC milestone
 
-- Finish the active chromosome analysis without replacing its loaded jar. After it exits, rebuild the conventional `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar` and commit the current aligned-sample, progress-reporting, trait-residency, and parallel variant-QC changes.
-- Delivered in the current worktree: resumable aligned-sample QC with atomically committed ordered parts, signatures covering input metadata/policies/sample order, source-prefix validation after interruption, and direct reuse of completed scans. Production-test interruption/restart on a representative chromosome and record checkpoint storage/reread overhead.
+- Delivered: resumable aligned-sample QC with atomically committed ordered parts, signatures covering input metadata/policies/sample order, source-prefix or indexed-boundary validation after interruption, and direct reuse of completed scans. Production-test interruption/restart on a representative chromosome and record checkpoint storage/reread overhead.
+- Delivered: approximately 15-second association progress based on actual variant–trait comparisons, including resumed-work accounting, percentage, elapsed time, throughput, and ETA across full-memory, streamed, multi-backend, and trait-pattern paths.
+- Delivered: `--preprocess-only` aligned VCF/BCF QC and checksummed raw-dosage cache creation without backend initialization or association; matching later analyses discover and reuse the cache. Validate storage, first-pass time, and decode avoidance on a representative production chromosome.
 - Benchmark `--variant-qc-threads 1`, `4`, `8`, `16`, and automatic on a representative production VCF/BCF. Compare QC TSVs byte-for-byte and use the `variant_qc` profile phase to select the throughput plateau before changing the automatic cap.
 - Cross-check the common missingness audit and variant QC on representative CSV, VCF.gz, and BCF cohorts. Independently compare sample order, selected field, called/missing counts, EAF/MAF/MAC, HWE, rare-variant classification, and retained variants with R and/or bcftools.
 - Profile `--trait-cache auto`, `memory`, and `disk` on the complete WHI chromosome and 4,746-sample batch1234 inputs before changing the residency heuristic or loop/checkpoint schedule.

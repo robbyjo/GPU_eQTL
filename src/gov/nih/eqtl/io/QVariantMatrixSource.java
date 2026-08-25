@@ -771,7 +771,12 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
     private ScanResult scanResult(ScanState state, String[] samples) throws IOException {
         if (state.included == 0)
-            throw new IOException("No variants remain after QC/filtering in " + path);
+            throw new IOException(String.format(Locale.ROOT,
+                "No variants remain after aligned-sample QC/filtering in %s "
+                    + "(min_maf=%.17g, min_mac=%.17g, frequency_scope=%s); "
+                    + "review the variant QC report or lower --min-mac/--min-maf explicitly",
+                path, options.minimumMaf(), options.minimumMac(),
+                options.frequencyScope().name().toLowerCase(Locale.ROOT)));
         String signatureTag = String.format(Locale.ROOT,
             "variant-v3;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g;frequency-scope=%s;qc-samples=%d;regions=%s;index=%s:%d:%d",
             options.format(), selectedField, options.missingPolicy(), options.multiallelicPolicy(),

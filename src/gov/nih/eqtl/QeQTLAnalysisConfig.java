@@ -34,6 +34,8 @@ import java.util.Map;
  *
  */
 public class QeQTLAnalysisConfig {
+	public static final double DEFAULT_MINIMUM_MAC = 20.0;
+
 	private Map<String, String> mIni = null;
 	
 	public QeQTLAnalysisConfig(Map<String, String> ini)
@@ -126,6 +128,9 @@ public class QeQTLAnalysisConfig {
 		return s != null && Boolean.parseBoolean(s);
 	}
 
+	public boolean getPreprocessOnly()
+	{ return getBoolean("preprocess_only"); }
+
 	public String getGenotypeModel()
 	{
 		String s =  mIni.get("genotype_model");  //$NON-NLS-1$
@@ -185,7 +190,15 @@ public class QeQTLAnalysisConfig {
 	{ return getNonNegativeDouble("min_maf"); }
 
 	public double getMinimumMac()
-	{ return getNonNegativeDouble("min_mac"); }
+	{
+		String value = mIni.get("min_mac");
+		if (value == null)
+			return DEFAULT_MINIMUM_MAC;
+		double parsed = Double.parseDouble(value);
+		if (!Double.isFinite(parsed) || parsed < 0)
+			throw new IllegalArgumentException("min_mac must be a finite non-negative number");
+		return parsed;
+	}
 
 	public String getVariantQcOutputFilename()
 	{ return expandPath(mIni.get("variant_qc_output"), getIniPath()); }

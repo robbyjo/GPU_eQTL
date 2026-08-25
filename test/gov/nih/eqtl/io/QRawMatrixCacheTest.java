@@ -27,6 +27,11 @@ class QRawMatrixCacheTest {
         String signature = QRawMatrixCache.signature(source, aligned);
         QRawMatrixCache cache = QRawMatrixCache.openOrBuild(temporaryDirectory.resolve("cache"),
             signature, source, aligned, 1, false);
+        QRawMatrixCache reopened = QRawMatrixCache.openIfPresent(
+            temporaryDirectory.resolve("cache"), signature, source);
+        assertEquals(cache.path(), reopened.path());
+        assertNull(QRawMatrixCache.openIfPresent(temporaryDirectory.resolve("absent"),
+            signature, source));
         assertArrayEquals(new String[] {"S3", "S1"}, cache.metadata().sampleIds());
         try (QMatrixRowSource.BlockReader reader = cache.open(new int[] {1})) {
             QMatrixRowSource.Block block = reader.readBlock(10);

@@ -56,6 +56,21 @@ class QeQTLCommandLineTest {
         assertTrue(result.config().getValidateOnly());
         assertEquals(0, result.config().getNumThreads());
 		assertEquals(QResidualizationMode.AUTO, result.config().getResidualizationMode());
+        assertEquals(QeQTLAnalysisConfig.DEFAULT_MINIMUM_MAC,
+            result.config().getMinimumMac());
+    }
+
+    @Test
+    void preprocessOnlyAndMacDisableAreParsedWithoutAssociationOutput(@TempDir Path directory)
+        throws Exception {
+        QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+            "--genotype", directory.resolve("g.vcf.gz").toString(),
+            "--expression", directory.resolve("e.csv").toString(),
+            "--genotype-format", "vcf", "--preprocess-only", "--min-mac", "0",
+            "--cache-dir", directory.resolve("cache").toString() });
+        assertTrue(result.config().getPreprocessOnly());
+        assertEquals(0, result.config().getMinimumMac());
+        assertEquals(null, result.config().getOutputFilename());
     }
 
 	@Test
