@@ -196,6 +196,27 @@ public class QeQTLAnalysisConfig {
 	public String getVariantQcCheckpointDirectory()
 	{ return expandPath(mIni.get("variant_qc_checkpoint"), getIniPath()); }
 
+	public String getVariantIndexFilename()
+	{ return expandPath(mIni.get("variant_index"), getIniPath()); }
+
+	public String getRegions()
+	{ return mIni.get("regions"); }
+
+	public String getRegionsFilename()
+	{ return expandPath(mIni.get("regions_file"), getIniPath()); }
+
+	public String getRegionCoordinates()
+	{
+		String value = mIni.get("region_coordinates");
+		return value == null ? "one-based" : value;
+	}
+
+	public String getFrequencyScope()
+	{
+		String value = mIni.get("frequency_scope");
+		return value == null ? "aligned" : value.trim().toLowerCase(Locale.ROOT);
+	}
+
 	public String[] getFixedCovariates()
 	{
 		String s = mIni.get("covariate_fixed"); //$NON-NLS-1$

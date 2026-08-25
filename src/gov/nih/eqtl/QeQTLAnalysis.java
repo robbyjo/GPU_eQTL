@@ -36,6 +36,7 @@ import java.util.BitSet;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,12 +51,15 @@ import gov.nih.eqtl.io.QPlinkLoader;
 import gov.nih.eqtl.io.QCovariateTable;
 import gov.nih.eqtl.io.QBinaryMatrixCache;
 import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QGenomicRegions;
 import gov.nih.eqtl.io.QInMemoryPreparedMatrix;
 import gov.nih.eqtl.io.QLocalPatternImputedSource;
 import gov.nih.eqtl.io.QMatrixRowSource;
 import gov.nih.eqtl.io.QMissingnessReport;
 import gov.nih.eqtl.io.QMissingnessScan;
 import gov.nih.eqtl.io.QPolicyMatrixSource;
+import gov.nih.eqtl.io.QPatternVariantSource;
+import gov.nih.eqtl.io.QRawMatrixCache;
 import gov.nih.eqtl.io.QPreparedMatrix;
 import gov.nih.eqtl.io.QSampleAlignment;
 import gov.nih.eqtl.io.QSampleAlignmentPolicy;
@@ -732,6 +736,14 @@ public class QeQTLAnalysis implements IJobOwner
 			throw new IllegalArgumentException("Pattern-wise predictor deletion is not yet supported; use mean, local-pattern, error, zero, or exclude-row");
 		if (!(covariateMissing.equals("error") || covariateMissing.equals("complete-samples")))
 			throw new IllegalArgumentException("covariate_missing must be error or complete-samples");
+		QVariantMatrixSource.FrequencyScope frequencyScope =
+			QVariantMatrixSource.FrequencyScope.parse(config.getFrequencyScope());
+		boolean regionsRequested = (config.getRegions() != null && !config.getRegions().isBlank())
+			|| config.getRegionsFilename() != null;
+		if (genotypeFormat.equals("csv") && regionsRequested)
+			throw new IllegalArgumentException("--region/--regions-file requires VCF or BCF genotype input");
+		if (genotypeFormat.equals("csv") && frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED)
+			throw new IllegalArgumentException("--frequency-scope pattern currently requires VCF or BCF genotype input");
 		QMatrixRowSource genotypeSource;
 		QVariantMatrixSource variantSource = null;
 		Path variantQcOutput = null;
@@ -756,7 +768,11 @@ public class QeQTLAnalysis implements IJobOwner
 				QVariantMatrixSource.MultiallelicPolicy.parse(config.getMultiallelicPolicy()),
 				config.getMinimumMaf(), config.getMinimumMac(), qcOutput,
 				config.getVariantQcThreads(), config.getVariantQcCheckpointDirectory() == null
-					? null : Path.of(config.getVariantQcCheckpointDirectory()));
+					? null : Path.of(config.getVariantQcCheckpointDirectory()),
+				config.getVariantIndexFilename() == null ? null : Path.of(config.getVariantIndexFilename()),
+				config.getRegions(),
+				config.getRegionsFilename() == null ? null : Path.of(config.getRegionsFilename()),
+				QGenomicRegions.Coordinates.parse(config.getRegionCoordinates()), frequencyScope);
 			variantQcOutput = qcOutput.toAbsolutePath().normalize();
 			variantSource = QVariantMatrixSource.openForAlignment(
 				Path.of(genotypeFilename), variantOptions);
@@ -829,6 +845,16 @@ public class QeQTLAnalysis implements IJobOwner
 				+ ", singletons=" + variantSummary.singletons()
 				+ ", doubletons=" + variantSummary.doubletons());
 			System.out.println("Variant annotation/QC output: " + variantQcOutput);
+			if (variantSource.variantIndex() != null)
+				System.out.println("Variant index: " + variantSource.variantIndex()
+					+ (variantSource.regions() == null ? " (available for indexed resume)" : " (indexed region access)"));
+			if (variantSource.regions() != null) {
+				System.out.println("Genomic region sets = " + variantSummary.regionSets()
+					+ "; merged indexed queries = " + variantSource.regions().queryIntervals().size());
+				if (!variantSummary.emptyRegionSets().isEmpty())
+					System.err.println("WARNING: Region sets with no source variant: "
+						+ String.join(", ", variantSummary.emptyRegionSets()));
+			}
 			System.out.println("Variant QC checkpoint: " + variantSource.qcCheckpointDirectory()
 				+ (variantSource.resumedQcRecords() > 0
 					? " (reused " + variantSource.resumedQcRecords() + " records)" : ""));
@@ -866,12 +892,18 @@ public class QeQTLAnalysis implements IJobOwner
 		if (traitMissing == QMissingValuePolicy.ERROR && traitScan.hasMissingValues())
 			throw new IllegalArgumentException("Trait matrix contains missing values; see " + missingnessOutput);
 
+		boolean dynamicTraitPatterns = traitMissing == QMissingValuePolicy.PATTERN
+			&& (traitScan.hasMissingValues()
+				|| frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN);
+		if (frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN
+			&& traitMissing != QMissingValuePolicy.PATTERN)
+			throw new IllegalArgumentException("--frequency-scope pattern requires --trait-missing pattern");
 		if (predictorMissing == QMissingValuePolicy.LOCAL_PATTERN) {
 			System.err.println("WARNING: local-pattern is a nearest flanking-genotype proxy; it is not "
 				+ "phasing or reference-panel imputation. Flanks per side=" + config.getPredictorFlankCount());
 			genotypeSource = new QLocalPatternImputedSource(genotypeSource, predictorScan,
 				config.getPredictorFlankCount());
-		} else {
+		} else if (!(dynamicTraitPatterns && variantSource != null)) {
 			genotypeSource = new QPolicyMatrixSource(genotypeSource, predictorScan, predictorMissing);
 		}
 		if (!(traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues()))
@@ -948,8 +980,6 @@ public class QeQTLAnalysis implements IJobOwner
 		long numRequiredIterations = ((numSnps + (long) globalBlockSize - 1) / globalBlockSize)
 			* ((numTraits + (long) globalBlockSize - 1) / globalBlockSize);
 		System.out.println("Given the block size, " + numRequiredIterations + " iteration(s) are needed");
-		boolean dynamicTraitPatterns = traitMissing == QMissingValuePolicy.PATTERN
-			&& traitScan.hasMissingValues();
 		boolean stream = dynamicTraitPatterns || config.getGenotypeBlockRows() > 0
 			|| config.getExpressionBlockRows() > 0;
 		int genotypeRows = 0;
@@ -995,9 +1025,27 @@ public class QeQTLAnalysis implements IJobOwner
 				throw new IllegalArgumentException("Pattern-wise trait deletion does not yet support --resume or --keep-checkpoints");
 			System.err.println("WARNING: Exact pattern-wise trait deletion will run one compute pass per distinct "
 				+ "missingness pattern and can be very slow. Patterns=" + traitScan.patterns().size());
-			runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
-				alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
-				expressionRows, covariateFilename != null);
+			if (variantSource != null) {
+				Path outputPath = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
+				Path cacheRoot = config.getCacheDirectory() == null
+					? outputPath.getParent().resolve(".gpu-eqtl-cache")
+					: Path.of(config.getCacheDirectory()).toAbsolutePath().normalize();
+				String rawSignature = QRawMatrixCache.signature(genotypeSource,
+					alignment.genotypeColumnOrder());
+				try (QRawMatrixCache rawPredictors = QRawMatrixCache.openOrBuild(
+					cacheRoot.resolve("aligned-raw"), rawSignature, genotypeSource,
+					alignment.genotypeColumnOrder(), genotypeRows, config.getRebuildCache())) {
+					runTraitPatternAnalysis(plugin, rawPredictors, expressionSource, traitScan,
+						alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
+						expressionRows, covariateFilename != null, true, true,
+						predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
+				}
+			} else {
+				runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
+					alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
+					expressionRows, covariateFilename != null, false, false,
+					predictorMissing, frequencyScope, config.getMinimumMaf(), config.getMinimumMac());
+			}
 			profiler.record(QeQTLProfiler.Phase.ANALYSIS_WALL, analysisStarted,
 				(long) numSnps * numTraits, 0);
 			System.out.println("Total analysis time (in seconds) = "
@@ -1093,7 +1141,11 @@ public class QeQTLAnalysis implements IJobOwner
 		QMissingnessScan traitScan,
 		QSampleAlignment alignment, double[][] covariateModel,
 		String thresholdType, double threshold, int dfOffset,
-		int predictorRowsPerBlock, int traitRowsPerBlock, boolean hasCovariates) throws Exception
+		int predictorRowsPerBlock, int traitRowsPerBlock, boolean hasCovariates,
+		boolean variantPredictor, boolean predictorColumnsAreAligned,
+		QMissingValuePolicy predictorMissing,
+		QVariantMatrixSource.FrequencyScope frequencyScope,
+		double minimumMaf, double minimumMac) throws Exception
 	{
 		Path output = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
 		Path parent = output.getParent();
@@ -1101,18 +1153,37 @@ public class QeQTLAnalysis implements IJobOwner
 			parent = Path.of(".").toAbsolutePath().normalize();
 		Files.createDirectories(parent);
 		Path work = Files.createTempDirectory(parent, ".gpu-eqtl-pattern-").toAbsolutePath().normalize();
+		Path cacheRoot = config.getCacheDirectory() == null
+			? parent.resolve(".gpu-eqtl-cache").toAbsolutePath().normalize()
+			: Path.of(config.getCacheDirectory()).toAbsolutePath().normalize();
+		Path preparedCacheRoot = cacheRoot.resolve("trait-patterns");
+		Path statisticsCacheRoot = cacheRoot.resolve("pattern-variant-statistics");
+		Files.createDirectories(preparedCacheRoot);
 		Path partialOutput = Files.createTempFile(parent, output.getFileName().toString(), ".partial");
+		Path patternQcOutput = variantPredictor
+			? Path.of(output.toString() + ".pattern-variant-qc.tsv") : null;
+		Path partialPatternQc = variantPredictor
+			? Files.createTempFile(parent, output.getFileName().toString(), ".pattern-qc.partial") : null;
 		boolean complete = false;
-		try (BufferedWriter combined = Files.newBufferedWriter(partialOutput, StandardCharsets.UTF_8)) {
+		try (BufferedWriter combined = Files.newBufferedWriter(partialOutput, StandardCharsets.UTF_8);
+			 BufferedWriter patternQc = partialPatternQc == null ? null
+				 : Files.newBufferedWriter(partialPatternQc, StandardCharsets.UTF_8)) {
 			combined.write(rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir,N,DF"
 				: "Rs_ID,ProbesetID,RSq,Fx,T,log10P,N,DF");
 			combined.newLine();
+			if (patternQc != null) {
+				patternQc.write("pattern_id\ttrait_rows\tobserved_samples\tinput_variants"
+					+ "\tincluded_variants\tmonomorphic_variants\tbelow_min_maf\tbelow_min_mac"
+					+ "\tno_call_variants\tmissing_genotypes\tfrequency_scope\tstatistics_cache\treused");
+				patternQc.newLine();
+			}
 			int patternNumber = 0;
 			for (QMissingnessScan.Pattern pattern : traitScan.patterns()) {
 				patternNumber++;
 				BitSet missing = pattern.missingSamples();
 				int[] observed = complement(missing, alignment.sampleCount());
-				int[] predictorColumns = select(alignment.genotypeColumnOrder(), observed);
+				int[] predictorColumns = predictorColumnsAreAligned
+					? observed.clone() : select(alignment.genotypeColumnOrder(), observed);
 				int[] traitColumns = select(alignment.expressionColumnOrder(), observed);
 				double[][] patternQ = null;
 				int covariateRank = 1;
@@ -1142,28 +1213,57 @@ public class QeQTLAnalysis implements IJobOwner
 				System.out.println("Trait pattern " + patternNumber + "/" + traitScan.patterns().size()
 					+ ": traits=" + pattern.rowIndices().length + ", N=" + observed.length
 					+ ", DF=" + (errorDegreesOfFreedom - dfOffset));
+				QMatrixRowSource effectivePredictorSource = predictorSource;
+				QPatternVariantSource patternVariantSource = null;
+				if (variantPredictor) {
+					QMissingValuePolicy patternPolicy = predictorMissing == QMissingValuePolicy.MEAN
+						|| predictorMissing == QMissingValuePolicy.ZERO ? predictorMissing
+						: QMissingValuePolicy.ERROR;
+					patternVariantSource = QPatternVariantSource.openOrBuild(statisticsCacheRoot,
+						suffix, predictorSource, predictorColumns, patternPolicy,
+						frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN,
+						minimumMaf, minimumMac, config.getRebuildCache());
+					effectivePredictorSource = patternVariantSource;
+					QPatternVariantSource.Summary stats = patternVariantSource.summary();
+					patternQc.write(pattern.id() + "\t" + pattern.rowIndices().length + "\t"
+						+ observed.length + "\t" + stats.inputVariants() + "\t"
+						+ stats.includedVariants() + "\t" + stats.monomorphicVariants() + "\t"
+						+ stats.belowMinimumMaf() + "\t" + stats.belowMinimumMac() + "\t"
+						+ stats.noCallVariants() + "\t" + stats.missingGenotypes() + "\t"
+						+ frequencyScope.name().toLowerCase(Locale.ROOT) + "\t"
+						+ stats.cachePath() + "\t" + stats.reused());
+					patternQc.newLine();
+					patternQc.flush();
+					System.out.println("Pattern-specific variants: input=" + stats.inputVariants()
+						+ ", included=" + stats.includedVariants()
+						+ ", monomorphic=" + stats.monomorphicVariants()
+						+ (frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN
+							? ", below MAF=" + stats.belowMinimumMaf()
+								+ ", below MAC=" + stats.belowMinimumMac() : ""));
+					if (stats.includedVariants() == 0) {
+						System.err.println("WARNING: No variable variants remain for trait pattern "
+							+ pattern.id() + "; its traits are skipped.");
+						continue;
+					}
+				}
 
 				QGpuResidualizer residualizer = null;
 				if (patternQ != null && residualizationMode != QResidualizationMode.CPU)
 					residualizer = new QGpuResidualizer(mContexts, patternQ, gpuPrecision, profiler);
-				Path predictorCachePath = null;
-				Path traitCachePath = null;
 				try {
 					String preprocessingTag = residualizer == null ? null : residualizer.cacheSignatureTag();
 					String predictorKind = "Predictor" + suffix;
 					String traitKind = "Trait" + suffix;
 					String predictorSignature = QBinaryMatrixCache.signature(predictorKind,
-						predictorSource, predictorColumns, patternQ, preprocessingTag);
+						effectivePredictorSource, predictorColumns, patternQ, preprocessingTag);
 					String traitSignature = QBinaryMatrixCache.signature(traitKind,
 						traitSource, traitColumns, patternQ, preprocessingTag);
-					try (QBinaryMatrixCache predictorCache = QBinaryMatrixCache.openOrBuild(work,
-						predictorKind, predictorSignature, predictorSource, predictorColumns, patternQ,
-						predictorRowsPerBlock, true, residualizer);
-						 QBinaryMatrixCache traitCache = QBinaryMatrixCache.openOrBuild(work,
+					try (QBinaryMatrixCache predictorCache = QBinaryMatrixCache.openOrBuild(preparedCacheRoot,
+						predictorKind, predictorSignature, effectivePredictorSource, predictorColumns, patternQ,
+						predictorRowsPerBlock, config.getRebuildCache(), residualizer);
+						 QBinaryMatrixCache traitCache = QBinaryMatrixCache.openOrBuild(preparedCacheRoot,
 						traitKind, traitSignature, traitSource, traitColumns, patternQ,
-						traitRowsPerBlock, true, residualizer)) {
-						predictorCachePath = predictorCache.path();
-						traitCachePath = traitCache.path();
+						traitRowsPerBlock, config.getRebuildCache(), residualizer)) {
 						if (residualizer != null) {
 							residualizer.close();
 							residualizer = null;
@@ -1186,13 +1286,11 @@ public class QeQTLAnalysis implements IJobOwner
 				} finally {
 					if (residualizer != null)
 						residualizer.close();
-					if (predictorCachePath != null)
-						Files.deleteIfExists(predictorCachePath);
-					if (traitCachePath != null)
-						Files.deleteIfExists(traitCachePath);
 				}
 			}
 			combined.flush();
+			if (patternQc != null)
+				patternQc.flush();
 			complete = true;
 		} finally {
 			for (GpuContext context : mContexts)
@@ -1201,9 +1299,16 @@ public class QeQTLAnalysis implements IJobOwner
 			cleanupPatternWorkDirectory(work, parent);
 			if (!complete)
 				Files.deleteIfExists(partialOutput);
+			if (!complete && partialPatternQc != null)
+				Files.deleteIfExists(partialPatternQc);
 		}
-		if (complete)
+		if (complete) {
 			moveAtomically(partialOutput, output);
+			if (partialPatternQc != null) {
+				moveAtomically(partialPatternQc, patternQcOutput);
+				System.out.println("Pattern-specific variant QC summary: " + patternQcOutput);
+			}
+		}
 	}
 
 	private static double rSquaredThreshold(String type, double threshold,

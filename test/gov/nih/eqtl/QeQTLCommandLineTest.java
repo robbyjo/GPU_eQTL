@@ -73,6 +73,8 @@ class QeQTLCommandLineTest {
     void variantQcArgumentsAreParsed(@TempDir Path directory) throws Exception {
         Path qc = directory.resolve("variants.tsv");
         Path checkpoint = directory.resolve("variant-checkpoint");
+        Path index = directory.resolve("g.vcf.gz.tbi");
+        Path regions = directory.resolve("regions.tsv");
         QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
             "--genotype", directory.resolve("g.vcf.gz").toString(),
             "--expression", directory.resolve("e.csv").toString(),
@@ -80,7 +82,10 @@ class QeQTLCommandLineTest {
             "--genotype-format", "vcf.gz", "--genotype-field", "GT",
             "--genotype-missing", "mean", "--multiallelic", "error",
             "--min-maf", "0.01", "--min-mac", "5", "--variant-qc-output", qc.toString(),
-            "--variant-qc-threads", "3", "--variant-qc-checkpoint", checkpoint.toString() });
+            "--variant-qc-threads", "3", "--variant-qc-checkpoint", checkpoint.toString(),
+            "--variant-index", index.toString(), "--region", "geneA=1:100-200",
+            "--region", "geneB=2:300-400", "--regions-file", regions.toString(),
+            "--region-coordinates", "bed", "--frequency-scope", "pattern" });
         assertEquals("vcf.gz", result.config().getGenotypeFileFormat());
         assertEquals("GT", result.config().getGenotypeField());
         assertEquals("mean", result.config().getGenotypeMissingPolicy());
@@ -91,6 +96,13 @@ class QeQTLCommandLineTest {
         assertEquals(qc.toAbsolutePath().normalize().toString(), result.config().getVariantQcOutputFilename());
         assertEquals(checkpoint.toAbsolutePath().normalize().toString(),
             result.config().getVariantQcCheckpointDirectory());
+        assertEquals(index.toAbsolutePath().normalize().toString(),
+            result.config().getVariantIndexFilename());
+        assertEquals("geneA=1:100-200;geneB=2:300-400", result.config().getRegions());
+        assertEquals(regions.toAbsolutePath().normalize().toString(),
+            result.config().getRegionsFilename());
+        assertEquals("bed", result.config().getRegionCoordinates());
+        assertEquals("pattern", result.config().getFrequencyScope());
     }
 
 	@Test

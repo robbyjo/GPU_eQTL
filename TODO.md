@@ -4,7 +4,7 @@ This list contains work remaining after the correctness fixtures, CLI, sample al
 
 Recommended dependency order:
 
-`production QC validation -> indexed VCF/BCF -> burden -> SKAT -> SKAT-O -> GPU/BLAS set-test acceleration`
+`production indexed/QC validation -> burden -> SKAT -> SKAT-O -> GPU/BLAS set-test acceleration`
 
 Missing-data hardening and representative performance measurements should proceed alongside that main sequence. Cohort covariance models must be established before relatedness-aware set tests.
 
@@ -23,12 +23,11 @@ Missing-data hardening and representative performance measurements should procee
 - Smoke-test the shaded jar on every bundled platform and publish checksums. If the universal jar is inconveniently large, add reproducible classifier-specific release profiles while retaining one simple extract-and-run choice.
 - Delivered: selectable oneMKL 2026.1 FP64/FP32 association and residualization on x64 Windows/Linux, automatic oneMKL -> OpenBLAS -> Java fallback, numerical reference tests, isolated platform profiles, a GPLv3 Section 7 oneMKL linking exception, and exact packaged Intel oneMKL/OpenMP plus incorporated-code notices. Benchmark it against forced OpenBLAS on representative cohort tiles and full runs before choosing it automatically for any release; the default release remains free of Intel-licensed oneMKL native binaries.
 
-## 2. Add indexed VCF/BCF and region access
+## 2. Complete and validate indexed VCF/BCF and region access
 
-- Add tabix/CSI-backed chromosome/range selection and true random-access variant blocks. The current initial QC scan and uncached preparation reread are sequential; prepared caches are indexed, but the original VCF/BCF source is not yet region-queryable by this application.
-- Add gene/region annotation ingestion with deterministic chromosome naming, coordinate convention, overlapping-set membership, duplicate handling, and empty-region behavior. Preserve canonical `CHROM:POS:REF:ALT` identifiers and source-order reproducibility.
-- Define indexed-source cache/checkpoint signatures, region-order rules, and failure behavior when a VCF/BCF or its index changes during a run.
-- Keep the deterministic VCF.gz/BCF fixture and optional independently generated BCF test. Validate representative indexed queries against bcftools before depending on them for set tests or forward selection.
+- Delivered: tabix-indexed BGZF VCF and Tribble-indexed VCF/BCF interval queries; repeatable inline and TSV region/set definitions; explicit one-based/BED coordinates; deterministic contig aliases/order; merged query intervals with overlapping set membership; empty-set reporting; source/index/region checkpoint signatures; mutation checks; and direct indexed seek to an interrupted QC boundary.
+- Add a pure-Java standard CSI decoder (or a carefully packaged cross-platform htslib bridge) for ordinary bcftools `.csi` files. HTSJDK 5 currently handles tabix/Tribble indexes but not standard variant CSI; unsupported CSI must remain a clear pre-analysis failure, never a silent sequential fallback.
+- Validate representative indexed VCF.gz and BCF queries, region unions, set memberships, and interruption/restart against bcftools on production copies before depending on them for set tests or forward selection.
 - Add an explicit multiallelic split policy only after tests define per-ALT DS/GT projection, other-ALT calls, canonical IDs, allele counts, missingness, and HWE behavior. Current choices remain `exclude` and `error`.
 
 ## 3. Rare-variant burden, SKAT, and SKAT-O analyses
@@ -57,9 +56,9 @@ Missing-data hardening and representative performance measurements should procee
 
 ## 4. Missing-data production hardening
 
-- For exact trait-pattern deletion, define and audit pattern-specific handling when an additional trait mask makes a globally retained predictor monomorphic or changes its MAF/MAC classification. The current preprocessor fails safely on zero variance rather than emitting an invalid standardized result.
+- Delivered: exact subset mean/EAF/MAF/MAC/squared-dosage statistics; pattern-specific mean genotype filling; per-pattern monomorphic skipping; optional `--frequency-scope pattern`; compact pattern QC summaries; a checksummed aligned raw dosage cache; and persistent statistics/prepared caches keyed by source, alignment, policy, and sample mask.
 - Add a deterministic end-to-end CPU association reference for exact trait-pattern deletion and compare identifiers, effective N, residual degrees of freedom, effects, and p-values with the GPU path.
-- Add resumable pattern scheduling and reusable pattern-specific predictor caches without weakening cache signatures. Investigate batching compatible masks only when it preserves each trait's exact sample set, projection, rank, threshold, and output N/DF.
+- Add resumable partially completed pattern association scheduling. Statistics and predictor/trait preparation are reusable now, but completed pattern output groups are not yet durable across an interrupted run. Investigate a genotype-block-outer schedule only when it preserves each trait's exact sample set, projection, rank, threshold, output order, N, and DF.
 - Benchmark `local-pattern` genotype imputation against row-mean and standard reference-panel imputation. Define maximum distance, minimum comparable flanks/donors, phased-input behavior, and richer per-imputation QC before treating the proxy as a production default. Mean remains the default.
 - Consider an explicit global complete-sample policy across predictor, trait, and selected covariates. Keep it distinct from `exclude-row` feature removal and exact trait-pattern deletion.
 

@@ -29,11 +29,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -44,11 +48,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 
 import htsjdk.samtools.util.IOUtil;
+import htsjdk.tribble.AbstractFeatureReader;
+import htsjdk.tribble.CloseableTribbleIterator;
+import htsjdk.tribble.FeatureReader;
 import htsjdk.tribble.readers.PositionalBufferedStream;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFHeader;
+import htsjdk.variant.vcf.VCFCodec;
 import htsjdk.variant.vcf.VCFIterator;
 import htsjdk.variant.vcf.VCFIteratorBuilder;
 
@@ -67,7 +75,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private static final String TEST_FAIL_AFTER_PROPERTY = "eqtl.test.variant.qc.fail.after";
     private static final String QC_HEADER = "variant_id\tchromosome\tposition\trs_id\tref\talt\tvcf_filter"
         + "\tgenotype_field\tcalled_samples\tmissing_samples\teffect_allele_count\tallele_number"
-        + "\teaf\tmaf\tmac\thwe_p\thwe_samples\tclassification\tincluded\texclusion_reason\n";
+        + "\tdosage_sum_squares\teaf\tmaf\tmac\thwe_p\thwe_samples\thom_ref\theterozygous\thom_alt"
+        + "\tclassification\tincluded\texclusion_reason"
+        + "\tregion_sets\tfrequency_scope\taligned_frequency_reason\n";
 
     public enum Format {
         VCF, BCF;
@@ -131,9 +141,33 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         }
     }
 
+    public enum FrequencyScope {
+        ALIGNED, PATTERN;
+
+        public static FrequencyScope parse(String value) {
+            if (value == null || value.isBlank())
+                return ALIGNED;
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("frequency_scope must be aligned or pattern", e);
+            }
+        }
+    }
+
     public record Options(Format format, GenotypeField genotypeField, MissingPolicy missingPolicy,
         MultiallelicPolicy multiallelicPolicy, double minimumMaf, double minimumMac,
-        Path qcOutput, int qcThreads, Path qcCheckpoint) {
+        Path qcOutput, int qcThreads, Path qcCheckpoint, Path variantIndex,
+        String regions, Path regionsFile, QGenomicRegions.Coordinates regionCoordinates,
+        FrequencyScope frequencyScope) {
+        public Options(Format format, GenotypeField genotypeField, MissingPolicy missingPolicy,
+            MultiallelicPolicy multiallelicPolicy, double minimumMaf, double minimumMac,
+            Path qcOutput, int qcThreads, Path qcCheckpoint) {
+            this(format, genotypeField, missingPolicy, multiallelicPolicy, minimumMaf, minimumMac,
+                qcOutput, qcThreads, qcCheckpoint, null, null, null,
+                QGenomicRegions.Coordinates.ONE_BASED, FrequencyScope.ALIGNED);
+        }
+
         public Options(Format format, GenotypeField genotypeField, MissingPolicy missingPolicy,
             MultiallelicPolicy multiallelicPolicy, double minimumMaf, double minimumMac,
             Path qcOutput, int qcThreads) {
@@ -152,17 +186,26 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 throw new IllegalArgumentException("variant_qc_threads must not be negative");
             qcOutput = qcOutput == null ? null : qcOutput.toAbsolutePath().normalize();
             qcCheckpoint = qcCheckpoint == null ? null : qcCheckpoint.toAbsolutePath().normalize();
+            variantIndex = variantIndex == null ? null : variantIndex.toAbsolutePath().normalize();
+            regionsFile = regionsFile == null ? null : regionsFile.toAbsolutePath().normalize();
+            if (regionCoordinates == null || frequencyScope == null)
+                throw new IllegalArgumentException("Region coordinates and frequency scope are required");
         }
     }
 
     public record Summary(long inputRecords, long includedVariants, long monomorphicVariants,
         long singletons, long doubletons, long excludedByMaf, long excludedByMac,
-        long excludedForMissingness, long multiallelicRecords) { }
+        long excludedForMissingness, long multiallelicRecords, int regionSets,
+        List<String> emptyRegionSets) {
+        public Summary {
+            emptyRegionSets = emptyRegionSets == null ? List.of() : List.copyOf(emptyRegionSets);
+        }
+    }
 
     private interface VariantCursor extends AutoCloseable {
         VCFHeader header();
         boolean hasNext();
-        VariantContext next();
+        VariantContext next() throws IOException;
         @Override void close() throws IOException;
     }
 
@@ -177,6 +220,107 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         @Override public boolean hasNext() { return iterator.hasNext(); }
         @Override public VariantContext next() { return iterator.next(); }
         @Override public void close() { iterator.close(); }
+    }
+
+    private static final class IndexedCursor implements VariantCursor {
+        private final FeatureReader<VariantContext> reader;
+        private final VCFHeader header;
+        private final List<QGenomicRegions.QueryInterval> intervals;
+        private CloseableTribbleIterator<VariantContext> iterator;
+        private final Map<String, Integer> emittedIntervals = new HashMap<>();
+        private int nextInterval;
+        private int activeInterval = -1;
+        private int activeIntervalEnd;
+        private String activeContig;
+        private VariantContext next;
+
+        IndexedCursor(Path path, Path index, Format format,
+            List<QGenomicRegions.QueryInterval> intervals)
+            throws IOException {
+            try {
+                String featurePath = path.toUri().toString();
+                String indexPath = index.toUri().toString();
+                reader = format == Format.BCF
+                    ? AbstractFeatureReader.getFeatureReader(featurePath, indexPath,
+                        new QBcf22Codec(), true)
+                    : AbstractFeatureReader.getFeatureReader(featurePath, indexPath,
+                        new VCFCodec(), true);
+                header = (VCFHeader) reader.getHeader();
+                this.intervals = List.copyOf(intervals);
+            } catch (RuntimeException e) {
+                throw new IOException("Cannot open indexed variant source " + path
+                    + " with index " + index + ": " + e.getMessage(), e);
+            }
+            try {
+                advance();
+            } catch (IOException | RuntimeException e) {
+                try {
+                    reader.close();
+                } catch (IOException closeFailure) {
+                    e.addSuppressed(closeFailure);
+                }
+                if (e instanceof IOException ioException)
+                    throw ioException;
+                throw new IOException("Cannot start indexed variant query for " + path, e);
+            }
+        }
+
+        @Override public VCFHeader header() { return header; }
+
+        @Override public boolean hasNext() { return next != null; }
+
+        @Override
+        public VariantContext next() throws IOException {
+            if (next == null)
+                throw new NoSuchElementException();
+            VariantContext result = next;
+            advance();
+            return result;
+        }
+
+        private void advance() throws IOException {
+            while (true) {
+                if (iterator != null && iterator.hasNext()) {
+                    VariantContext candidate = iterator.next();
+                    String id = canonicalId(candidate);
+                    Integer previousInterval = emittedIntervals.get(id);
+                    if (previousInterval != null && previousInterval != activeInterval)
+                        continue;
+                    if (candidate.getEnd() > activeIntervalEnd)
+                        emittedIntervals.putIfAbsent(id, activeInterval);
+                    next = candidate;
+                    return;
+                }
+                if (iterator != null) {
+                    iterator.close();
+                    iterator = null;
+                }
+                if (nextInterval >= intervals.size()) {
+                    next = null;
+                    return;
+                }
+                QGenomicRegions.QueryInterval interval = intervals.get(nextInterval++);
+                activeInterval = nextInterval - 1;
+                activeIntervalEnd = interval.end();
+                if (!interval.contig().equals(activeContig)) {
+                    emittedIntervals.clear();
+                    activeContig = interval.contig();
+                }
+                try {
+                    iterator = reader.query(interval.contig(), interval.start(), interval.end());
+                } catch (RuntimeException e) {
+                    throw new IOException("Indexed query failed for " + interval.contig() + ":"
+                        + interval.start() + "-" + interval.end(), e);
+                }
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (iterator != null)
+                iterator.close();
+            reader.close();
+        }
     }
 
     private static final class BcfCursor implements VariantCursor {
@@ -211,8 +355,11 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
 
     private record Evaluation(String rowId, int calledSamples, int missingSamples,
-        double alternateAlleleCount, double alleleNumber, double eaf, double maf, double mac,
-        double hweP, int hweSamples, String classification, boolean included, String exclusionReason) { }
+        double alternateAlleleCount, double alleleNumber, double dosageSumSquares,
+        double eaf, double maf, double mac, double hweP, int hweSamples,
+        int homRef, int heterozygous, int homAlt,
+        String classification, boolean included, String exclusionReason,
+        String regionSets, String alignedFrequencyReason) { }
 
     private record EvaluatedVariant(VariantContext variant, Evaluation evaluation) { }
 
@@ -257,7 +404,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         long excludedByMac;
         long excludedForMissingness;
         long multiallelic;
+        String lastRowId;
         final Set<String> rowIds = new HashSet<>();
+        final Set<String> observedRegionSets = new LinkedHashSet<>();
         final VariantDecisions decisions = new VariantDecisions();
     }
 
@@ -386,6 +535,13 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private final int qcThreadCount;
     private final int qcCheckpointRecordBatchSize;
     private final Path qcCheckpointRoot;
+    private final Path variantIndex;
+    private final QGenomicRegions regions;
+    private final List<QGenomicRegions.QueryInterval> wholeSourceIntervals;
+    private final long sourceSize;
+    private final long sourceModifiedMillis;
+    private final long indexSize;
+    private final long indexModifiedMillis;
     private Metadata metadata;
     private Summary summary;
     private VariantDecisions decisions;
@@ -394,6 +550,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private boolean scanComplete;
     private Path activeQcCheckpointDirectory;
     private long resumedQcRecords;
+    private boolean indexedResumeUsed;
 
     public QVariantMatrixSource(Path path, Options options) throws IOException {
         this(path, options, false);
@@ -408,11 +565,33 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         this.options = options;
         if (!Files.isRegularFile(this.path))
             throw new IOException("Variant file does not exist: " + this.path);
-        try (VariantCursor cursor = openCursor()) {
+        sourceSize = Files.size(this.path);
+        sourceModifiedMillis = Files.getLastModifiedTime(this.path).toMillis();
+        VCFHeader sourceHeader;
+        try (VariantCursor cursor = openSequentialCursor()) {
             validateSampleIds(cursor.header().getGenotypeSamples());
             sourceSampleIds = cursor.header().getGenotypeSamples().toArray(String[]::new);
             selectedField = selectField(cursor.header(), options.genotypeField());
+            sourceHeader = cursor.header();
         }
+        variantIndex = resolveVariantIndex(this.path, options.variantIndex());
+        indexSize = variantIndex == null ? -1 : Files.size(variantIndex);
+        indexModifiedMillis = variantIndex == null ? -1
+            : Files.getLastModifiedTime(variantIndex).toMillis();
+        List<String> availableContigs = sourceHeader.getContigLines().stream()
+            .map(line -> line.getID()).toList();
+        List<QGenomicRegions.QueryInterval> wholeIntervals = new ArrayList<>();
+        sourceHeader.getContigLines().forEach(line -> {
+            int length = line.getSAMSequenceRecord().getSequenceLength();
+            wholeIntervals.add(new QGenomicRegions.QueryInterval(line.getID(), 1,
+                length > 0 ? length : Integer.MAX_VALUE));
+        });
+        wholeSourceIntervals = List.copyOf(wholeIntervals);
+        regions = QGenomicRegions.load(options.regions(), options.regionsFile(),
+            options.regionCoordinates(), availableContigs);
+        if (regions != null && variantIndex == null)
+            throw new IOException("Region-limited VCF/BCF access requires a .tbi or .csi index; "
+                + "provide --variant-index or place the index beside " + this.path);
         qcThreadCount = recommendQcThreads(options.qcThreads());
         qcCheckpointRecordBatchSize = qcCheckpointBatchSize();
         qcCheckpointRoot = options.qcCheckpoint() != null ? options.qcCheckpoint()
@@ -441,6 +620,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     public int qcThreadCount() { return qcThreadCount; }
     public Path qcCheckpointDirectory() { return activeQcCheckpointDirectory; }
     public long resumedQcRecords() { return resumedQcRecords; }
+    public boolean indexedResumeUsed() { return indexedResumeUsed; }
+    public Path variantIndex() { return variantIndex; }
+    public QGenomicRegions regions() { return regions; }
 
     public void selectAnalysisSamples(int[] columnOrder) throws IOException {
         if (scanComplete)
@@ -479,6 +661,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
 
     private ScanResult scanMetadata(QVariantQcCheckpoint checkpoint) throws IOException {
+        validateSourceIdentity();
         Path qcOutput = options.qcOutput();
         ScanState state = new ScanState();
         QVariantQcCheckpoint.Snapshot checkpointSnapshot = checkpoint == null
@@ -501,7 +684,10 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             System.out.println("Resuming variant QC after "
                 + String.format(Locale.ROOT, "%,d", state.inputRecords)
                 + " completed records from " + checkpoint.directory());
-            System.out.println("Sequential VCF/BCF input must decode past completed records; their sample QC and HWE will not be recomputed.");
+            if (variantIndex != null && (!wholeSourceIntervals.isEmpty() || regions != null))
+                System.out.println("A matching variant index is available; resume will seek to and verify the durable boundary.");
+            else
+                System.out.println("Sequential VCF/BCF input must decode past completed records; their sample QC and HWE will not be recomputed.");
             System.out.flush();
         }
 
@@ -514,8 +700,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         List<String> checkpointBatch = checkpoint == null ? null
             : new ArrayList<>(qcCheckpointRecordBatchSize);
         try {
-            try (VariantCursor cursor = openCursor()) {
-                validateCheckpointPrefix(cursor, checkpoint, state.inputRecords);
+            try (VariantCursor cursor = openCursorForQcResume(checkpoint, state)) {
                 while (cursor.hasNext()) {
                     VariantContext variant = cursor.next();
                     if (executor == null) {
@@ -566,13 +751,16 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
     private void acceptEvaluation(Evaluation evaluation, ScanState state) throws IOException {
         state.inputRecords++;
+        state.lastRowId = evaluation.rowId();
         if (evaluation.classification().equals("monomorphic")) state.monomorphic++;
         if (evaluation.classification().equals("singleton")) state.singletons++;
         if (evaluation.classification().equals("doubleton")) state.doubletons++;
         if (evaluation.classification().equals("multiallelic")) state.multiallelic++;
-        if (evaluation.exclusionReason().contains("maf")) state.excludedByMaf++;
-        if (evaluation.exclusionReason().contains("mac")) state.excludedByMac++;
+        if (evaluation.alignedFrequencyReason().contains("maf")) state.excludedByMaf++;
+        if (evaluation.alignedFrequencyReason().contains("mac")) state.excludedByMac++;
         if (evaluation.exclusionReason().contains("missing")) state.excludedForMissingness++;
+        if (!evaluation.regionSets().equals("."))
+            Collections.addAll(state.observedRegionSets, evaluation.regionSets().split(";"));
         if (!state.rowIds.add(evaluation.rowId()))
             throw new IOException("Duplicate canonical variant identifier '"
                 + evaluation.rowId() + "' in " + path);
@@ -585,13 +773,17 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         if (state.included == 0)
             throw new IOException("No variants remain after QC/filtering in " + path);
         String signatureTag = String.format(Locale.ROOT,
-            "variant-v1;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g;qc-samples=%d",
+            "variant-v3;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g;frequency-scope=%s;qc-samples=%d;regions=%s;index=%s:%d:%d",
             options.format(), selectedField, options.missingPolicy(), options.multiallelicPolicy(),
-            options.minimumMaf(), options.minimumMac(), analysisSampleCount);
+            options.minimumMaf(), options.minimumMac(), options.frequencyScope(), analysisSampleCount,
+            regions == null ? "all" : regions.signature(),
+            variantIndex == null ? "none" : variantIndex, indexSize, indexModifiedMillis);
         Metadata scanned = new Metadata(path, state.included, samples.length, samples, signatureTag);
         Summary counts = new Summary(state.inputRecords, state.included, state.monomorphic,
             state.singletons, state.doubletons, state.excludedByMaf, state.excludedByMac,
-            state.excludedForMissingness, state.multiallelic);
+            state.excludedForMissingness, state.multiallelic,
+            regions == null ? 0 : regions.setIds().size(),
+            regions == null ? List.of() : regions.emptySetIds(state.observedRegionSets));
         return new ScanResult(scanned, counts, state.decisions);
     }
 
@@ -602,10 +794,11 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             return null;
         String signature = qcCheckpointSignature();
         String description = String.format(Locale.ROOT,
-            "input=%s; format=%s; field=%s; missing=%s; multiallelic=%s; min_maf=%.17g; min_mac=%.17g; aligned_samples=%d",
+            "input=%s; format=%s; field=%s; missing=%s; multiallelic=%s; min_maf=%.17g; min_mac=%.17g; frequency_scope=%s; aligned_samples=%d; regions=%s",
             path, options.format(), selectedField, options.missingPolicy(),
             options.multiallelicPolicy(), options.minimumMaf(), options.minimumMac(),
-            analysisSampleCount);
+            options.frequencyScope(), analysisSampleCount,
+            regions == null ? "all" : regions.signature());
         return new QVariantQcCheckpoint(qcCheckpointRoot, signature, description);
     }
 
@@ -616,16 +809,25 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }
-        updateDigest(digest, "gpu-eqtl-variant-qc-checkpoint-v1");
+        updateDigest(digest, "gpu-eqtl-variant-qc-checkpoint-v3");
         updateDigest(digest, path.toString());
-        updateDigest(digest, Long.toString(Files.size(path)));
-        updateDigest(digest, Long.toString(Files.getLastModifiedTime(path).toMillis()));
+        updateDigest(digest, Long.toString(sourceSize));
+        updateDigest(digest, Long.toString(sourceModifiedMillis));
         updateDigest(digest, options.format().name());
         updateDigest(digest, selectedField.name());
         updateDigest(digest, options.missingPolicy().name());
         updateDigest(digest, options.multiallelicPolicy().name());
         updateDigest(digest, Double.toHexString(options.minimumMaf()));
         updateDigest(digest, Double.toHexString(options.minimumMac()));
+        updateDigest(digest, options.frequencyScope().name());
+        updateDigest(digest, regions == null ? "all-regions" : regions.signature());
+        if (variantIndex != null) {
+            updateDigest(digest, variantIndex.toString());
+            updateDigest(digest, Long.toString(indexSize));
+            updateDigest(digest, Long.toString(indexModifiedMillis));
+        } else {
+            updateDigest(digest, "no-index");
+        }
         updateDigest(digest, Integer.toString(sourceSampleIds.length));
         for (String sampleId : sourceSampleIds)
             updateDigest(digest, sampleId);
@@ -664,6 +866,76 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 + " records but prefix validation found " + validated[0]);
     }
 
+    private VariantCursor openCursorForQcResume(QVariantQcCheckpoint checkpoint,
+        ScanState state) throws IOException {
+        if (checkpoint == null || state.inputRecords == 0)
+            return openCursor();
+        List<QGenomicRegions.QueryInterval> intervals = regions == null
+            ? wholeSourceIntervals : regions.queryIntervals();
+        if (variantIndex != null && !intervals.isEmpty() && state.lastRowId != null) {
+            validateSourceIdentity();
+            VariantCursor indexed = indexedCursorAfter(state.lastRowId, intervals);
+            indexedResumeUsed = true;
+            System.out.println("Indexed QC resume sought directly to durable boundary "
+                + state.lastRowId + " using " + variantIndex);
+            System.out.flush();
+            return indexed;
+        }
+        VariantCursor sequential = openCursor();
+        validateCheckpointPrefix(sequential, checkpoint, state.inputRecords);
+        return sequential;
+    }
+
+    private VariantCursor indexedCursorAfter(String boundaryId,
+        List<QGenomicRegions.QueryInterval> intervals) throws IOException {
+        Boundary boundary = Boundary.parse(boundaryId);
+        List<QGenomicRegions.QueryInterval> remaining = new ArrayList<>();
+        boolean foundContig = false;
+        for (QGenomicRegions.QueryInterval interval : intervals) {
+            if (!foundContig) {
+                if (!interval.contig().equals(boundary.contig()) || interval.end() < boundary.position())
+                    continue;
+                foundContig = true;
+                remaining.add(new QGenomicRegions.QueryInterval(interval.contig(),
+                    Math.max(interval.start(), boundary.position()), interval.end()));
+            } else {
+                remaining.add(interval);
+            }
+        }
+        if (remaining.isEmpty())
+            throw new IOException("Indexed QC resume boundary is outside the selected source regions: "
+                + boundaryId);
+        IndexedCursor cursor = new IndexedCursor(path, variantIndex, options.format(), remaining);
+        try {
+            while (cursor.hasNext()) {
+                VariantContext variant = cursor.next();
+                if (canonicalId(variant).equals(boundaryId))
+                    return cursor;
+            }
+        } catch (IOException | RuntimeException e) {
+            cursor.close();
+            throw e;
+        }
+        cursor.close();
+        throw new IOException("Indexed QC resume could not find durable boundary " + boundaryId
+            + " in " + path);
+    }
+
+    private record Boundary(String contig, int position) {
+        static Boundary parse(String canonicalId) throws IOException {
+            int first = canonicalId.indexOf(':');
+            int second = first < 0 ? -1 : canonicalId.indexOf(':', first + 1);
+            if (first <= 0 || second <= first + 1)
+                throw new IOException("Malformed canonical variant boundary " + canonicalId);
+            try {
+                return new Boundary(canonicalId.substring(0, first),
+                    Integer.parseInt(canonicalId.substring(first + 1, second)));
+            } catch (NumberFormatException e) {
+                throw new IOException("Malformed canonical variant boundary " + canonicalId, e);
+            }
+        }
+    }
+
     private static String qcRowId(String line) throws IOException {
         int tab = line.indexOf('\t');
         if (tab <= 0)
@@ -673,19 +945,21 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
     private static Evaluation parseQcEvaluation(String line) throws IOException {
         String[] fields = line.split("\\t", -1);
-        if (fields.length != 20)
-            throw new IOException("Malformed variant-QC checkpoint record: expected 20 fields, found "
+        if (fields.length != 27)
+            throw new IOException("Malformed variant-QC checkpoint record: expected 27 fields, found "
                 + fields.length);
         try {
             boolean included;
-            if (fields[18].equals("true")) included = true;
-            else if (fields[18].equals("false")) included = false;
-            else throw new IOException("Malformed included flag in variant-QC checkpoint: " + fields[18]);
+            if (fields[22].equals("true")) included = true;
+            else if (fields[22].equals("false")) included = false;
+            else throw new IOException("Malformed included flag in variant-QC checkpoint: " + fields[22]);
             return new Evaluation(fields[0], Integer.parseInt(fields[8]), Integer.parseInt(fields[9]),
                 checkpointNumber(fields[10]), checkpointNumber(fields[11]), checkpointNumber(fields[12]),
                 checkpointNumber(fields[13]), checkpointNumber(fields[14]), checkpointNumber(fields[15]),
-                Integer.parseInt(fields[16]), fields[17], included,
-                fields[19].equals(".") ? "" : fields[19]);
+                checkpointNumber(fields[16]), Integer.parseInt(fields[17]), Integer.parseInt(fields[18]),
+                Integer.parseInt(fields[19]), Integer.parseInt(fields[20]), fields[21], included,
+                fields[23].equals(".") ? "" : fields[23], fields[24],
+                fields[26].equals(".") ? "" : fields[26]);
         } catch (NumberFormatException e) {
             throw new IOException("Malformed numeric field in variant-QC checkpoint record " + fields[0], e);
         }
@@ -791,13 +1065,14 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             if (options.multiallelicPolicy() == MultiallelicPolicy.ERROR)
                 throw new IOException("Multiallelic variant encountered at " + variant.getContig()
                     + ":" + variant.getStart() + "; use --multiallelic exclude");
-            return excludedEvaluation(canonicalId(variant), "multiallelic", "multiallelic");
+            return excludedEvaluation(variant, "multiallelic", "multiallelic");
         }
 
         Allele reference = variant.getReference();
         Allele alternate = variant.getAlternateAllele(0);
         int sampleCount = sourceSampleIds.length;
         double alternateAlleleCount = 0;
+        double dosageSumSquares = 0;
         int calledSamples = 0;
         int missingSamples = 0;
         int homRef = 0;
@@ -816,6 +1091,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 missingSamples++;
             } else {
                 alternateAlleleCount += dosage;
+                dosageSumSquares += dosage * dosage;
                 calledSamples++;
             }
 
@@ -847,8 +1123,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 throw new IOException("No called " + selectedField + " values at " + rowId
                     + "; use --genotype-missing exclude-variant after confirming the source field");
             return new Evaluation(rowId, 0, missingSamples, 0, 0,
-                Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, "no_calls", false,
-                "no_called_genotypes");
+                0, Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0,
+                0, 0, 0, "no_calls", false,
+                "no_called_genotypes", regionMemberships(variant), "");
         }
 
         double alleleNumber = 2.0 * calledSamples;
@@ -871,14 +1148,19 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             if (options.missingPolicy() == MissingPolicy.EXCLUDE_VARIANT)
                 reasons.add("missing_genotype");
         }
+        List<String> frequencyReasons = new ArrayList<>();
         if (maf + INTEGER_TOLERANCE < options.minimumMaf())
-            reasons.add("maf_below_minimum");
+            frequencyReasons.add("maf_below_minimum");
         if (mac + INTEGER_TOLERANCE < options.minimumMac())
-            reasons.add("mac_below_minimum");
+            frequencyReasons.add("mac_below_minimum");
+        if (options.frequencyScope() == FrequencyScope.ALIGNED)
+            reasons.addAll(frequencyReasons);
         boolean accepted = reasons.isEmpty();
         return new Evaluation(rowId, calledSamples, missingSamples, alternateAlleleCount,
-            alleleNumber, eaf, maf, mac, hweP, hweSamples, classification, accepted,
-            String.join(";", reasons));
+            alleleNumber, dosageSumSquares, eaf, maf, mac, hweP, hweSamples,
+            homRef, heterozygous, homAlt, classification, accepted,
+            String.join(";", reasons), regionMemberships(variant),
+            String.join(";", frequencyReasons));
     }
 
     private Double dosageFromDs(Genotype genotype, VariantContext variant) throws IOException {
@@ -1004,9 +1286,11 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         return String.format(Locale.ROOT, "%.2f h", seconds / 3600);
     }
 
-    private static Evaluation excludedEvaluation(String rowId, String classification, String reason) {
-        return new Evaluation(rowId, 0, 0, Double.NaN, Double.NaN,
-            Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, classification, false, reason);
+    private Evaluation excludedEvaluation(VariantContext variant, String classification, String reason) {
+        return new Evaluation(canonicalId(variant), 0, 0, Double.NaN, Double.NaN,
+            Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0,
+            0, 0, 0, classification, false, reason,
+            regionMemberships(variant), "");
     }
 
     private static String canonicalId(VariantContext variant) {
@@ -1035,18 +1319,59 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             Integer.toString(evaluation.missingSamples()),
             number(evaluation.alternateAlleleCount()),
             number(evaluation.alleleNumber()),
+            number(evaluation.dosageSumSquares()),
             number(evaluation.eaf()),
             number(evaluation.maf()),
             number(evaluation.mac()),
             number(evaluation.hweP()),
             Integer.toString(evaluation.hweSamples()),
+            Integer.toString(evaluation.homRef()),
+            Integer.toString(evaluation.heterozygous()),
+            Integer.toString(evaluation.homAlt()),
             evaluation.classification(),
             Boolean.toString(evaluation.included()),
-            evaluation.exclusionReason().isEmpty() ? "." : evaluation.exclusionReason());
+            evaluation.exclusionReason().isEmpty() ? "." : evaluation.exclusionReason(),
+            evaluation.regionSets(),
+            options.frequencyScope().name().toLowerCase(Locale.ROOT),
+            evaluation.alignedFrequencyReason().isEmpty() ? "." : evaluation.alignedFrequencyReason());
+    }
+
+    private String regionMemberships(VariantContext variant) {
+        return regions == null ? "." : regions.memberships(variant);
     }
 
     private VariantCursor openCursor() throws IOException {
+        validateSourceIdentity();
+        if (regions != null)
+            return new IndexedCursor(path, variantIndex, options.format(), regions.queryIntervals());
+        return openSequentialCursor();
+    }
+
+    private VariantCursor openSequentialCursor() throws IOException {
         return options.format() == Format.BCF ? new BcfCursor(path) : new VcfCursor(path);
+    }
+
+    private void validateSourceIdentity() throws IOException {
+        if (Files.size(path) != sourceSize
+            || Files.getLastModifiedTime(path).toMillis() != sourceModifiedMillis)
+            throw new IOException("Variant source changed during analysis: " + path);
+        if (variantIndex != null && (Files.size(variantIndex) != indexSize
+            || Files.getLastModifiedTime(variantIndex).toMillis() != indexModifiedMillis))
+            throw new IOException("Variant index changed during analysis: " + variantIndex);
+    }
+
+    private static Path resolveVariantIndex(Path variantPath, Path configured) throws IOException {
+        if (configured != null) {
+            if (!Files.isRegularFile(configured))
+                throw new IOException("Variant index does not exist: " + configured);
+            return configured;
+        }
+        for (String suffix : List.of(".csi", ".tbi", ".idx")) {
+            Path candidate = Path.of(variantPath.toString() + suffix).toAbsolutePath().normalize();
+            if (Files.isRegularFile(candidate))
+                return candidate;
+        }
+        return null;
     }
 
     private static GenotypeField selectField(VCFHeader header, GenotypeField requested) {

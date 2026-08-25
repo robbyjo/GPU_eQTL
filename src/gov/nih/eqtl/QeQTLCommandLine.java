@@ -54,6 +54,11 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--variant-qc-output", "variant_qc_output");
         VALUE_OPTIONS.put("--variant-qc-threads", "variant_qc_threads");
         VALUE_OPTIONS.put("--variant-qc-checkpoint", "variant_qc_checkpoint");
+        VALUE_OPTIONS.put("--variant-index", "variant_index");
+        VALUE_OPTIONS.put("--region", "regions");
+        VALUE_OPTIONS.put("--regions-file", "regions_file");
+        VALUE_OPTIONS.put("--region-coordinates", "region_coordinates");
+        VALUE_OPTIONS.put("--frequency-scope", "frequency_scope");
         VALUE_OPTIONS.put("--fixed-covariates", "covariate_fixed");
         VALUE_OPTIONS.put("--random-covariates", "covariate_random");
         VALUE_OPTIONS.put("--factor-covariates", "covariate_factor");
@@ -81,7 +86,7 @@ public final class QeQTLCommandLine {
     private static final List<String> PATH_OPTIONS = List.of(
         "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
         "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output",
-        "variant_qc_checkpoint", "missingness_qc_output");
+        "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output");
 
     private QeQTLCommandLine() { }
 
@@ -150,7 +155,10 @@ public final class QeQTLCommandLine {
                     value = new File(value).getAbsoluteFile().toPath().normalize().toString();
                 if (key.startsWith("covariate_"))
                     value = value.replace(',', ' ').trim();
-                config.set(key, value);
+                if (key.equals("regions") && config.get(key) != null && !config.get(key).isBlank())
+                    config.set(key, config.get(key) + ";" + value);
+                else
+                    config.set(key, value);
             } else if ("--threshold".equals(argument)) {
                 String type = requireValue(args, ++i, argument);
                 String value = requireValue(args, ++i, argument);
@@ -226,6 +234,11 @@ public final class QeQTLCommandLine {
               --variant-qc-output FILE        Variant annotation/QC TSV (default: OUTPUT.variants.tsv)
               --variant-qc-threads N          Variant-level QC workers (default: auto; 1 is sequential)
               --variant-qc-checkpoint DIR     Resumable QC state root (default: QC_OUTPUT.checkpoint)
+              --variant-index FILE            Explicit .tbi/.csi index (otherwise auto-detected)
+              --region [SET=]CHROM:START-END  Indexed one-based inclusive region; repeatable
+              --regions-file FILE             CHROM/START/END or SET_ID/CHROM/START/END TSV
+              --region-coordinates {one-based|bed}  Region-file coordinates (default: one-based)
+              --frequency-scope {aligned|pattern}   MAF/MAC filtering scope (default: aligned)
               --covariates FILE                 Mixed numeric/categorical covariate table
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
               --factor-covariates LIST         Force numeric-looking variables to be categorical

@@ -28,6 +28,8 @@ import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import htsjdk.tribble.index.tabix.TabixFormat;
+import htsjdk.tribble.index.tabix.TabixIndexCreator;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.variantcontext.writer.Options;
 import htsjdk.variant.variantcontext.writer.VariantContextWriter;
@@ -71,9 +73,42 @@ class QVariantMatrixSourceTest {
         List<String> qcLines = Files.readAllLines(qc);
         assertEquals(8, qcLines.size());
         assertTrue(qcLines.get(1).contains("rsMono\tA\tG"));
-        assertTrue(qcLines.get(2).endsWith("singleton\tfalse\tmac_below_minimum"));
+        assertTrue(qcLines.get(2).contains(
+            "singleton\tfalse\tmac_below_minimum\t.\taligned\tmac_below_minimum"));
         assertTrue(qcLines.get(4).contains("LowQual\tDS"));
-        assertTrue(qcLines.get(7).endsWith("multiallelic\tfalse\tmultiallelic"));
+        assertTrue(qcLines.get(7).contains("multiallelic\tfalse\tmultiallelic\t.\taligned\t."));
+    }
+
+    @Test
+    void indexedRegionsMergeQueriesPreserveOverlappingSetsAndReportEmptySets() throws Exception {
+        IndexedFixture fixture = makeIndexedVcfFixture();
+        Path regions = temporaryDirectory.resolve("regions.tsv");
+        Files.writeString(regions,
+            "setA\t1\t115\t135\nsetB\t1\t125\t145\nempty\t1\t900\t950\n");
+        Path qc = temporaryDirectory.resolve("indexed-regions.tsv");
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, qc, 2, null,
+            fixture.index(), null, regions, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+
+        QVariantMatrixSource source = new QVariantMatrixSource(fixture.vcf(), options);
+        assertEquals(fixture.index(), source.variantIndex());
+        assertEquals(2, source.regions().queryIntervals().size());
+        assertEquals(3, source.summary().inputRecords());
+        assertEquals(3, source.metadata().rowCount());
+        assertEquals(3, source.summary().regionSets());
+        assertEquals(List.of("empty"), source.summary().emptyRegionSets());
+        try (QMatrixRowSource.BlockReader reader = source.open(null)) {
+            assertArrayEquals(new String[] {"1:120:G:A", "1:130:T:C", "1:140:A:C"},
+                reader.readBlock(10).rowIds());
+        }
+        List<String> qcLines = Files.readAllLines(qc);
+        assertTrue(qcLines.get(0).endsWith(
+            "region_sets\tfrequency_scope\taligned_frequency_reason"));
+        assertTrue(qcLines.stream().anyMatch(line -> line.startsWith("1:130:T:C\t")
+            && line.contains("\tsetA;setB\taligned\t.")));
     }
 
     @Test
@@ -138,6 +173,24 @@ class QVariantMatrixSourceTest {
     }
 
     @Test
+    void queriesIndexedBcfWithTheBcf22CompatibleCodec() throws Exception {
+        IndexedFixture fixture = makeIndexedBcfFixture();
+        Path qc = temporaryDirectory.resolve("indexed-bcf.tsv");
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.BCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, qc, 2, null,
+            fixture.index(), "set=1:125-145", null, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+        QVariantMatrixSource source = new QVariantMatrixSource(fixture.vcf(), options);
+        assertEquals(2, source.summary().inputRecords());
+        try (QMatrixRowSource.BlockReader reader = source.open(null)) {
+            assertArrayEquals(new String[] {"1:130:T:C", "1:140:A:C"},
+                reader.readBlock(10).rowIds());
+        }
+    }
+
+    @Test
     void exactHweCalculationIsSymmetricAndBounded() {
         double first = QVariantMatrixSource.hardyWeinbergExact(48, 40, 12);
         double reversed = QVariantMatrixSource.hardyWeinbergExact(12, 40, 48);
@@ -150,10 +203,11 @@ class QVariantMatrixSourceTest {
     void sequentialAndParallelQcProduceIdenticalOrderedResults() throws Exception {
         Path sequentialQc = temporaryDirectory.resolve("sequential-qc.tsv");
         Path parallelQc = temporaryDirectory.resolve("parallel-qc.tsv");
-        QVariantMatrixSource sequential = new QVariantMatrixSource(gzipFixture(),
+        Path genotype = gzipFixture();
+        QVariantMatrixSource sequential = new QVariantMatrixSource(genotype,
             options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
                 QVariantMatrixSource.MissingPolicy.MEAN, 0, 2, sequentialQc, 1));
-        QVariantMatrixSource parallel = new QVariantMatrixSource(gzipFixture(),
+        QVariantMatrixSource parallel = new QVariantMatrixSource(genotype,
             options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
                 QVariantMatrixSource.MissingPolicy.MEAN, 0, 2, parallelQc, 4));
 
@@ -214,6 +268,51 @@ class QVariantMatrixSourceTest {
             System.clearProperty(batchProperty);
             System.clearProperty(failProperty);
         }
+    }
+
+    @Test
+    void interruptedIndexedQcSeeksDirectlyToDurableBoundary() throws Exception {
+        IndexedFixture fixture = makeIndexedVcfFixture();
+        Path qc = temporaryDirectory.resolve("indexed-resume.tsv");
+        Path checkpoint = temporaryDirectory.resolve("indexed-resume-checkpoint");
+        String batchProperty = "eqtl.variant.qc.checkpoint.records";
+        String failProperty = "eqtl.test.variant.qc.fail.after";
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, qc, 2, checkpoint,
+            fixture.index(), "all=1:1-1000", null, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+        System.setProperty(batchProperty, "2");
+        System.setProperty(failProperty, "4");
+        try {
+            assertThrows(IOException.class, () -> new QVariantMatrixSource(fixture.vcf(), options));
+            System.clearProperty(failProperty);
+            QVariantMatrixSource resumed = new QVariantMatrixSource(fixture.vcf(), options);
+            assertEquals(4, resumed.resumedQcRecords());
+            assertTrue(resumed.indexedResumeUsed());
+            assertEquals(7, resumed.summary().inputRecords());
+            assertTrue(Files.isRegularFile(qc));
+        } finally {
+            System.clearProperty(batchProperty);
+            System.clearProperty(failProperty);
+        }
+    }
+
+    @Test
+    void rejectsIndexMutationBetweenAlignmentAndQc() throws Exception {
+        IndexedFixture fixture = makeIndexedVcfFixture();
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, null, 1, null,
+            fixture.index(), "all=1:1-1000", null, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+        QVariantMatrixSource source = QVariantMatrixSource.openForAlignment(fixture.vcf(), options);
+        Files.write(fixture.index(), new byte[] {0}, java.nio.file.StandardOpenOption.APPEND);
+        IOException error = assertThrows(IOException.class,
+            () -> source.selectAnalysisSamples(new int[] {0, 1, 2, 3}));
+        assertTrue(error.getMessage().contains("index changed"));
     }
 
     @Test
@@ -328,6 +427,50 @@ class QVariantMatrixSourceTest {
             output.write(uncompressed);
         }
         return bcf22;
+    }
+
+    private record IndexedFixture(Path vcf, Path index) { }
+
+    private IndexedFixture makeIndexedVcfFixture() throws Exception {
+        Path output = temporaryDirectory.resolve("indexed.vcf.gz");
+        try (VCFIterator input = new VCFIteratorBuilder().open(fixturePath());
+             VariantContextWriter writer = new VariantContextWriterBuilder()
+                 .setOutputPath(output)
+                 .setReferenceDictionary(input.getHeader().getSequenceDictionary())
+                 .setIndexCreator(new TabixIndexCreator(input.getHeader().getSequenceDictionary(),
+                     TabixFormat.VCF))
+                 .setOption(Options.INDEX_ON_THE_FLY)
+                 .build()) {
+            writer.writeHeader(input.getHeader());
+            while (input.hasNext())
+                writer.add(input.next());
+        }
+        Path index = Path.of(output.toString() + ".tbi");
+        assertTrue(Files.isRegularFile(index));
+        return new IndexedFixture(output, index);
+    }
+
+    private IndexedFixture makeIndexedBcfFixture() throws Exception {
+        Path output = temporaryDirectory.resolve("indexed.bcf");
+        try (VCFIterator input = new VCFIteratorBuilder().open(fixturePath());
+             VariantContextWriter writer = new VariantContextWriterBuilder()
+                 .setOutputPath(output)
+                 .setReferenceDictionary(input.getHeader().getSequenceDictionary())
+                 .setOption(Options.FORCE_BCF)
+                 .setOption(Options.INDEX_ON_THE_FLY)
+                 .build()) {
+            writer.writeHeader(input.getHeader());
+            while (input.hasNext())
+                writer.add(input.next());
+        }
+        Path index = Path.of(output.toString() + ".idx");
+        assertTrue(Files.isRegularFile(index));
+        byte[] bcf = Files.readAllBytes(output);
+        assertEquals(2, bcf[3]);
+        assertEquals(1, bcf[4]);
+        bcf[4] = 2;
+        Files.write(output, bcf);
+        return new IndexedFixture(output, index);
     }
 
     private InputStream fixture() {

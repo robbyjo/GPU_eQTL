@@ -45,7 +45,7 @@ public final class QPolicyMatrixSource implements QMatrixRowSource {
             selectedRows.andNot(scan.rowsWithMissing());
         if (selectedRows.isEmpty())
             throw new IllegalArgumentException("Missing-value policy excludes every row of " + scan.matrixName());
-        String tag = "missing-policy-v1;policy=" + policy.optionName() + ";rows="
+        String tag = "missing-policy-v2;policy=" + policy.optionName() + ";rows="
             + selectedRows.cardinality() + ";selection-hash=" + java.util.Arrays.hashCode(selectedRows.toLongArray());
         if (source.metadata().cacheSignatureTag() != null)
             tag = source.metadata().cacheSignatureTag() + ";" + tag;
@@ -125,13 +125,25 @@ public final class QPolicyMatrixSource implements QMatrixRowSource {
             || policy == QMissingValuePolicy.EXCLUDE_ROW)
             throw new IllegalArgumentException(scan.matrixName() + " row '" + rowId
                 + "' still contains a missing value under policy " + policy.optionName());
-        double replacement = policy == QMissingValuePolicy.ZERO ? 0.0 : scan.rowMean(sourceRow);
+        double replacement = policy == QMissingValuePolicy.ZERO ? 0.0 : observedMean(values);
         if (!Double.isFinite(replacement))
             throw new IllegalArgumentException(scan.matrixName() + " row '" + rowId
                 + "' has no observed value available for " + policy.optionName() + " imputation");
         for (int i = 0; i < values.length; i++)
             if (QMissingnessScan.isMissing(values[i]))
                 values[i] = replacement;
+    }
+
+    private static double observedMean(double[] values) {
+        double sum = 0;
+        int observed = 0;
+        for (double value : values) {
+            if (!QMissingnessScan.isMissing(value)) {
+                sum += value;
+                observed++;
+            }
+        }
+        return observed == 0 ? Double.NaN : sum / observed;
     }
 
     private static BitSet allRows(long rowCount) {
