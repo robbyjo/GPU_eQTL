@@ -9,6 +9,7 @@ package gov.nih.gpu;
 
 import gov.nih.eqtl.QeQTLAnalysis;
 import gov.nih.gpu.cuda.CudaGpuBackend;
+import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import org.junit.jupiter.api.Assumptions;
@@ -36,6 +37,27 @@ class GpuKernelIntegrationTest {
 	}
 
 	@Test
+	void cpuBackendFp64MatchesScalarReference() {
+		assertRealEqtlOperation(new CpuBackend());
+	}
+
+	@Test
+	void portableJavaCpuEngineMatchesScalarReference() {
+		String previous = System.getProperty(CpuBackend.BLAS_PROPERTY);
+		try {
+			System.setProperty(CpuBackend.BLAS_PROPERTY, "java");
+			assertRealEqtlOperation(new CpuBackend());
+		} finally {
+			restoreProperty(CpuBackend.BLAS_PROPERTY, previous);
+		}
+	}
+
+	@Test
+	void oneMklCpuEngineFp64MatchesScalarReferenceWhenBundled() {
+		withOneMkl(() -> assertRealEqtlOperation(new CpuBackend()));
+	}
+
+	@Test
 	void automaticBackendFp32MatchesCpuReferenceWhenGpuIsPresent() {
 		assertRealEqtlOperationFp32(new AutoGpuBackend());
 	}
@@ -51,6 +73,16 @@ class GpuKernelIntegrationTest {
 	}
 
 	@Test
+	void cpuBackendFp32MatchesScalarReference() {
+		assertRealEqtlOperationFp32(new CpuBackend());
+	}
+
+	@Test
+	void oneMklCpuEngineFp32MatchesScalarReferenceWhenBundled() {
+		withOneMkl(() -> assertRealEqtlOperationFp32(new CpuBackend()));
+	}
+
+	@Test
 	void cudaFp64ResidualizationMatchesCpuReferenceWhenAvailable() {
 		assertResidualization(new CudaGpuBackend(), GpuPrecision.FP64);
 	}
@@ -61,6 +93,16 @@ class GpuKernelIntegrationTest {
 	}
 
 	@Test
+	void cpuFp64ResidualizationMatchesScalarReference() {
+		assertResidualization(new CpuBackend(), GpuPrecision.FP64);
+	}
+
+	@Test
+	void oneMklCpuEngineResidualizationMatchesScalarReferenceWhenBundled() {
+		withOneMkl(() -> assertResidualization(new CpuBackend(), GpuPrecision.FP64));
+	}
+
+	@Test
 	void cudaFp32ResidualizationMatchesCpuReferenceWhenAvailable() {
 		assertResidualization(new CudaGpuBackend(), GpuPrecision.FP32);
 	}
@@ -68,6 +110,11 @@ class GpuKernelIntegrationTest {
 	@Test
 	void openClFp32ResidualizationMatchesCpuReferenceWhenAvailable() {
 		assertResidualization(new JoclGpuBackend(), GpuPrecision.FP32);
+	}
+
+	@Test
+	void cpuFp32ResidualizationMatchesScalarReference() {
+		assertResidualization(new CpuBackend(), GpuPrecision.FP32);
 	}
 
 	private static void assertRealEqtlOperation(GpuBackend backend) {
@@ -219,13 +266,14 @@ class GpuKernelIntegrationTest {
 
 		try (GpuContext context = devices.get(0).openContext()) {
 			context.setProfilingEnabled(true);
+			boolean hostOnly = "cpu".equalsIgnoreCase(context.getDevice().getBackendName());
 			if (precision == GpuPrecision.FP64) {
 				double[] actual = context.residualizeDoubleRows(values, q, rows, samples, rank);
 				assertArrayEquals(expected, actual, 2e-12, backend.getName() + " FP64 residualization");
-				assertEquals((long) (values.length + q.length) * Double.BYTES,
+				assertEquals(hostOnly ? 0 : (long) (values.length + q.length) * Double.BYTES,
 					context.getLastExecutionMetrics().uploadedBytes());
 				context.residualizeDoubleRows(values, q, rows, samples, rank);
-				assertEquals((long) values.length * Double.BYTES,
+				assertEquals(hostOnly ? 0 : (long) values.length * Double.BYTES,
 					context.getLastExecutionMetrics().uploadedBytes(), "Q should be uploaded once per context");
 			} else {
 				float[] values32 = toFloat(values);
@@ -234,10 +282,10 @@ class GpuKernelIntegrationTest {
 				for (int i = 0; i < actual.length; i++)
 					assertEquals(expected[i], actual[i], 2e-5,
 						backend.getName() + " FP32 residualization element " + i);
-				assertEquals((long) (values32.length + q32.length) * Float.BYTES,
+				assertEquals(hostOnly ? 0 : (long) (values32.length + q32.length) * Float.BYTES,
 					context.getLastExecutionMetrics().uploadedBytes());
 				context.residualizeFloatRows(values32, q32, rows, samples, rank);
-				assertEquals((long) values32.length * Float.BYTES,
+				assertEquals(hostOnly ? 0 : (long) values32.length * Float.BYTES,
 					context.getLastExecutionMetrics().uploadedBytes(), "Q should be uploaded once per context");
 			}
 			assertArrayEquals(new double[] {
@@ -268,5 +316,22 @@ class GpuKernelIntegrationTest {
 		for (int i = 0; i < values.length; i++)
 			result[i] = (float) values[i];
 		return result;
+	}
+
+	private static void restoreProperty(String name, String value) {
+		if (value == null) System.clearProperty(name);
+		else System.setProperty(name, value);
+	}
+
+	private static void withOneMkl(Runnable check) {
+		Assumptions.assumeTrue(Boolean.getBoolean("eqtl.test.mkl"),
+			"The current Maven profile does not bundle oneMKL");
+		String previous = System.getProperty(CpuBackend.BLAS_PROPERTY);
+		try {
+			System.setProperty(CpuBackend.BLAS_PROPERTY, "mkl");
+			check.run();
+		} finally {
+			restoreProperty(CpuBackend.BLAS_PROPERTY, previous);
+		}
 	}
 }

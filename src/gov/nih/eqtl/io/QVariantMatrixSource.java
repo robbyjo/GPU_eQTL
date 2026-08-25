@@ -20,20 +20,27 @@ package gov.nih.eqtl.io;
 import static gov.nih.utils.QDataUtils.kUndefinedValue;
 
 import java.io.BufferedInputStream;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 
 import htsjdk.samtools.util.IOUtil;
@@ -52,6 +59,15 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private static final long PROGRESS_CHECK_RECORDS = 1_000;
     private static final long PROGRESS_REPORT_RECORDS = 1_000_000;
     private static final long PROGRESS_REPORT_NANOS = 15_000_000_000L;
+    private static final int MAX_AUTOMATIC_QC_THREADS = 16;
+    private static final int QC_TASKS_PER_THREAD = 2;
+    private static final int DECISION_CHUNK_SIZE = 1 << 16;
+    private static final int DEFAULT_QC_CHECKPOINT_RECORDS = 10_000;
+    private static final String QC_CHECKPOINT_RECORDS_PROPERTY = "eqtl.variant.qc.checkpoint.records";
+    private static final String TEST_FAIL_AFTER_PROPERTY = "eqtl.test.variant.qc.fail.after";
+    private static final String QC_HEADER = "variant_id\tchromosome\tposition\trs_id\tref\talt\tvcf_filter"
+        + "\tgenotype_field\tcalled_samples\tmissing_samples\teffect_allele_count\tallele_number"
+        + "\teaf\tmaf\tmac\thwe_p\thwe_samples\tclassification\tincluded\texclusion_reason\n";
 
     public enum Format {
         VCF, BCF;
@@ -117,7 +133,14 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
     public record Options(Format format, GenotypeField genotypeField, MissingPolicy missingPolicy,
         MultiallelicPolicy multiallelicPolicy, double minimumMaf, double minimumMac,
-        Path qcOutput) {
+        Path qcOutput, int qcThreads, Path qcCheckpoint) {
+        public Options(Format format, GenotypeField genotypeField, MissingPolicy missingPolicy,
+            MultiallelicPolicy multiallelicPolicy, double minimumMaf, double minimumMac,
+            Path qcOutput, int qcThreads) {
+            this(format, genotypeField, missingPolicy, multiallelicPolicy, minimumMaf, minimumMac,
+                qcOutput, qcThreads, null);
+        }
+
         public Options {
             if (format == null || genotypeField == null || missingPolicy == null || multiallelicPolicy == null)
                 throw new IllegalArgumentException("Variant reader options must not be null");
@@ -125,7 +148,10 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 throw new IllegalArgumentException("min_maf must be between 0 and 0.5");
             if (!Double.isFinite(minimumMac) || minimumMac < 0)
                 throw new IllegalArgumentException("min_mac must not be negative");
+            if (qcThreads < 0)
+                throw new IllegalArgumentException("variant_qc_threads must not be negative");
             qcOutput = qcOutput == null ? null : qcOutput.toAbsolutePath().normalize();
+            qcCheckpoint = qcCheckpoint == null ? null : qcCheckpoint.toAbsolutePath().normalize();
         }
     }
 
@@ -184,13 +210,61 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         @Override public void close() { input.close(); }
     }
 
-    private record Evaluation(String rowId, double[] values, int calledSamples, int missingSamples,
+    private record Evaluation(String rowId, int calledSamples, int missingSamples,
         double alternateAlleleCount, double alleleNumber, double eaf, double maf, double mac,
         double hweP, int hweSamples, String classification, boolean included, String exclusionReason) { }
+
+    private record EvaluatedVariant(VariantContext variant, Evaluation evaluation) { }
+
+    /** Compact input-record decisions retained for later sequential source passes. */
+    private static final class VariantDecisions {
+        private final List<double[]> effectAlleleFrequencyChunks = new ArrayList<>();
+        private long size;
+
+        void add(Evaluation evaluation) {
+            int indexInChunk = (int) (size % DECISION_CHUNK_SIZE);
+            if (indexInChunk == 0)
+                effectAlleleFrequencyChunks.add(new double[DECISION_CHUNK_SIZE]);
+            effectAlleleFrequencyChunks.get(effectAlleleFrequencyChunks.size() - 1)[indexInChunk]
+                = evaluation.included() ? evaluation.eaf() : Double.NaN;
+            size++;
+        }
+
+        boolean included(long inputRecord) throws IOException {
+            return Double.isFinite(effectAlleleFrequency(inputRecord));
+        }
+
+        double effectAlleleFrequency(long inputRecord) throws IOException {
+            if (inputRecord < 0 || inputRecord >= size)
+                throw new IOException("Variant source has more records than the completed QC scan");
+            int chunk = Math.toIntExact(inputRecord / DECISION_CHUNK_SIZE);
+            int offset = (int) (inputRecord % DECISION_CHUNK_SIZE);
+            return effectAlleleFrequencyChunks.get(chunk)[offset];
+        }
+
+        long size() {
+            return size;
+        }
+    }
+
+    private static final class ScanState {
+        long inputRecords;
+        long included;
+        long monomorphic;
+        long singletons;
+        long doubletons;
+        long excludedByMaf;
+        long excludedByMac;
+        long excludedForMissingness;
+        long multiallelic;
+        final Set<String> rowIds = new HashSet<>();
+        final VariantDecisions decisions = new VariantDecisions();
+    }
 
     private static final class VariantProgress {
         private final String label;
         private final long totalRecords;
+        private final long initialProcessedRecords;
         private final long startNanos = System.nanoTime();
         private long lastCheckRecords;
         private long lastReportRecords;
@@ -199,8 +273,15 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         private boolean completed;
 
         VariantProgress(String label, long totalRecords) {
+            this(label, totalRecords, 0);
+        }
+
+        VariantProgress(String label, long totalRecords, long initialProcessedRecords) {
             this.label = label;
             this.totalRecords = totalRecords;
+            this.initialProcessedRecords = initialProcessedRecords;
+            lastCheckRecords = initialProcessedRecords;
+            lastReportRecords = initialProcessedRecords;
         }
 
         void update(long processedRecords, long retainedRecords) {
@@ -225,7 +306,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
         private void print(long processedRecords, long retainedRecords, long now, boolean complete) {
             System.out.println(progressMessage(label, processedRecords, totalRecords,
-                retainedRecords, now - startNanos, complete));
+                retainedRecords, now - startNanos, complete,
+                Math.max(0, processedRecords - initialProcessedRecords)));
             System.out.flush();
             reported = true;
             lastReportRecords = processedRecords;
@@ -262,20 +344,22 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             List<double[]> rows = new ArrayList<>(maximumRows);
             long blockOffset = nextRowOffset;
             while (rows.size() < maximumRows && cursor.hasNext()) {
-                Evaluation evaluation = evaluate(cursor.next());
+                VariantContext variant = cursor.next();
+                long inputRecord = inputRecords;
                 inputRecords++;
-                if (evaluation.included()) {
-                    double[] reordered = new double[columnOrder.length];
-                    for (int i = 0; i < columnOrder.length; i++)
-                        reordered[i] = evaluation.values()[columnOrder[i]];
-                    rowIds.add(evaluation.rowId());
-                    rows.add(reordered);
+                if (decisions.included(inputRecord)) {
+                    rowIds.add(canonicalId(variant));
+                    rows.add(readSelectedValues(variant, columnOrder,
+                        decisions.effectAlleleFrequency(inputRecord)));
                     nextRowOffset++;
                 }
                 progress.update(inputRecords, nextRowOffset);
             }
             if (!cursor.hasNext()) {
                 exhausted = true;
+                if (inputRecords != decisions.size())
+                    throw new IOException("Variant source changed while it was being read: expected "
+                        + decisions.size() + " input records, found " + inputRecords);
                 progress.complete(inputRecords, nextRowOffset);
                 if (nextRowOffset != metadata.rowCount())
                     throw new IOException("Variant source changed while it was being read: expected "
@@ -299,11 +383,17 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     private final Options options;
     private final GenotypeField selectedField;
     private final String[] sourceSampleIds;
+    private final int qcThreadCount;
+    private final int qcCheckpointRecordBatchSize;
+    private final Path qcCheckpointRoot;
     private Metadata metadata;
     private Summary summary;
-    private boolean[] analysisSamples;
+    private VariantDecisions decisions;
+    private int[] analysisSampleIndices;
     private int analysisSampleCount;
     private boolean scanComplete;
+    private Path activeQcCheckpointDirectory;
+    private long resumedQcRecords;
 
     public QVariantMatrixSource(Path path, Options options) throws IOException {
         this(path, options, false);
@@ -323,6 +413,15 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             sourceSampleIds = cursor.header().getGenotypeSamples().toArray(String[]::new);
             selectedField = selectField(cursor.header(), options.genotypeField());
         }
+        qcThreadCount = recommendQcThreads(options.qcThreads());
+        qcCheckpointRecordBatchSize = qcCheckpointBatchSize();
+        qcCheckpointRoot = options.qcCheckpoint() != null ? options.qcCheckpoint()
+            : options.qcOutput() == null ? null
+            : Path.of(options.qcOutput().toString() + ".checkpoint").toAbsolutePath().normalize();
+        if (qcCheckpointRoot != null && this.path.equals(qcCheckpointRoot))
+            throw new IOException("Variant-QC checkpoint directory must differ from the genotype input: "
+                + this.path);
+        analysisSampleIndices = identityColumnOrder(sourceSampleIds.length);
         analysisSampleCount = sourceSampleIds.length;
         if (deferScan) {
             metadata = new Metadata(this.path, -1, sourceSampleIds.length,
@@ -339,14 +438,15 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
     public GenotypeField selectedField() { return selectedField; }
     public int analysisSampleCount() { return analysisSampleCount; }
+    public int qcThreadCount() { return qcThreadCount; }
+    public Path qcCheckpointDirectory() { return activeQcCheckpointDirectory; }
+    public long resumedQcRecords() { return resumedQcRecords; }
 
     public void selectAnalysisSamples(int[] columnOrder) throws IOException {
         if (scanComplete)
             throw new IllegalStateException("Variant QC sample selection is already finalized");
         int[] selected = normalizeColumnOrder(columnOrder, sourceSampleIds.length);
-        analysisSamples = new boolean[sourceSampleIds.length];
-        for (int column : selected)
-            analysisSamples[column] = true;
+        analysisSampleIndices = selected;
         analysisSampleCount = selected.length;
         completeScan();
     }
@@ -361,6 +461,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         ScanResult scan = scanMetadata();
         metadata = scan.metadata();
         summary = scan.summary();
+        decisions = scan.decisions();
         scanComplete = true;
     }
 
@@ -369,88 +470,323 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IllegalStateException("Variant QC must be finalized after sample alignment before reading rows");
     }
 
-    private record ScanResult(Metadata metadata, Summary summary) { }
+    private record ScanResult(Metadata metadata, Summary summary, VariantDecisions decisions) { }
 
     private ScanResult scanMetadata() throws IOException {
+        try (QVariantQcCheckpoint checkpoint = openQcCheckpoint()) {
+            return scanMetadata(checkpoint);
+        }
+    }
+
+    private ScanResult scanMetadata(QVariantQcCheckpoint checkpoint) throws IOException {
         Path qcOutput = options.qcOutput();
-        Path temporary = null;
-        BufferedWriter writer = null;
-        boolean complete = false;
-        long inputRecords = 0;
-        long included = 0;
-        long monomorphic = 0;
-        long singletons = 0;
-        long doubletons = 0;
-        long excludedByMaf = 0;
-        long excludedByMac = 0;
-        long excludedForMissingness = 0;
-        long multiallelic = 0;
-        Set<String> rowIds = new HashSet<>();
-        String[] samples;
-        VariantProgress progress = new VariantProgress("Variant QC (" + path.getFileName() + ")", -1);
-        try {
-            if (qcOutput != null) {
-                if (path.equals(qcOutput))
-                    throw new IOException("Variant QC output must differ from the genotype input: " + path);
-                Path parent = qcOutput.getParent();
-                if (parent != null)
-                    Files.createDirectories(parent);
-                temporary = Files.createTempFile(parent, qcOutput.getFileName().toString(), ".partial");
-                writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8);
-                writer.write("variant_id\tchromosome\tposition\trs_id\tref\talt\tvcf_filter\tgenotype_field"
-                    + "\tcalled_samples\tmissing_samples\teffect_allele_count\tallele_number\teaf\tmaf\tmac"
-                    + "\thwe_p\thwe_samples\tclassification\tincluded\texclusion_reason\n");
-            }
-            try (VariantCursor cursor = openCursor()) {
-                samples = cursor.header().getGenotypeSamples().toArray(String[]::new);
-                while (cursor.hasNext()) {
-                    VariantContext variant = cursor.next();
-                    inputRecords++;
-                    Evaluation evaluation = evaluate(variant);
-                    if (evaluation.classification().equals("monomorphic")) monomorphic++;
-                    if (evaluation.classification().equals("singleton")) singletons++;
-                    if (evaluation.classification().equals("doubleton")) doubletons++;
-                    if (evaluation.classification().equals("multiallelic")) multiallelic++;
-                    if (evaluation.exclusionReason().contains("maf")) excludedByMaf++;
-                    if (evaluation.exclusionReason().contains("mac")) excludedByMac++;
-                    if (evaluation.exclusionReason().contains("missing")) excludedForMissingness++;
-                    if (!rowIds.add(evaluation.rowId()))
-                        throw new IOException("Duplicate canonical variant identifier '"
-                            + evaluation.rowId() + "' in " + path);
-                    if (evaluation.included())
-                        included++;
-                    if (writer != null)
-                        writeQc(writer, variant, evaluation);
-                    progress.update(inputRecords, included);
-                }
-            }
-            progress.complete(inputRecords, included);
-            if (included == 0)
-                throw new IOException("No variants remain after QC/filtering in " + path);
-            if (writer != null) {
-                writer.close();
-                writer = null;
-                moveAtomically(temporary, qcOutput);
-            }
-            complete = true;
-        } finally {
-            if (writer != null)
-                writer.close();
-            if (!complete && temporary != null)
-                Files.deleteIfExists(temporary);
+        ScanState state = new ScanState();
+        QVariantQcCheckpoint.Snapshot checkpointSnapshot = checkpoint == null
+            ? new QVariantQcCheckpoint.Snapshot(0, false)
+            : checkpoint.load(line -> acceptEvaluation(parseQcEvaluation(line), state));
+        resumedQcRecords = checkpointSnapshot.records();
+        if (checkpoint != null)
+            activeQcCheckpointDirectory = checkpoint.directory();
+        if (checkpointSnapshot.complete()) {
+            System.out.println("Reusing completed variant-QC checkpoint with "
+                + String.format(Locale.ROOT, "%,d", state.inputRecords) + " records: "
+                + checkpoint.directory());
+            System.out.flush();
+            if (qcOutput != null)
+                checkpoint.materialize(qcOutput, QC_HEADER);
+            return scanResult(state, sourceSampleIds);
         }
 
+        if (state.inputRecords > 0) {
+            System.out.println("Resuming variant QC after "
+                + String.format(Locale.ROOT, "%,d", state.inputRecords)
+                + " completed records from " + checkpoint.directory());
+            System.out.println("Sequential VCF/BCF input must decode past completed records; their sample QC and HWE will not be recomputed.");
+            System.out.flush();
+        }
+
+        VariantProgress progress = new VariantProgress("Variant QC (" + path.getFileName() + ")",
+            -1, state.inputRecords);
+        ExecutorService executor = qcThreadCount > 1
+            ? Executors.newFixedThreadPool(qcThreadCount) : null;
+        Deque<Future<EvaluatedVariant>> pending = new ArrayDeque<>();
+        int maximumPending = Math.max(1, qcThreadCount * QC_TASKS_PER_THREAD);
+        List<String> checkpointBatch = checkpoint == null ? null
+            : new ArrayList<>(qcCheckpointRecordBatchSize);
+        try {
+            try (VariantCursor cursor = openCursor()) {
+                validateCheckpointPrefix(cursor, checkpoint, state.inputRecords);
+                while (cursor.hasNext()) {
+                    VariantContext variant = cursor.next();
+                    if (executor == null) {
+                        acceptQcEvaluation(new EvaluatedVariant(variant, evaluateQc(variant)),
+                            state, checkpoint, checkpointBatch, progress);
+                    } else {
+                        forceGenotypeDecoding(variant);
+                        pending.addLast(executor.submit(
+                            () -> new EvaluatedVariant(variant, evaluateQc(variant))));
+                        if (pending.size() >= maximumPending)
+                            acceptQcEvaluation(awaitQcEvaluation(pending.removeFirst()),
+                                state, checkpoint, checkpointBatch, progress);
+                    }
+                }
+                while (!pending.isEmpty())
+                    acceptQcEvaluation(awaitQcEvaluation(pending.removeFirst()),
+                        state, checkpoint, checkpointBatch, progress);
+            }
+            progress.complete(state.inputRecords, state.included);
+            if (checkpoint != null) {
+                checkpoint.commit(checkpointBatch);
+                checkpointBatch.clear();
+                checkpoint.markComplete(state.inputRecords);
+                if (qcOutput != null)
+                    checkpoint.materialize(qcOutput, QC_HEADER);
+            }
+        } finally {
+            shutdownQcExecutor(executor);
+        }
+        return scanResult(state, sourceSampleIds);
+    }
+
+    private void acceptQcEvaluation(EvaluatedVariant result, ScanState state,
+        QVariantQcCheckpoint checkpoint, List<String> checkpointBatch,
+        VariantProgress progress) throws IOException {
+        Evaluation evaluation = result.evaluation();
+        acceptEvaluation(evaluation, state);
+        if (checkpoint != null) {
+            checkpointBatch.add(formatQc(result.variant(), evaluation));
+            if (checkpointBatch.size() >= qcCheckpointRecordBatchSize) {
+                checkpoint.commit(checkpointBatch);
+                checkpointBatch.clear();
+            }
+        }
+        progress.update(state.inputRecords, state.included);
+        maybeFailAfterCheckpoint(state.inputRecords);
+    }
+
+    private void acceptEvaluation(Evaluation evaluation, ScanState state) throws IOException {
+        state.inputRecords++;
+        if (evaluation.classification().equals("monomorphic")) state.monomorphic++;
+        if (evaluation.classification().equals("singleton")) state.singletons++;
+        if (evaluation.classification().equals("doubleton")) state.doubletons++;
+        if (evaluation.classification().equals("multiallelic")) state.multiallelic++;
+        if (evaluation.exclusionReason().contains("maf")) state.excludedByMaf++;
+        if (evaluation.exclusionReason().contains("mac")) state.excludedByMac++;
+        if (evaluation.exclusionReason().contains("missing")) state.excludedForMissingness++;
+        if (!state.rowIds.add(evaluation.rowId()))
+            throw new IOException("Duplicate canonical variant identifier '"
+                + evaluation.rowId() + "' in " + path);
+        if (evaluation.included())
+            state.included++;
+        state.decisions.add(evaluation);
+    }
+
+    private ScanResult scanResult(ScanState state, String[] samples) throws IOException {
+        if (state.included == 0)
+            throw new IOException("No variants remain after QC/filtering in " + path);
         String signatureTag = String.format(Locale.ROOT,
             "variant-v1;format=%s;field=%s;missing=%s;multiallelic=%s;min-maf=%.17g;min-mac=%.17g;qc-samples=%d",
             options.format(), selectedField, options.missingPolicy(), options.multiallelicPolicy(),
             options.minimumMaf(), options.minimumMac(), analysisSampleCount);
-        Metadata scanned = new Metadata(path, included, samples.length, samples, signatureTag);
-        Summary counts = new Summary(inputRecords, included, monomorphic, singletons, doubletons,
-            excludedByMaf, excludedByMac, excludedForMissingness, multiallelic);
-        return new ScanResult(scanned, counts);
+        Metadata scanned = new Metadata(path, state.included, samples.length, samples, signatureTag);
+        Summary counts = new Summary(state.inputRecords, state.included, state.monomorphic,
+            state.singletons, state.doubletons, state.excludedByMaf, state.excludedByMac,
+            state.excludedForMissingness, state.multiallelic);
+        return new ScanResult(scanned, counts, state.decisions);
     }
 
-    private Evaluation evaluate(VariantContext variant) throws IOException {
+    private QVariantQcCheckpoint openQcCheckpoint() throws IOException {
+        if (options.qcOutput() != null && path.equals(options.qcOutput()))
+            throw new IOException("Variant QC output must differ from the genotype input: " + path);
+        if (qcCheckpointRoot == null)
+            return null;
+        String signature = qcCheckpointSignature();
+        String description = String.format(Locale.ROOT,
+            "input=%s; format=%s; field=%s; missing=%s; multiallelic=%s; min_maf=%.17g; min_mac=%.17g; aligned_samples=%d",
+            path, options.format(), selectedField, options.missingPolicy(),
+            options.multiallelicPolicy(), options.minimumMaf(), options.minimumMac(),
+            analysisSampleCount);
+        return new QVariantQcCheckpoint(qcCheckpointRoot, signature, description);
+    }
+
+    private String qcCheckpointSignature() throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+        updateDigest(digest, "gpu-eqtl-variant-qc-checkpoint-v1");
+        updateDigest(digest, path.toString());
+        updateDigest(digest, Long.toString(Files.size(path)));
+        updateDigest(digest, Long.toString(Files.getLastModifiedTime(path).toMillis()));
+        updateDigest(digest, options.format().name());
+        updateDigest(digest, selectedField.name());
+        updateDigest(digest, options.missingPolicy().name());
+        updateDigest(digest, options.multiallelicPolicy().name());
+        updateDigest(digest, Double.toHexString(options.minimumMaf()));
+        updateDigest(digest, Double.toHexString(options.minimumMac()));
+        updateDigest(digest, Integer.toString(sourceSampleIds.length));
+        for (String sampleId : sourceSampleIds)
+            updateDigest(digest, sampleId);
+        updateDigest(digest, Integer.toString(analysisSampleIndices.length));
+        for (int index : analysisSampleIndices) {
+            updateDigest(digest, Integer.toString(index));
+            updateDigest(digest, sourceSampleIds[index]);
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void updateDigest(MessageDigest digest, String value) {
+        digest.update(value.getBytes(StandardCharsets.UTF_8));
+        digest.update((byte) 0);
+    }
+
+    private void validateCheckpointPrefix(VariantCursor cursor, QVariantQcCheckpoint checkpoint,
+        long completedRecords) throws IOException {
+        if (checkpoint == null || completedRecords == 0)
+            return;
+        long[] validated = {0};
+        checkpoint.forEachLine(line -> {
+            if (!cursor.hasNext())
+                throw new IOException("Variant input ended while validating resumed checkpoint after "
+                    + validated[0] + " records: " + path);
+            VariantContext variant = cursor.next();
+            String expected = qcRowId(line);
+            String observed = canonicalId(variant);
+            if (!expected.equals(observed))
+                throw new IOException("Variant input no longer matches resumed checkpoint at record "
+                    + (validated[0] + 1) + ": expected " + expected + ", found " + observed);
+            validated[0]++;
+        });
+        if (validated[0] != completedRecords)
+            throw new IOException("Variant-QC checkpoint loaded " + completedRecords
+                + " records but prefix validation found " + validated[0]);
+    }
+
+    private static String qcRowId(String line) throws IOException {
+        int tab = line.indexOf('\t');
+        if (tab <= 0)
+            throw new IOException("Malformed variant-QC checkpoint record");
+        return line.substring(0, tab);
+    }
+
+    private static Evaluation parseQcEvaluation(String line) throws IOException {
+        String[] fields = line.split("\\t", -1);
+        if (fields.length != 20)
+            throw new IOException("Malformed variant-QC checkpoint record: expected 20 fields, found "
+                + fields.length);
+        try {
+            boolean included;
+            if (fields[18].equals("true")) included = true;
+            else if (fields[18].equals("false")) included = false;
+            else throw new IOException("Malformed included flag in variant-QC checkpoint: " + fields[18]);
+            return new Evaluation(fields[0], Integer.parseInt(fields[8]), Integer.parseInt(fields[9]),
+                checkpointNumber(fields[10]), checkpointNumber(fields[11]), checkpointNumber(fields[12]),
+                checkpointNumber(fields[13]), checkpointNumber(fields[14]), checkpointNumber(fields[15]),
+                Integer.parseInt(fields[16]), fields[17], included,
+                fields[19].equals(".") ? "" : fields[19]);
+        } catch (NumberFormatException e) {
+            throw new IOException("Malformed numeric field in variant-QC checkpoint record " + fields[0], e);
+        }
+    }
+
+    private static double checkpointNumber(String value) {
+        return value.equals("NA") ? Double.NaN : Double.parseDouble(value);
+    }
+
+    private static int qcCheckpointBatchSize() {
+        String configured = System.getProperty(QC_CHECKPOINT_RECORDS_PROPERTY);
+        if (configured == null || configured.isBlank())
+            return DEFAULT_QC_CHECKPOINT_RECORDS;
+        try {
+            int records = Integer.parseInt(configured);
+            if (records <= 0)
+                throw new IllegalArgumentException(QC_CHECKPOINT_RECORDS_PROPERTY + " must be positive");
+            return records;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(QC_CHECKPOINT_RECORDS_PROPERTY
+                + " must be a positive integer", e);
+        }
+    }
+
+    private static void maybeFailAfterCheckpoint(long records) throws IOException {
+        String configured = System.getProperty(TEST_FAIL_AFTER_PROPERTY);
+        if (configured == null || configured.isBlank())
+            return;
+        try {
+            if (records == Long.parseLong(configured))
+                throw new IOException("Injected variant-QC interruption after " + records + " records");
+        } catch (NumberFormatException e) {
+            throw new IOException("Invalid test interruption record count", e);
+        }
+    }
+
+    private static EvaluatedVariant awaitQcEvaluation(Future<EvaluatedVariant> future)
+        throws IOException {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while evaluating variant QC", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException ioException)
+                throw ioException;
+            if (cause instanceof RuntimeException runtimeException)
+                throw runtimeException;
+            if (cause instanceof Error error)
+                throw error;
+            throw new IOException("Variant QC worker failed", cause);
+        }
+    }
+
+    private static void forceGenotypeDecoding(VariantContext variant) {
+        if (variant.getNAlleles() == 2 && variant.getNSamples() > 0)
+            variant.getGenotype(0);
+    }
+
+    private static void shutdownQcExecutor(ExecutorService executor) {
+        if (executor == null)
+            return;
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(1, TimeUnit.MINUTES))
+                System.err.println("WARNING: Variant QC workers did not terminate within one minute.");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private double[] readSelectedValues(VariantContext variant, int[] columnOrder,
+        double effectAlleleFrequency) throws IOException {
+        if (variant.getNAlleles() != 2)
+            throw new IOException("Variant source changed after QC at " + variant.getContig()
+                + ":" + variant.getStart());
+        if (variant.getNSamples() != sourceSampleIds.length)
+            throw new IOException("Variant sample count changed at " + variant.getContig()
+                + ":" + variant.getStart());
+        Allele alternate = variant.getAlternateAllele(0);
+        double[] values = new double[columnOrder.length];
+        for (int outputColumn = 0; outputColumn < columnOrder.length; outputColumn++) {
+            int sourceColumn = columnOrder[outputColumn];
+            Genotype genotype = variant.getGenotype(sourceSampleIds[sourceColumn]);
+            Double dosage = selectedField == GenotypeField.DS
+                ? dosageFromDs(genotype, variant) : dosageFromGt(genotype, alternate, variant);
+            if (dosage != null) {
+                values[outputColumn] = dosage;
+            } else if (options.missingPolicy() == MissingPolicy.ZERO) {
+                values[outputColumn] = 0;
+            } else if (options.missingPolicy() == MissingPolicy.PRESERVE) {
+                values[outputColumn] = kUndefinedValue;
+            } else {
+                values[outputColumn] = 2 * effectAlleleFrequency;
+            }
+        }
+        return values;
+    }
+
+    private Evaluation evaluateQc(VariantContext variant) throws IOException {
         if (variant.getNAlleles() != 2) {
             if (options.multiallelicPolicy() == MultiallelicPolicy.ERROR)
                 throw new IOException("Multiallelic variant encountered at " + variant.getContig()
@@ -461,8 +797,6 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         Allele reference = variant.getReference();
         Allele alternate = variant.getAlternateAllele(0);
         int sampleCount = sourceSampleIds.length;
-        double[] values = new double[sampleCount];
-        boolean[] missing = new boolean[sampleCount];
         double alternateAlleleCount = 0;
         int calledSamples = 0;
         int missingSamples = 0;
@@ -474,23 +808,18 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IOException("Variant sample count changed at " + variant.getContig()
                 + ":" + variant.getStart());
 
-        for (int sample = 0; sample < sampleCount; sample++) {
+        for (int sample : analysisSampleIndices) {
             Genotype genotype = variant.getGenotype(sourceSampleIds[sample]);
             Double dosage = selectedField == GenotypeField.DS
                 ? dosageFromDs(genotype, variant) : dosageFromGt(genotype, alternate, variant);
             if (dosage == null) {
-                missing[sample] = true;
-                if (isAnalysisSample(sample))
-                    missingSamples++;
+                missingSamples++;
             } else {
-                values[sample] = dosage;
-                if (isAnalysisSample(sample)) {
-                    alternateAlleleCount += dosage;
-                    calledSamples++;
-                }
+                alternateAlleleCount += dosage;
+                calledSamples++;
             }
 
-            if (isAnalysisSample(sample) && genotype != null && !genotype.isFiltered() && genotype.isCalled()
+            if (genotype != null && !genotype.isFiltered() && genotype.isCalled()
                 && genotype.getPloidy() == 2) {
                 int alternateCopies = 0;
                 boolean valid = true;
@@ -517,7 +846,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             if (options.missingPolicy() == MissingPolicy.ERROR)
                 throw new IOException("No called " + selectedField + " values at " + rowId
                     + "; use --genotype-missing exclude-variant after confirming the source field");
-            return new Evaluation(rowId, values, 0, missingSamples, 0, 0,
+            return new Evaluation(rowId, 0, missingSamples, 0, 0,
                 Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, "no_calls", false,
                 "no_called_genotypes");
         }
@@ -547,20 +876,9 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         if (mac + INTEGER_TOLERANCE < options.minimumMac())
             reasons.add("mac_below_minimum");
         boolean accepted = reasons.isEmpty();
-        if (accepted && missingSamples > 0) {
-            double meanDosage = options.missingPolicy() == MissingPolicy.ZERO ? 0
-                : options.missingPolicy() == MissingPolicy.PRESERVE ? kUndefinedValue : 2 * eaf;
-            for (int i = 0; i < values.length; i++)
-                if (missing[i])
-                    values[i] = meanDosage;
-        }
-        return new Evaluation(rowId, values, calledSamples, missingSamples, alternateAlleleCount,
+        return new Evaluation(rowId, calledSamples, missingSamples, alternateAlleleCount,
             alleleNumber, eaf, maf, mac, hweP, hweSamples, classification, accepted,
             String.join(";", reasons));
-    }
-
-    private boolean isAnalysisSample(int sample) {
-        return analysisSamples == null || analysisSamples[sample];
     }
 
     private Double dosageFromDs(Genotype genotype, VariantContext variant) throws IOException {
@@ -652,8 +970,14 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
 
     static String progressMessage(String label, long processedRecords, long totalRecords,
         long retainedRecords, long elapsedNanos, boolean complete) {
+        return progressMessage(label, processedRecords, totalRecords, retainedRecords,
+            elapsedNanos, complete, processedRecords);
+    }
+
+    private static String progressMessage(String label, long processedRecords, long totalRecords,
+        long retainedRecords, long elapsedNanos, boolean complete, long timedRecords) {
         double elapsedSeconds = Math.max(0, elapsedNanos) / 1_000_000_000.0;
-        double recordsPerSecond = elapsedSeconds > 0 ? processedRecords / elapsedSeconds : 0;
+        double recordsPerSecond = elapsedSeconds > 0 ? timedRecords / elapsedSeconds : 0;
         StringBuilder message = new StringBuilder(label)
             .append(complete ? " complete: " : " progress: ");
         if (totalRecords > 0) {
@@ -681,7 +1005,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
 
     private static Evaluation excludedEvaluation(String rowId, String classification, String reason) {
-        return new Evaluation(rowId, new double[0], 0, 0, Double.NaN, Double.NaN,
+        return new Evaluation(rowId, 0, 0, Double.NaN, Double.NaN,
             Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, classification, false, reason);
     }
 
@@ -692,33 +1016,33 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             + variant.getReference().getDisplayString() + ":" + alternate;
     }
 
-    private void writeQc(BufferedWriter writer, VariantContext variant, Evaluation evaluation) throws IOException {
+    private String formatQc(VariantContext variant, Evaluation evaluation) {
         String rsId = variant.hasID() ? variant.getID() : ".";
         String alternate = variant.getAlternateAlleles().isEmpty() ? "."
             : String.join(",", variant.getAlternateAlleles().stream().map(Allele::getDisplayString).toList());
         String filter = variant.isFiltered() ? String.join(";", variant.getFilters())
             : (variant.filtersWereApplied() ? "PASS" : ".");
-        writer.write(tsv(evaluation.rowId())); writer.write('\t');
-        writer.write(tsv(variant.getContig())); writer.write('\t');
-        writer.write(Long.toString(variant.getStart())); writer.write('\t');
-        writer.write(tsv(rsId)); writer.write('\t');
-        writer.write(tsv(variant.getReference().getDisplayString())); writer.write('\t');
-        writer.write(tsv(alternate)); writer.write('\t');
-        writer.write(tsv(filter)); writer.write('\t');
-        writer.write(selectedField.name()); writer.write('\t');
-        writer.write(Integer.toString(evaluation.calledSamples())); writer.write('\t');
-        writer.write(Integer.toString(evaluation.missingSamples())); writer.write('\t');
-        writer.write(number(evaluation.alternateAlleleCount())); writer.write('\t');
-        writer.write(number(evaluation.alleleNumber())); writer.write('\t');
-        writer.write(number(evaluation.eaf())); writer.write('\t');
-        writer.write(number(evaluation.maf())); writer.write('\t');
-        writer.write(number(evaluation.mac())); writer.write('\t');
-        writer.write(number(evaluation.hweP())); writer.write('\t');
-        writer.write(Integer.toString(evaluation.hweSamples())); writer.write('\t');
-        writer.write(evaluation.classification()); writer.write('\t');
-        writer.write(Boolean.toString(evaluation.included())); writer.write('\t');
-        writer.write(evaluation.exclusionReason().isEmpty() ? "." : evaluation.exclusionReason());
-        writer.write('\n');
+        return String.join("\t",
+            tsv(evaluation.rowId()),
+            tsv(variant.getContig()),
+            Long.toString(variant.getStart()),
+            tsv(rsId),
+            tsv(variant.getReference().getDisplayString()),
+            tsv(alternate),
+            tsv(filter),
+            selectedField.name(),
+            Integer.toString(evaluation.calledSamples()),
+            Integer.toString(evaluation.missingSamples()),
+            number(evaluation.alternateAlleleCount()),
+            number(evaluation.alleleNumber()),
+            number(evaluation.eaf()),
+            number(evaluation.maf()),
+            number(evaluation.mac()),
+            number(evaluation.hweP()),
+            Integer.toString(evaluation.hweSamples()),
+            evaluation.classification(),
+            Boolean.toString(evaluation.included()),
+            evaluation.exclusionReason().isEmpty() ? "." : evaluation.exclusionReason());
     }
 
     private VariantCursor openCursor() throws IOException {
@@ -751,11 +1075,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
     }
 
     private static int[] normalizeColumnOrder(int[] requested, int columnCount) {
-        if (requested == null) {
-            int[] identity = new int[columnCount];
-            for (int i = 0; i < columnCount; i++) identity[i] = i;
-            return identity;
-        }
+        if (requested == null)
+            return identityColumnOrder(columnCount);
         if (requested.length == 0 || requested.length > columnCount)
             throw new IllegalArgumentException("Column selection has " + requested.length
                 + " entries; expected between 1 and " + columnCount);
@@ -768,6 +1089,24 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         return requested.clone();
     }
 
+    private static int[] identityColumnOrder(int columnCount) {
+        int[] identity = new int[columnCount];
+        for (int i = 0; i < columnCount; i++)
+            identity[i] = i;
+        return identity;
+    }
+
+    static int recommendQcThreads(int configuredThreads) {
+        if (configuredThreads < 0)
+            throw new IllegalArgumentException("variant_qc_threads must not be negative");
+        if (configuredThreads > 0)
+            return configuredThreads;
+        int processors = Runtime.getRuntime().availableProcessors();
+        if (processors <= 1)
+            return 1;
+        return Math.min(MAX_AUTOMATIC_QC_THREADS, Math.max(2, processors - 1));
+    }
+
     private static String number(double value) {
         return Double.isFinite(value) ? Double.toString(value) : "NA";
     }
@@ -776,11 +1115,4 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         return value.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ');
     }
 
-    private static void moveAtomically(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
 }

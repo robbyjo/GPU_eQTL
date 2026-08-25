@@ -12,7 +12,7 @@
 
     <licenses>
         <license>
-            <name>GNU General Public License v3.0</name>
+            <name>GNU General Public License v3.0 with oneMKL linking exception</name>
             <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
             <distribution>repo</distribution>
         </license>
@@ -24,6 +24,11 @@
         <jcuda.version>12.6.0</jcuda.version>
         <jocl.version>2.0.6</jocl.version>
         <htsjdk.version>5.0.0</htsjdk.version>
+        <javacpp.version>1.5.14</javacpp.version>
+        <openblas.version>0.3.34-${javacpp.version}</openblas.version>
+        <mkl.version>2026.1-${javacpp.version}</mkl.version>
+        <shade.classifier>all</shade.classifier>
+        <eqtl.test.mkl>false</eqtl.test.mkl>
         <junit.version>5.13.4</junit.version>
     </properties>
 
@@ -42,6 +47,16 @@
             <groupId>org.jocl</groupId>
             <artifactId>jocl</artifactId>
             <version>${jocl.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>openblas</artifactId>
+            <version>${openblas.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>mkl</artifactId>
+            <version>${mkl.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -75,8 +90,16 @@
                 <directory>${project.basedir}</directory>
                 <includes>
                     <include>LICENSE</include>
+                    <include>LICENSE_EXCEPTION</include>
                 </includes>
                 <targetPath>META-INF</targetPath>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/THIRD_PARTY_LICENSES</directory>
+                <includes>
+                    <include>*.txt</include>
+                </includes>
+                <targetPath>META-INF/licenses</targetPath>
             </resource>
         </resources>
         <plugins>
@@ -144,6 +167,9 @@
                 <version>3.5.4</version>
                 <configuration>
                     <useModulePath>false</useModulePath>
+                    <systemPropertyVariables>
+                        <eqtl.test.mkl>${eqtl.test.mkl}</eqtl.test.mkl>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
@@ -171,7 +197,7 @@
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
-                            <shadedClassifierName>all</shadedClassifierName>
+                            <shadedClassifierName>${shade.classifier}</shadedClassifierName>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
@@ -188,4 +214,118 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>cpu-openblas-universal</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>windows-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>linux-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>linux-arm64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>macosx-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>macosx-arm64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <profile>
+            <id>cpu-mkl-windows-x86_64</id>
+            <properties>
+                <shade.classifier>mkl-windows-x86_64-all</shade.classifier>
+                <eqtl.test.mkl>true</eqtl.test.mkl>
+            </properties>
+            <build>
+                <directory>${project.basedir}/target-mkl-windows-x86_64</directory>
+            </build>
+            <dependencies>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>windows-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>mkl</artifactId>
+                    <version>${mkl.version}</version>
+                    <classifier>windows-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>mkl</artifactId>
+                    <version>${mkl.version}</version>
+                    <classifier>windows-x86_64-redist</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <profile>
+            <id>cpu-mkl-linux-x86_64</id>
+            <properties>
+                <shade.classifier>mkl-linux-x86_64-all</shade.classifier>
+                <eqtl.test.mkl>true</eqtl.test.mkl>
+            </properties>
+            <build>
+                <directory>${project.basedir}/target-mkl-linux-x86_64</directory>
+            </build>
+            <dependencies>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>openblas</artifactId>
+                    <version>${openblas.version}</version>
+                    <classifier>linux-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>mkl</artifactId>
+                    <version>${mkl.version}</version>
+                    <classifier>linux-x86_64</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>mkl</artifactId>
+                    <version>${mkl.version}</version>
+                    <classifier>linux-x86_64-redist</classifier>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

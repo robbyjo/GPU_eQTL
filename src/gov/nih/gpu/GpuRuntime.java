@@ -8,6 +8,7 @@
 package gov.nih.gpu;
 
 import gov.nih.gpu.cuda.CudaGpuBackend;
+import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import java.util.ArrayList;
@@ -39,8 +40,11 @@ public final class GpuRuntime {
 		if ("opencl".equalsIgnoreCase(requested) || "jocl".equalsIgnoreCase(requested)) {
 			return new GpuRuntime(new JoclGpuBackend());
 		}
+		if ("cpu".equalsIgnoreCase(requested)) {
+			return new GpuRuntime(new CpuBackend());
+		}
 		throw new GpuException("Unsupported GPU backend '" + requested
-			+ "'. Available backends: auto, cuda, opencl (JOCL)");
+			+ "'. Available backends: auto, cuda, opencl (JOCL), cpu (OpenBLAS/Java)");
 	}
 
 	public GpuBackend getBackend() {
@@ -57,6 +61,15 @@ public final class GpuRuntime {
 				continue;
 			}
 			result.add(device);
+		}
+		if (backend instanceof AutoGpuBackend) {
+			List<GpuDevice> accelerators = new ArrayList<GpuDevice>();
+			List<GpuDevice> cpuDevices = new ArrayList<GpuDevice>();
+			for (GpuDevice device : result) {
+				if ("cpu".equalsIgnoreCase(device.getBackendName())) cpuDevices.add(device);
+				else accelerators.add(device);
+			}
+			result = accelerators.isEmpty() ? cpuDevices : accelerators;
 		}
 		return Collections.unmodifiableList(result);
 	}
@@ -83,11 +96,16 @@ public final class GpuRuntime {
 		text.append("Runtime: ").append(backend.getRuntimeDescription()).append('\n');
 		List<GpuDevice> devices = backend.discoverGpuDevices();
 		if (devices.isEmpty()) {
-			text.append("No GPU devices were reported.\n");
+			text.append("No compute devices were reported.\n");
 			return text.toString();
 		}
 		for (int i = 0; i < devices.size(); i++) {
 			GpuDevice device = devices.get(i);
+			if ("cpu".equalsIgnoreCase(device.getBackendName())) {
+				try (GpuContext ignored = device.openContext()) {
+					// Resolve and report the actual native/fallback engine in diagnostics.
+				}
+			}
 			text.append('\n').append("Device #").append(i + 1).append(": ").append(device.getName()).append('\n');
 			text.append("  Platform: ").append(device.getPlatformName()).append('\n');
 			text.append("  Vendor: ").append(device.getVendor()).append('\n');

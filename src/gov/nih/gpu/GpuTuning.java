@@ -14,6 +14,7 @@ public final class GpuTuning {
     private static final long MIB = 1024L * 1024L;
     private static final long MINIMUM_VRAM_HEADROOM = 256L * MIB;
     private static final long TARGET_OUTPUT_ALLOCATION = 1024L * MIB;
+    private static final long CPU_TARGET_OUTPUT_ALLOCATION = 256L * MIB;
     private static final int PIPELINE_WORKERS_PER_DEVICE = 4;
     private static final int FULL_MEMORY_WORKERS_PER_DEVICE = 2;
     private static final int KERNEL_TILE = 16;
@@ -83,6 +84,52 @@ public final class GpuTuning {
         long estimated = estimateDeviceBytes(blockSize, sampleCount, precision);
         return new BlockRecommendation(blockSize, estimated, limitingDevice);
     }
+
+	/** Host-heap-aware tile recommendation for the single-context CPU backend. */
+	public static BlockRecommendation recommendCpuBlockSize(int sampleCount, int snpCount,
+		int traitCount, GpuPrecision precision, long availableHeapBytes) {
+		if (sampleCount <= 1 || snpCount <= 0 || traitCount <= 0 || availableHeapBytes <= 0)
+			throw new IllegalArgumentException("CPU matrix dimensions and available heap must be positive");
+		if (precision == null)
+			throw new IllegalArgumentException("precision must not be null");
+		long paddedSamples = roundUp(sampleCount, GpuRuntime.DEFAULT_ALIGNMENT);
+		long matrixLimit = Math.min(roundUp(snpCount, KERNEL_TILE), roundUp(traitCount, KERNEL_TILE));
+		long outputBudget = Math.min(CPU_TARGET_OUTPUT_ALLOCATION,
+			Math.max(16L * MIB, availableHeapBytes / 4));
+		long outputLimit = floorSqrt(outputBudget / precision.bytes());
+		long usableElements = Math.max(1, (availableHeapBytes * 3 / 4) / precision.bytes());
+		long totalLimit = (long) Math.floor(Math.sqrt((double) paddedSamples * paddedSamples
+			+ usableElements) - paddedSamples);
+		long candidate = Math.min(matrixLimit, Math.min(outputLimit, totalLimit));
+		String limiter = candidate == matrixLimit ? "matrix dimensions"
+			: candidate == outputLimit ? "CPU result-tile target" : "available JVM heap";
+		long desiredJobs = Math.min((long) snpCount, 2L);
+		long concurrencyLimit = (snpCount + desiredJobs - 1) / desiredJobs;
+		concurrencyLimit = Math.max(KERNEL_TILE, concurrencyLimit);
+		if (concurrencyLimit < candidate) {
+			candidate = concurrencyLimit;
+			limiter = "CPU workload concurrency";
+		}
+		int granularity = candidate >= LARGE_BLOCK_GRANULARITY
+			? LARGE_BLOCK_GRANULARITY : KERNEL_TILE;
+		int blockSize = (int) (candidate - candidate % granularity);
+		if (blockSize < KERNEL_TILE)
+			throw new IllegalArgumentException("Available JVM heap cannot hold the minimum 16-row CPU tile");
+		return new BlockRecommendation(blockSize,
+			estimateDeviceBytes(blockSize, sampleCount, precision), limiter);
+	}
+
+	public static int recommendCpuWorkerCount(long requiredIterations, boolean streamed,
+		long availableHeapBytes, long estimatedWorkerBytes) {
+		if (requiredIterations <= 0 || availableHeapBytes <= 0 || estimatedWorkerBytes <= 0)
+			throw new IllegalArgumentException("CPU work and memory estimates must be positive");
+		long heapHeadroom = Math.max(MINIMUM_VRAM_HEADROOM, availableHeapBytes / 4);
+		long usableHeap = availableHeapBytes > heapHeadroom
+			? availableHeapBytes - heapHeadroom : Math.max(1, availableHeapBytes / 2);
+		long heapBudget = Math.max(1, usableHeap / estimatedWorkerBytes);
+		int pipelineBudget = streamed ? 2 : 1;
+		return (int) Math.max(1, Math.min(requiredIterations, Math.min(pipelineBudget, heapBudget)));
+	}
 
     public static int recommendThreadCount(int cpuCores, int deviceCount,
         long requiredIterations, boolean streamed) {

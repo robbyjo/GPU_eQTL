@@ -35,6 +35,19 @@ class GpuTuningTest {
             16L << 30, GpuTuning.estimateStreamedWorkerBytes(2005, 1024, 1024, GpuPrecision.FP64)));
     }
 
+	@Test
+	void cpuRecommendationsUseHeapAndOneBlasContext() {
+		assertEquals(5632, GpuTuning.recommendCpuBlockSize(
+			5100, 250000, 114406, GpuPrecision.FP64, 12L << 30).blockSize());
+		assertEquals(2048, GpuTuning.recommendCpuBlockSize(
+			5100, 4096, 8192, GpuPrecision.FP64, 12L << 30).blockSize());
+		assertEquals(16, GpuTuning.recommendCpuBlockSize(
+			8, 3, 2, GpuPrecision.FP64, 1L << 30).blockSize());
+		assertEquals(1, GpuTuning.recommendCpuWorkerCount(100, false, 12L << 30, 1L << 30));
+		assertEquals(2, GpuTuning.recommendCpuWorkerCount(100, true, 12L << 30, 1L << 30));
+		assertEquals(1, GpuTuning.recommendCpuWorkerCount(100, true, 2L << 30, 1L << 30));
+	}
+
     private static final class FakeDevice implements GpuDevice {
         private final String name;
         private final long globalMemory;

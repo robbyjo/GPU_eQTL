@@ -52,6 +52,8 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--min-maf", "min_maf");
         VALUE_OPTIONS.put("--min-mac", "min_mac");
         VALUE_OPTIONS.put("--variant-qc-output", "variant_qc_output");
+        VALUE_OPTIONS.put("--variant-qc-threads", "variant_qc_threads");
+        VALUE_OPTIONS.put("--variant-qc-checkpoint", "variant_qc_checkpoint");
         VALUE_OPTIONS.put("--fixed-covariates", "covariate_fixed");
         VALUE_OPTIONS.put("--random-covariates", "covariate_random");
         VALUE_OPTIONS.put("--factor-covariates", "covariate_factor");
@@ -78,7 +80,8 @@ public final class QeQTLCommandLine {
 
     private static final List<String> PATH_OPTIONS = List.of(
         "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
-        "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output", "missingness_qc_output");
+        "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output",
+        "variant_qc_checkpoint", "missingness_qc_output");
 
     private QeQTLCommandLine() { }
 
@@ -97,7 +100,7 @@ public final class QeQTLCommandLine {
             } else if (!args[i].startsWith("-")) {
                 positional.add(args[i]);
             } else if (VALUE_OPTIONS.containsKey(args[i]) || "--threshold".equals(args[i])
-                || "--gpu-backend".equals(args[i])) {
+                || "--gpu-backend".equals(args[i]) || "--backend".equals(args[i])) {
                 int values = "--threshold".equals(args[i]) ? 2 : 1;
                 i += values;
                 if (i >= args.length)
@@ -152,10 +155,11 @@ public final class QeQTLCommandLine {
                 String type = requireValue(args, ++i, argument);
                 String value = requireValue(args, ++i, argument);
                 config.set("threshold", type + " " + value);
-            } else if ("--gpu-backend".equals(argument)) {
+            } else if ("--gpu-backend".equals(argument) || "--backend".equals(argument)) {
                 gpuBackend = requireValue(args, ++i, argument).toLowerCase();
-                if (!(gpuBackend.equals("auto") || gpuBackend.equals("cuda") || gpuBackend.equals("opencl")))
-                    throw new IllegalArgumentException("--gpu-backend must be auto, cuda, or opencl");
+                if (!(gpuBackend.equals("auto") || gpuBackend.equals("cuda")
+					|| gpuBackend.equals("opencl") || gpuBackend.equals("cpu")))
+					throw new IllegalArgumentException(argument + " must be auto, cuda, opencl, or cpu");
             } else if ("--simplify-output".equals(argument)) {
                 config.set("simplify_output", "true");
             } else if ("--rsq-only".equals(argument)) {
@@ -176,7 +180,7 @@ public final class QeQTLCommandLine {
                 config.set("genotype_file_header", "false");
             } else if ("--debug".equals(argument)) {
                 debug = true;
-            } else if ("--printgpuinfo".equals(argument)) {
+            } else if ("--printgpuinfo".equals(argument) || "--printbackendinfo".equals(argument)) {
                 printGpuInfo = true;
             } else if ("--help".equals(argument) || "-h".equals(argument)) {
                 help = true;
@@ -220,6 +224,8 @@ public final class QeQTLCommandLine {
               --multiallelic {exclude|error}  Current biallelic policy (default: exclude)
               --min-maf VALUE  --min-mac VALUE
               --variant-qc-output FILE        Variant annotation/QC TSV (default: OUTPUT.variants.tsv)
+              --variant-qc-threads N          Variant-level QC workers (default: auto; 1 is sequential)
+              --variant-qc-checkpoint DIR     Resumable QC state root (default: QC_OUTPUT.checkpoint)
               --covariates FILE                 Mixed numeric/categorical covariate table
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
@@ -238,9 +244,10 @@ public final class QeQTLCommandLine {
               --cache-dir DIR  --rebuild-cache
               --checkpoint-dir DIR  --resume  --keep-checkpoints
               --profile  --profile-output FILE  Phase timing summary and CSV
-              --gpu-backend {auto|cuda|opencl}
+              --backend {auto|cuda|opencl|cpu}  Compute backend (default: auto)
+			  --gpu-backend VALUE             Compatibility alias for --backend
               --simplify-output  --rsq-only  --validate-only  --debug
-              --printgpuinfo  --help
+              --printbackendinfo  --printgpuinfo  --help
             """;
     }
 }

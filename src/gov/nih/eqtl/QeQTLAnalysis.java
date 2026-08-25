@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Deque;
 import java.util.HashSet;
@@ -520,37 +521,45 @@ public class QeQTLAnalysis implements IJobOwner
 	private static final void initGPUs()
 	{
 		GpuRuntime gpuRuntime = getGpuRuntime();
-		System.out.println("GPU backend: " + gpuRuntime.getBackend().getName());
-		System.out.println("GPU runtime: " + gpuRuntime.getBackend().getRuntimeDescription());
+		System.out.println("Compute backend: " + gpuRuntime.getBackend().getName());
+		System.out.println("Compute runtime: " + gpuRuntime.getBackend().getRuntimeDescription());
 		List<GpuDevice> devices;
 		try {
 			devices = gpuRuntime.getGpuDevices(true, gpuPrecision.requiresDoublePrecision());
 		} catch (Throwable e) {
-			System.err.println("Cannot initialize the GPU backend: " + e.getMessage());
+			System.err.println("Cannot initialize the compute backend: " + e.getMessage());
 			System.exit(kExitCodeErrorInitOpenCLFailure);
 			return;
 		}
 		int numDevices = devices.size();
 		if (numDevices == 0) {
-			System.err.println("Cannot find an available GPU supporting " + gpuPrecision.optionName() + ".");
+			System.err.println("Cannot find an available compute device supporting " + gpuPrecision.optionName() + ".");
 			List<GpuDevice> allGpuDevices = gpuRuntime.getGpuDevices(true, false);
 			if (gpuPrecision == GpuPrecision.FP64 && !allGpuDevices.isEmpty()) {
-				System.err.println("The following GPUs were detected but do not report double-precision support:");
+				System.err.println("The following devices were detected but do not report double-precision support:");
 				for (GpuDevice device : allGpuDevices) {
 					System.err.println("  " + device.getName() + " (" + device.getComputeApiVersion() + ")");
 				}
 			} else {
-				System.err.println("No GPU was reported by the system OpenCL ICD drivers.");
+				System.err.println("No usable GPU or CPU compute backend was reported.");
 			}
 			System.exit(kExitCodeError64bitGPUNotFound);
 			return;
 		}
-		System.out.println("Found " + numDevices + " suitable GPU" + (numDevices > 1 ? "s": "") + " in this machine:");
+		boolean cpuOnly = devices.stream().allMatch(device -> "cpu".equalsIgnoreCase(device.getBackendName()));
+		if (cpuOnly && "auto".equalsIgnoreCase(gpuRuntime.getBackend().getName()))
+			System.err.println("WARNING: No suitable GPU was selected; automatically falling back to CPU. "
+				+ "The results remain compatible, but a large analysis may be substantially slower.");
+		else if (cpuOnly)
+			System.out.println("CPU compute was selected explicitly; results use the same association pipeline.");
+		System.out.println("Found " + numDevices + " suitable compute device" + (numDevices > 1 ? "s": "") + ":");
 		boolean hasHostUnifiedMemory = false;
 		for (GpuDevice device : devices) {
+			String memoryLabel = "cpu".equalsIgnoreCase(device.getBackendName()) ? "JVM heap limit=" : "VRAM=";
 			System.out.println(device.getName() + " [" + device.getVendor() + ", " + device.getComputeApiVersion()
-				+ ", VRAM=" + String.format("%.2f GiB", device.getGlobalMemoryBytes() / kGB) + "]");
-			hasHostUnifiedMemory = hasHostUnifiedMemory | device.hasUnifiedMemory();
+				+ ", " + memoryLabel + String.format("%.2f GiB", device.getGlobalMemoryBytes() / kGB) + "]");
+			hasHostUnifiedMemory |= device.hasUnifiedMemory()
+				&& !"cpu".equalsIgnoreCase(device.getBackendName());
 		}
 		if (hasHostUnifiedMemory) {
 			System.err.println("NOTE: At least one GPU reports unified host memory. Performance depends on the device and driver; this is not necessarily an error.");
@@ -559,6 +568,8 @@ public class QeQTLAnalysis implements IJobOwner
 		try {
 			for (int i = 0; i < numDevices; i++) {
 				mContexts[i] = devices.get(i).openContext();
+				if ("cpu".equalsIgnoreCase(devices.get(i).getBackendName()))
+					System.out.println("CPU matrix engine: " + devices.get(i).getComputeApiVersion());
 			}
 		} catch (RuntimeException e) {
 			for (GpuContext context : mContexts) {
@@ -577,9 +588,9 @@ public class QeQTLAnalysis implements IJobOwner
 			}
 		}
 		if (!allDevicesTheSame) {
-			System.err.println("WARNING: The detected GPUs are not identical. Performance may be constrained by the weakest GPU.");
+			System.err.println("WARNING: The detected compute devices are not identical. Performance may be constrained by the weakest device.");
 		} else {
-			System.out.println("All the detected GPUs appear to be identical.");
+			System.out.println("All the selected compute devices appear to be identical.");
 		}
 	}
 
@@ -603,14 +614,23 @@ public class QeQTLAnalysis implements IJobOwner
 	static final int getDefaultBlockSize(int numInds, int numSNPs, int numETraits)
 	{
 		if (mContexts == null || mContexts.length == 0)
-			throw new IllegalStateException("GPU contexts are required for automatic block sizing");
+			throw new IllegalStateException("Compute contexts are required for automatic block sizing");
 		List<GpuDevice> devices = new ArrayList<GpuDevice>(mContexts.length);
 		for (GpuContext context : mContexts)
 			devices.add(context.getDevice());
-		GpuTuning.BlockRecommendation recommendation = GpuTuning.recommendBlockSize(
-			devices, numInds, numSNPs, numETraits, gpuPrecision);
+		boolean cpu = devices.stream().allMatch(device -> "cpu".equalsIgnoreCase(device.getBackendName()));
+		GpuTuning.BlockRecommendation recommendation;
+		if (cpu) {
+			Runtime runtime = Runtime.getRuntime();
+			long availableHeap = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+			recommendation = GpuTuning.recommendCpuBlockSize(numInds, numSNPs, numETraits,
+				gpuPrecision, availableHeap);
+		} else {
+			recommendation = GpuTuning.recommendBlockSize(
+				devices, numInds, numSNPs, numETraits, gpuPrecision);
+		}
 		System.out.println("Automatic block-size limiter: " + recommendation.limitingDevice()
-			+ "; estimated device buffers="
+			+ "; estimated " + (cpu ? "host working buffers=" : "device buffers=")
 			+ String.format("%.2f GiB", recommendation.estimatedDeviceBytes() / kGB));
 		return recommendation.blockSize();
 	}
@@ -624,18 +644,27 @@ public class QeQTLAnalysis implements IJobOwner
 		long availableHeapBytes, long estimatedWorkerBytes)
 	{
 		int threads = config.getNumThreads();
+		boolean cpu = mContexts != null && mContexts.length > 0
+			&& Arrays.stream(mContexts).allMatch(context ->
+				"cpu".equalsIgnoreCase(context.getDevice().getBackendName()));
 		if (threads == 0) {
-			threads = GpuTuning.recommendThreadCount(QSystemUtils.kNumCPUCores,
-				numDevices, requiredIterations, streamed, availableHeapBytes, estimatedWorkerBytes);
+			threads = cpu
+				? GpuTuning.recommendCpuWorkerCount(requiredIterations, streamed,
+					availableHeapBytes, estimatedWorkerBytes)
+				: GpuTuning.recommendThreadCount(QSystemUtils.kNumCPUCores,
+					numDevices, requiredIterations, streamed, availableHeapBytes, estimatedWorkerBytes);
 			config.setNumThreads(threads);
 			System.out.println("The thread count was not specified; using " + threads
-				+ " (" + numDevices + " GPU context" + (numDevices == 1 ? "" : "s") + ")");
+				+ " (" + numDevices + " compute context" + (numDevices == 1 ? "" : "s") + ")");
 		}
 		if (threads > QSystemUtils.kNumCPUCores)
 			System.err.println("WARNING: num_threads exceeds the available CPU cores ("
 				+ QSystemUtils.kNumCPUCores + ") and may reduce performance.");
-		if (threads < Math.min((long) numDevices, requiredIterations))
+		if (!cpu && threads < Math.min((long) numDevices, requiredIterations))
 			System.err.println("WARNING: num_threads is lower than the number of usable GPUs; some GPUs may remain idle.");
+		if (cpu && threads > 2)
+			System.err.println("WARNING: The CPU backend has one exclusive BLAS context; more than two pipeline "
+				+ "workers usually add memory pressure without increasing matrix-product throughput.");
 		if (streamed && estimatedWorkerBytes > 1
 			&& estimatedWorkerBytes * (double) threads > availableHeapBytes * 0.75)
 			System.err.println("WARNING: explicit num_threads may require more than 75% of the available JVM heap; "
@@ -725,7 +754,9 @@ public class QeQTLAnalysis implements IJobOwner
 					? QVariantMatrixSource.MissingPolicy.EXCLUDE_VARIANT
 					: QVariantMatrixSource.MissingPolicy.PRESERVE,
 				QVariantMatrixSource.MultiallelicPolicy.parse(config.getMultiallelicPolicy()),
-				config.getMinimumMaf(), config.getMinimumMac(), qcOutput);
+				config.getMinimumMaf(), config.getMinimumMac(), qcOutput,
+				config.getVariantQcThreads(), config.getVariantQcCheckpointDirectory() == null
+					? null : Path.of(config.getVariantQcCheckpointDirectory()));
 			variantQcOutput = qcOutput.toAbsolutePath().normalize();
 			variantSource = QVariantMatrixSource.openForAlignment(
 				Path.of(genotypeFilename), variantOptions);
@@ -777,12 +808,18 @@ public class QeQTLAnalysis implements IJobOwner
 			canonicalSampleIds = reorder(genotypeSource.metadata().sampleIds(), alignment.genotypeColumnOrder());
 		}
 		if (variantSource != null) {
+			String qcThreadSelection = config.getVariantQcThreads() == 0 ? "automatic" : "explicit";
 			System.out.println("Scanning aligned-sample variant QC for " + alignment.sampleCount()
 				+ " sample(s) in " + Path.of(genotypeFilename).toAbsolutePath().normalize()
 				+ "; progress will be reported periodically...");
+			System.out.println("Variant QC workers = " + variantSource.qcThreadCount()
+				+ " (" + qcThreadSelection + "; ordered output)");
 			System.out.flush();
+			long variantQcStarted = profiler.start();
 			variantSource.selectAnalysisSamples(alignment.genotypeColumnOrder());
 			QVariantMatrixSource.Summary variantSummary = variantSource.summary();
+			profiler.record(QeQTLProfiler.Phase.VARIANT_QC, variantQcStarted,
+				variantSummary.inputRecords(), 0);
 			System.out.println("Variant genotype field = " + variantSource.selectedField());
 			System.out.println("Variant QC samples = " + variantSource.analysisSampleCount()
 				+ " aligned sample(s)");
@@ -792,6 +829,9 @@ public class QeQTLAnalysis implements IJobOwner
 				+ ", singletons=" + variantSummary.singletons()
 				+ ", doubletons=" + variantSummary.doubletons());
 			System.out.println("Variant annotation/QC output: " + variantQcOutput);
+			System.out.println("Variant QC checkpoint: " + variantSource.qcCheckpointDirectory()
+				+ (variantSource.resumedQcRecords() > 0
+					? " (reused " + variantSource.resumedQcRecords() + " records)" : ""));
 		}
 		if (genotypeSource.metadata().rowCount() > Integer.MAX_VALUE
 			|| expressionSource.metadata().rowCount() > Integer.MAX_VALUE)
@@ -888,7 +928,7 @@ public class QeQTLAnalysis implements IJobOwner
 			numIndividuals, 0);
 		if (config.getValidateOnly()) {
 			if (configuredBlockSize <= 0 || config.getNumThreads() == 0)
-				System.out.println("Automatic block/thread tuning is deferred until a real GPU analysis run.");
+				System.out.println("Automatic block/thread tuning is deferred until a real analysis run.");
 			System.out.println("Validation completed successfully; --validate-only requested, so no analysis was run.");
 			return;
 		}
@@ -953,7 +993,7 @@ public class QeQTLAnalysis implements IJobOwner
 				throw new IllegalArgumentException("Pattern-wise trait deletion currently supports the additive model only");
 			if (config.getResume() || config.getKeepCheckpoints())
 				throw new IllegalArgumentException("Pattern-wise trait deletion does not yet support --resume or --keep-checkpoints");
-			System.err.println("WARNING: Exact pattern-wise trait deletion will run one GPU pass per distinct "
+			System.err.println("WARNING: Exact pattern-wise trait deletion will run one compute pass per distinct "
 				+ "missingness pattern and can be very slow. Patterns=" + traitScan.patterns().size());
 			runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
 				alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
@@ -967,7 +1007,7 @@ public class QeQTLAnalysis implements IJobOwner
 		QGpuResidualizer gpuResidualizer = null;
 		if (covariateQ != null && residualizationMode != QResidualizationMode.CPU) {
 			gpuResidualizer = new QGpuResidualizer(mContexts, covariateQ, gpuPrecision, profiler);
-			System.out.println("Fixed-effect residualization = GPU (" + gpuPrecision.optionName()
+			System.out.println("Fixed-effect residualization = selected compute backend (" + gpuPrecision.optionName()
 				+ ", " + mContexts.length + " context" + (mContexts.length == 1 ? "" : "s") + ")");
 		} else if (covariateQ != null) {
 			System.out.println("Fixed-effect residualization = CPU FP64");
@@ -1391,11 +1431,11 @@ public class QeQTLAnalysis implements IJobOwner
 		if (commandLine.printGpuInfo())
 			dumpGPUInfo();
 		DEBUG = commandLine.debug();
-		System.out.println("GPU matrix-product precision = " + gpuPrecision.optionName());
+		System.out.println("Matrix-product precision = " + gpuPrecision.optionName());
 		System.out.println("Fixed-effect residualization mode = " + residualizationMode.optionName());
 		if (gpuPrecision == GpuPrecision.FP32)
-			System.err.println("NOTE: FP32 is enabled explicitly. GPU matrix products and GPU covariate "
-				+ "projection are approximate; CPU projection and statistical calculations remain FP64.");
+			System.err.println("NOTE: FP32 is enabled explicitly. Backend matrix products and accelerated covariate "
+				+ "projection are approximate; explicit CPU projection and statistical calculations remain FP64.");
 		if (config.get("lambda") != null)
 			System.err.println("NOTE: The obsolete lambda setting is ignored; automatic sizing uses GPU memory limits.");
 
@@ -1410,9 +1450,9 @@ public class QeQTLAnalysis implements IJobOwner
 		int numDevices;
 		if (config.getValidateOnly() || config.getInspectMissingness()) {
 			numDevices = 1;
-			System.out.println("Validation/inspection mode: GPU initialization is skipped.");
+			System.out.println("Validation/inspection mode: compute-backend initialization is skipped.");
 		} else {
-			System.out.println("Initializing GPUs...");
+			System.out.println("Initializing compute backend...");
 			initGPUs();
 			numDevices = mContexts.length;
 		}

@@ -58,23 +58,39 @@ class QeQTLCommandLineTest {
 		assertEquals(QResidualizationMode.AUTO, result.config().getResidualizationMode());
     }
 
+	@Test
+	void backendAliasSelectsCpu(@TempDir Path directory) throws Exception {
+		QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+			"--genotype", directory.resolve("g.csv").toString(),
+			"--expression", directory.resolve("e.csv").toString(),
+			"--output", directory.resolve("o.csv").toString(),
+			"--backend", "cpu", "--printbackendinfo" });
+		assertEquals("cpu", result.gpuBackend());
+		assertTrue(result.printGpuInfo());
+	}
+
     @Test
     void variantQcArgumentsAreParsed(@TempDir Path directory) throws Exception {
         Path qc = directory.resolve("variants.tsv");
+        Path checkpoint = directory.resolve("variant-checkpoint");
         QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
             "--genotype", directory.resolve("g.vcf.gz").toString(),
             "--expression", directory.resolve("e.csv").toString(),
             "--output", directory.resolve("o.csv").toString(),
             "--genotype-format", "vcf.gz", "--genotype-field", "GT",
             "--genotype-missing", "mean", "--multiallelic", "error",
-            "--min-maf", "0.01", "--min-mac", "5", "--variant-qc-output", qc.toString() });
+            "--min-maf", "0.01", "--min-mac", "5", "--variant-qc-output", qc.toString(),
+            "--variant-qc-threads", "3", "--variant-qc-checkpoint", checkpoint.toString() });
         assertEquals("vcf.gz", result.config().getGenotypeFileFormat());
         assertEquals("GT", result.config().getGenotypeField());
         assertEquals("mean", result.config().getGenotypeMissingPolicy());
         assertEquals("error", result.config().getMultiallelicPolicy());
         assertEquals(0.01, result.config().getMinimumMaf());
         assertEquals(5, result.config().getMinimumMac());
+        assertEquals(3, result.config().getVariantQcThreads());
         assertEquals(qc.toAbsolutePath().normalize().toString(), result.config().getVariantQcOutputFilename());
+        assertEquals(checkpoint.toAbsolutePath().normalize().toString(),
+            result.config().getVariantQcCheckpointDirectory());
     }
 
 	@Test

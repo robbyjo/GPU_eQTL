@@ -1,20 +1,21 @@
 # GPU eQTL
 
-GPU-accelerated Java software for eQTL and related QTL analyses. This codebase originated in 2011–2013 and is being modernized incrementally. FP64 remains the default scientific mode; FP32 is available as an explicit performance/compatibility choice.
+GPU-accelerated Java software for eQTL and related QTL analyses, with a portable CPU fallback. This codebase originated in 2011–2013 and is being modernized incrementally. FP64 remains the default scientific mode; FP32 is available as an explicit performance/compatibility choice.
 
 ## Current status
 
-The application targets Java 17 and now has selectable GPU backends behind a vendor-neutral API:
+The application targets Java 17 and has selectable compute backends behind a vendor-neutral API:
 
 | Setting | Implementation | Intended hardware |
 | --- | --- | --- |
-| `auto` (default) | CUDA-first discovery plus OpenCL fallback | Mixed machines; avoids running the same NVIDIA card twice |
+| `auto` (default) | CUDA-first discovery, OpenCL fallback, then CPU fallback | Mixed machines; avoids running the same NVIDIA card twice |
 | `cuda` | JCuda 12.6.0 and cuBLAS DGEMM/SGEMM | NVIDIA GPUs |
 | `opencl` | JOCL 2.0.6 and the production OpenCL C kernel | NVIDIA, AMD, or Intel GPUs exposed by an OpenCL driver |
+| `cpu` | oneMKL 2026.1 or OpenBLAS 0.3.34 through JavaCPP 1.5.14, with a pure-Java fallback | Systems without a usable GPU, and reproducibility/diagnostic runs |
 
-Automatic discovery uses CUDA for a usable NVIDIA device and also includes distinct OpenCL devices from other vendors. It filters those devices for the requested precision. If CUDA cannot initialize, NVIDIA OpenCL remains available as a fallback. A native HIP/ROCm backend is not included yet; AMD cards currently use JOCL/OpenCL.
+Automatic discovery uses CUDA for a usable NVIDIA device and also includes distinct OpenCL devices from other vendors. It filters those devices for the requested precision. If no eligible GPU remains, it selects one CPU context and prints a conspicuous performance warning. CPU is never mixed into an otherwise usable multi-GPU run. If CUDA cannot initialize, NVIDIA OpenCL remains available as a fallback. A native HIP/ROCm backend is not included yet; AMD cards currently use JOCL/OpenCL.
 
-The real-valued eQTL calculation defaults to FP64 and is validated through both CUDA and OpenCL against the same CPU reference. Fixed-effect QR decomposition and rank validation remain on the CPU. By default, headered-CSV analyses apply the large block projection `Y - (Y Q) Q^T` on the selected GPUs; CUDA uses two cuBLAS multiplications and OpenCL uses two projection kernels. `--residualization cpu` retains the prior FP64 CPU projection. The legacy categorical-SNP path remains disabled; the CUDA backend currently implements `eqtlReal` only.
+The real-valued eQTL calculation defaults to FP64 and is validated through CUDA, OpenCL, native oneMKL/OpenBLAS, and portable Java engines against the same scalar reference. Fixed-effect QR decomposition and rank validation remain on the CPU. By default, headered-CSV analyses apply the large block projection `Y - (Y Q) Q^T` on the selected compute backend; CUDA and the native CPU engines use two BLAS multiplications, while OpenCL uses two projection kernels. `--residualization cpu` retains the prior scalar FP64 projector. The legacy categorical-SNP path remains disabled; the CUDA and CPU backends currently implement `eqtlReal` only.
 
 `precision = fp32` or `--precision fp32` uses SGEMM/a `float` OpenCL kernel and, when GPU residualization is selected, FP32 projection. Standardization, prepared-cache storage, effects, test statistics, and p-values remain FP64. Selecting CPU residualization keeps covariate adjustment FP64 even when the association product is FP32. This permits OpenCL execution on Intel Iris Xe devices that lack native FP64, provided their installed driver exposes a usable OpenCL GPU.
 
@@ -38,9 +39,29 @@ On Linux or macOS:
 ./mvnw clean package
 ```
 
-The runnable jar is `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar`. It includes the Java dependencies and the JCuda/JOCL JNI bindings; it does not bundle GPU drivers or vendor runtimes. The CUDA backend needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation. The OpenCL backend needs the vendor's OpenCL ICD.
+The runnable jar is `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar`. It includes the Java dependencies, JCuda/JOCL bindings, and OpenBLAS natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. Users on those desktop platforms can copy the one jar and run it without installing BLAS. It does not bundle GPU drivers, CUDA, cuBLAS, or an OpenCL ICD. CUDA therefore still needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation, and OpenCL needs the vendor's ICD. On an unbundled platform, CPU `auto` falls back to the slower pure-Java engine.
 
-Hardware-independent tests always run. CUDA and OpenCL FP64/FP32 numerical tests skip cleanly when their respective runtime/device is unavailable.
+Hardware-independent CPU tests always run. CUDA and OpenCL FP64/FP32 numerical tests skip cleanly when their respective runtime/device is unavailable. A platform-gated test also verifies that the matching bundled OpenBLAS native loads on each supported desktop target.
+
+### Optional oneMKL platform builds
+
+The ordinary build remains the portable OpenBLAS distribution. Separate profiles create oneMKL-enabled jars for x64 Windows or Linux without modifying that default artifact:
+
+```powershell
+.\mvnw.cmd -Pcpu-mkl-windows-x86_64 package
+java '-Deqtl.cpu.blas=mkl' --enable-native-access=ALL-UNNAMED `
+  -jar target-mkl-windows-x86_64\gpu-eqtl-2.0.0-SNAPSHOT-mkl-windows-x86_64-all.jar `
+  --backend cpu --printbackendinfo
+```
+
+```sh
+./mvnw -Pcpu-mkl-linux-x86_64 package
+java -Deqtl.cpu.blas=mkl --enable-native-access=ALL-UNNAMED \
+  -jar target-mkl-linux-x86_64/gpu-eqtl-2.0.0-SNAPSHOT-mkl-linux-x86_64-all.jar \
+  --backend cpu --printbackendinfo
+```
+
+Each profile includes only its matching oneMKL and OpenBLAS x64 natives. `auto` prefers oneMKL when its native runtime is present, then OpenBLAS, then portable Java. Intel permits binary oneMKL redistribution under the Intel Simplified Software License. GPU eQTL remains GPLv3 and adds a narrow GPLv3 Section 7 permission for combining Roby Joehanes-owned portions with oneMKL; see [`LICENSE_EXCEPTION`](LICENSE_EXCEPTION). Intel's terms remain in force for its binaries. The exact oneMKL 2026.1 license, oneMKL incorporated-code notices, and Intel OpenMP notices are reproduced in [`THIRD_PARTY_LICENSES`](THIRD_PARTY_LICENSES). All shaded jars package the GPL, exception, and vendor notices under `META-INF`. See Intel's [oneMKL license FAQ](https://www.intel.com/content/www/us/en/developer/articles/tool/onemkl-license-faq.html) and the GNU project's [GPL-incompatible library guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLIncompatibleLibs).
 
 ## Eclipse
 
@@ -48,35 +69,39 @@ Use an Eclipse installation with Maven Integration for Eclipse (m2e) and a Java 
 
 If the project was already open before the Maven metadata was added, select the project and run **Maven → Update Project…** (`Alt+F5`), enable **Force Update of Snapshots/Releases**, and then run **Project → Clean…**. Eclipse should show **Maven Dependencies** in the project tree and use the `JavaSE-17` execution environment.
 
-The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, JDistlib, Commons Compress, and JUnit are supplied by Maven.
+The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, OpenBLAS/oneMKL JavaCPP bindings, JDistlib, Commons Compress, and JUnit are supplied by Maven. The oneMKL native runtime is present only in an explicitly selected evaluation profile.
 
-## Inspect and select GPUs
+## Inspect and select compute backends
 
 Automatic selection is the default:
 
 ```powershell
-java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo
 ```
 
-Force CUDA or OpenCL with the application argument:
+Force a backend with the application argument:
 
 ```powershell
-java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend cuda --printgpuinfo
-java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --gpu-backend opencl --printgpuinfo
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend cuda --printbackendinfo
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend opencl --printbackendinfo
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend cpu --printbackendinfo
 ```
 
 The equivalent system property remains supported in PowerShell (quote the `-D` argument):
 
 ```powershell
-java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
-java '-Deqtl.gpu.backend=opencl' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
+java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo
+java '-Deqtl.gpu.backend=opencl' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo
+java '-Deqtl.gpu.backend=cpu' -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo
 ```
 
 In POSIX shells, the same property does not need PowerShell quoting:
 
 ```sh
-java -Deqtl.gpu.backend=cuda -jar target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printgpuinfo
+java -Deqtl.gpu.backend=cpu -jar target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo
 ```
+
+`--gpu-backend` and `--printgpuinfo` remain compatibility aliases. CPU `auto` tries oneMKL when its profile natives are present, then bundled OpenBLAS, then portable Java. Force its behavior for diagnostics with `-Deqtl.cpu.blas=mkl`, `openblas`, or `java`; explicitly selected native engines fail rather than silently changing implementations. Native BLAS uses `max(1, logical processors - 1)` threads by default; override that independent inner pool with `-Deqtl.cpu.threads=N`.
 
 Recent Java runtimes may print a warning when a JNI binding loads. Add `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress it. Java 17 remains the compilation target.
 
@@ -108,7 +133,7 @@ residualization = auto
   --residualization {auto|gpu|cpu}
 ```
 
-`auto` and `gpu` use every selected GPU for headered-CSV preparation; `cpu` retains the previous FP64 projector and its cache signatures. QR decomposition, pivot/rank decisions, and degrees-of-freedom accounting are identical in all three modes. The full `N x N` projection matrix is never formed.
+`auto` and `gpu` use the selected compute contexts for headered-CSV preparation; this includes OpenBLAS when the analysis backend is CPU. Residualization mode `cpu` retains the previous scalar FP64 projector and its cache signatures. QR decomposition, pivot/rank decisions, and degrees-of-freedom accounting are identical in all three modes. The full `N x N` projection matrix is never formed.
 
 FP32 changes results slightly and should not be substituted silently for an established FP64 pipeline. On the representative 128-SNP by 128-trait WHI subset (2,005 samples; 16,384 associations), CUDA FP32 versus FP64 had maximum absolute differences of `5.59e-9` in R-squared, `1.03e-8` in effect, `9.70e-7` in t, and `2.51e-6` in log10 p. Both modes selected the same 11 associations at p <= `1e-4`. A larger 4,096-SNP by 8,192-trait study (33,554,432 associations) found one FP32-only result at that reporting boundary; among the 48,948 common reported results, maximum absolute differences were `9.73e-7` in R-squared, `5.71e-7` in effect, `1.11e-4` in t, and `9.90e-4` in log10 p.
 
@@ -118,7 +143,9 @@ When `block_size`/`--block-size` is omitted or zero, the application reads total
 
 When `num_threads`/`--threads` is omitted or zero, bounded-RAM mode uses up to four workers per GPU to overlap cache reads, packing, GPU execution, and result processing; full-memory mode uses up to two. The bounded-RAM recommendation estimates prepared inputs, packed precision-specific inputs, and the result array per worker, retains JVM-heap headroom, is capped by required genotype jobs, and leaves one CPU core free. Explicit values remain supported, with warnings for idle GPUs, CPU oversubscription, or a streamed configuration estimated to consume more than 75% of the available JVM heap.
 
-All distinct usable GPUs are opened, with one exclusive context per device. Association jobs and GPU cache preparation reserve contexts from shared exclusive pools, so a multi-GPU system uses multiple devices concurrently when JVM heap can safely hold their in-flight preparation blocks. Each device keeps one projection copy while preparation is active, and those temporary buffers are released before association tiles are allocated. Automatic discovery suppresses only the duplicate OpenCL representation of an NVIDIA device already selected through CUDA. On mixed-capacity systems, automatic block sizing follows the smallest selected GPU. Use `--gpu-backend cuda` or `opencl` when you intentionally want only one backend family.
+For CPU analysis, automatic block sizing uses available JVM heap and a 256-MiB result-tile target rather than pretending heap is VRAM. The application uses one exclusive CPU context: full-memory runs use one pipeline worker, and streamed runs may use two so cache preparation/result handling can overlap the native multiplication. oneMKL/OpenBLAS has its own inner thread pool as described above. Setting many application `--threads` does not create concurrent BLAS products and usually only adds memory pressure.
+
+All distinct usable GPUs are opened, with one exclusive context per device. Association jobs and GPU cache preparation reserve contexts from shared exclusive pools, so a multi-GPU system uses multiple devices concurrently when JVM heap can safely hold their in-flight preparation blocks. Each device keeps one projection copy while preparation is active, and those temporary buffers are released before association tiles are allocated. Automatic discovery suppresses only the duplicate OpenCL representation of an NVIDIA device already selected through CUDA. On mixed-capacity systems, automatic block sizing follows the smallest selected GPU. Use `--backend cuda`, `opencl`, or `cpu` when you intentionally want only one backend family.
 
 The old `lambda` INI setting no longer controls memory or result storage and is ignored with a compatibility notice. It should be removed from new configurations.
 
@@ -190,6 +217,8 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.
   --min-maf 0.01 `
   --min-mac 5 `
   --variant-qc-output cohort.variant-qc.tsv `
+  --variant-qc-checkpoint cohort.variant-qc.checkpoint `
+  --variant-qc-threads 0 `
   --expression expression.csv `
   --covariates covariates.csv `
   --fixed-covariates Age,Batch,PC1,PC2 `
@@ -203,7 +232,11 @@ The current variant model is biallelic, diploid, and additive. Multiallelic reco
 
 Every VCF/BCF analysis performs an aligned-sample QC scan and writes a tab-separated variant report, defaulting to `<output>.variants.tsv`. `--variant-qc-output FILE` changes its location. It contains the canonical association identifier `CHROM:POS:REF:ALT`, rs ID, REF, ALT, original VCF FILTER, selected field, called/missing counts, effect-allele count and allele number, EAF, MAF, MAC, exact biallelic HWE p-value, classification, inclusion status, and exclusion reason. HWE uses available diploid `GT` calls even when `DS` supplies the association dosage; it is `NA` when no usable GT calls exist. Original VCF FILTER values are annotated but are not an implicit analysis filter.
 
-Large sequential variant passes report progress approximately every 15 seconds (or every million input records, whichever comes first). The aligned-sample QC pass reports records scanned, variants retained, elapsed time, and throughput; its total is not known until that first pass ends. Later missingness and cache-building rereads also report percentage and ETA using the input-record count learned during QC. These counts describe decoded VCF/BCF records rather than compressed bytes, and the QC report remains a `.partial` file until its atomic completion.
+QC is parallelized across variants after sample alignment. `--variant-qc-threads 0` (the default) automatically selects a bounded worker count, normally leaving a CPU for input decoding and capping the pool at 16; multi-core machines use at least two variant workers. Set a positive value to override it, or `1` for a sequential comparison. The INI equivalent is `variant_qc_threads`. VCF/BCF decoding remains on the reader thread because the HTSJDK codecs are stateful, while dosage extraction, aligned-sample allele counts, MAF/MAC classification, and exact HWE run in the worker pool. Completed records are consumed in source order, so the QC report, duplicate detection, retained-variant order, and later association identifiers are deterministic. Matrix-header samples excluded by alignment are not inspected by dosage/QC calculations. The first scan retains only a compact inclusion/EAF decision per input record; later source passes reuse those decisions rather than recomputing frequency and HWE.
+
+The aligned-sample QC scan is resumable. Ordered batches are committed atomically under `<variant-qc-output>.checkpoint/<signature>/` by default; `--variant-qc-checkpoint DIR` (INI: `variant_qc_checkpoint`) changes the root. The signature includes the normalized genotype path, size and modification time, resolved VCF/BCF field and filtering policies, complete header sample list, and final aligned sample indices/order. A policy, file-metadata, or alignment change therefore starts a separate state directory instead of silently reusing obsolete EAF/MAF/MAC/HWE decisions. Do not edit checkpoint parts. A process lock rejects simultaneous writers to the same signature. An interrupted compressed VCF/BCF scan must decode and verify the completed source prefix because the current reader is sequential, but it skips the expensive per-sample frequency/HWE calculations for those records. A fully completed matching checkpoint is loaded directly and can recreate a missing QC TSV without opening a full variant-record pass. Checkpoints are retained intentionally for later reruns; remove a signature directory only when its analysis will not be resumed.
+
+Large variant passes report progress approximately every 15 seconds (or every million input records, whichever comes first). The aligned-sample QC pass reports records scanned, variants retained, elapsed time, and throughput; its total is not known until that first pass ends. Later sequential missingness and cache-building rereads also report percentage and ETA using the input-record count learned during QC. These counts describe decoded VCF/BCF records rather than compressed bytes. The final QC report is assembled atomically from the durable checkpoint parts only after a complete scan.
 
 Variant QC and frequency filters are computed over the final aligned analysis samples after validating unique header IDs and applying selected-covariate complete-sample removal. This is important under `covariate-subset`: VCF-only samples cannot make an analysis-set monomorphic or rare variant pass MAF/MAC filtering. The QC file's called/missing counts, EAF, MAF, MAC, HWE, singleton/doubleton classification, and monomorphic exclusion all describe that aligned set; the console reports its sample count. Strict alignment (the default) requires genotype, trait, and covariate sample sets to agree exactly. An explicitly requested covariate-subset alignment may instead select the canonical covariate rows from a larger genotype or trait header; all covariate samples must still be present and matrix-only extras are counted in the unified missingness/alignment audit. Association output uses the canonical variant identifier so missing or duplicated rs IDs cannot collide. The reader scans the variant file for metadata/QC only after alignment and rereads it by blocks for preparation; it does not materialize the full genotype matrix in RAM when `--genotype-block-rows` is set.
 
@@ -265,7 +298,7 @@ For 114,406 traits by 4,746 samples, the numeric FP64 values alone require about
 
 ### Performance profiling
 
-Add `--profile` to print phase totals for metadata/alignment, cache creation and reads, GPU residualization setup/upload/compute/download, host packing, association GPU-context wait, GPU buffer setup/upload/compute/download, CPU statistics/result writing, and final assembly. Worker-phase totals can overlap and therefore need not sum to wall time. Add `--profile-output FILE` to write the same measurements as CSV; specifying a profile output also enables profiling.
+Add `--profile` to print phase totals for metadata/alignment, aligned-sample variant QC, cache creation and reads, accelerated residualization setup/upload/compute/download, host packing, association context wait, backend buffer setup/upload/compute/download, CPU statistics/result writing, and final assembly. The stable CSV phase names retain their historical `gpu_` prefix even in CPU mode; host-only CPU executions correctly report zero upload/download bytes and time. Variant QC is a subphase of metadata/alignment; worker-phase totals can overlap and therefore need not sum to wall time. Add `--profile-output FILE` to write the same measurements as CSV; specifying a profile output also enables profiling.
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
@@ -296,4 +329,6 @@ See `AGENTS.md` for contributor constraints and the ordered roadmap. See `SESSIO
 
 ## License
 
-GPU eQTL is distributed under the GNU General Public License version 3. See [`LICENSE`](LICENSE) for the complete license text.
+GPU eQTL is distributed under the GNU General Public License version 3. See [`LICENSE`](LICENSE) for the complete license text. The copyright holder grants the narrow oneMKL linking permission in [`LICENSE_EXCEPTION`](LICENSE_EXCEPTION) for Roby Joehanes-owned portions of the program.
+
+The default release does not contain Intel oneMKL native binaries. The platform-specific oneMKL artifacts also contain Intel-licensed components governed by the reproduced [`Intel and incorporated-code terms`](THIRD_PARTY_LICENSES). The exception permits conveying the combined work; it does not relicense or permit modification of Intel's binaries.

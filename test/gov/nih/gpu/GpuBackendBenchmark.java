@@ -9,6 +9,7 @@ package gov.nih.gpu;
 
 import gov.nih.eqtl.QeQTLAnalysis;
 import gov.nih.gpu.cuda.CudaGpuBackend;
+import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import java.util.Arrays;
@@ -39,6 +40,7 @@ public final class GpuBackendBenchmark {
 		for (int[] shape : shapes) {
 			run(new CudaGpuBackend(), shape[0], shape[1]);
 			run(new JoclGpuBackend(), shape[0], shape[1]);
+			run(new CpuBackend(), shape[0], shape[1]);
 		}
 		if (sink == Double.NEGATIVE_INFINITY) {
 			System.out.println("Unreachable result guard");

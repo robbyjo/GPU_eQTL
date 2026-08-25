@@ -190,6 +190,12 @@ public class QeQTLAnalysisConfig {
 	public String getVariantQcOutputFilename()
 	{ return expandPath(mIni.get("variant_qc_output"), getIniPath()); }
 
+	public int getVariantQcThreads()
+	{ return getNonNegativeInt("variant_qc_threads"); }
+
+	public String getVariantQcCheckpointDirectory()
+	{ return expandPath(mIni.get("variant_qc_checkpoint"), getIniPath()); }
+
 	public String[] getFixedCovariates()
 	{
 		String s = mIni.get("covariate_fixed"); //$NON-NLS-1$

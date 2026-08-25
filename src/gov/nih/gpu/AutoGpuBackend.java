@@ -8,6 +8,7 @@
 package gov.nih.gpu;
 
 import gov.nih.gpu.cuda.CudaGpuBackend;
+import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ public final class AutoGpuBackend implements GpuBackend {
 	private String runtimeDescription;
 
 	public AutoGpuBackend() {
-		this(Arrays.<GpuBackend>asList(new CudaGpuBackend(), new JoclGpuBackend()));
+		this(Arrays.<GpuBackend>asList(new CudaGpuBackend(), new JoclGpuBackend(), new CpuBackend()));
 	}
 
 	AutoGpuBackend(List<GpuBackend> candidates) {
@@ -87,9 +88,10 @@ public final class AutoGpuBackend implements GpuBackend {
 		}
 
 		String usable = usableBackends.isEmpty()
-			? "no GPU backend is currently usable"
+			? "no compute backend is currently usable"
 			: "usable backend(s): " + String.join(", ", usableBackends);
-		runtimeDescription = "Automatic CUDA-first discovery; " + usable + ". " + String.join("; ", details);
+		runtimeDescription = "Automatic GPU-first discovery with CPU fallback; " + usable
+			+ ". " + String.join("; ", details);
 		devices = Collections.unmodifiableList(discovered);
 		return devices;
 	}

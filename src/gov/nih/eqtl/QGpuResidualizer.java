@@ -15,7 +15,7 @@ import gov.nih.gpu.GpuContextPool;
 import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuPrecision;
 
-/** Applies one validated orthonormal covariate projection across exclusive GPU contexts. */
+/** Applies one validated orthonormal covariate projection across exclusive compute contexts. */
 final class QGpuResidualizer implements QeQTLPreprocessor.Residualizer, AutoCloseable {
     private final GpuContextPool contextPool;
     private final List<GpuContext> contexts;
@@ -32,7 +32,7 @@ final class QGpuResidualizer implements QeQTLPreprocessor.Residualizer, AutoClos
     QGpuResidualizer(GpuContext[] contexts, double[][] covariateQ,
         GpuPrecision precision, QeQTLProfiler profiler) {
         if (contexts == null || contexts.length == 0)
-            throw new IllegalArgumentException("At least one GPU context is required for GPU residualization");
+            throw new IllegalArgumentException("At least one compute context is required for accelerated residualization");
         if (covariateQ == null || covariateQ.length == 0 || covariateQ[0].length == 0)
             throw new IllegalArgumentException("A non-empty covariate Q matrix is required");
         if (precision == null)
@@ -77,7 +77,7 @@ final class QGpuResidualizer implements QeQTLPreprocessor.Residualizer, AutoClos
     public double[][] residualize(double[][] values, double[][] projection, String matrixName) {
         ensureOpen();
         if (projection != covariateQ)
-            throw new IllegalArgumentException("GPU residualizer received a different covariate projection");
+            throw new IllegalArgumentException("Backend residualizer received a different covariate projection");
         if (values == null || values.length == 0)
             throw new IllegalArgumentException(matrixName + " block must not be empty");
         int rowCount = values.length;
@@ -151,7 +151,7 @@ final class QGpuResidualizer implements QeQTLPreprocessor.Residualizer, AutoClos
 
     private void ensureOpen() {
         if (closed)
-            throw new IllegalStateException("GPU residualizer is closed");
+            throw new IllegalStateException("Backend residualizer is closed");
     }
 
     @Override

@@ -8,6 +8,7 @@
 package gov.nih.gpu;
 
 import gov.nih.gpu.cuda.CudaGpuBackend;
+import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,19 @@ class AutoGpuBackendTest {
 	}
 
 	@Test
+	void cpuIsUsedOnlyWhenNoEligibleGpuRemains() {
+		FakeDevice fp32Gpu = new FakeDevice("opencl", "Intel", "Iris test", false);
+		FakeDevice cpu = new FakeDevice("cpu", "host", "CPU test", true);
+		AutoGpuBackend backend = new AutoGpuBackend(List.of(
+			new FakeBackend("opencl", List.of(fp32Gpu), null),
+			new FakeBackend("cpu", List.of(cpu), null)));
+		GpuRuntime runtime = new GpuRuntime(backend);
+
+		assertEquals(List.of(cpu), runtime.getGpuDevices(true, true));
+		assertEquals(List.of(fp32Gpu), runtime.getGpuDevices(true, false));
+	}
+
+	@Test
 	void systemPropertySelectsEachConcreteBackend() {
 		String previous = System.getProperty("eqtl.gpu.backend");
 		try {
@@ -70,6 +84,8 @@ class AutoGpuBackendTest {
 			assertInstanceOf(CudaGpuBackend.class, GpuRuntime.createDefault().getBackend());
 			System.setProperty("eqtl.gpu.backend", "opencl");
 			assertInstanceOf(JoclGpuBackend.class, GpuRuntime.createDefault().getBackend());
+			System.setProperty("eqtl.gpu.backend", "cpu");
+			assertInstanceOf(CpuBackend.class, GpuRuntime.createDefault().getBackend());
 		} finally {
 			if (previous == null) {
 				System.clearProperty("eqtl.gpu.backend");

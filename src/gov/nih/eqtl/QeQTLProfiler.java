@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class QeQTLProfiler {
     public enum Phase {
         METADATA_AND_ALIGNMENT("metadata_alignment"),
+        VARIANT_QC("variant_qc"),
         CACHE_SIGNATURES("cache_signatures"),
         GENOTYPE_CACHE_OPEN_OR_BUILD("genotype_cache_open_or_build"),
         EXPRESSION_CACHE_OPEN_OR_BUILD("expression_cache_open_or_build"),

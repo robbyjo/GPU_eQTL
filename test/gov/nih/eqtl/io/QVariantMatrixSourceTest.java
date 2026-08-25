@@ -147,6 +147,109 @@ class QVariantMatrixSourceTest {
     }
 
     @Test
+    void sequentialAndParallelQcProduceIdenticalOrderedResults() throws Exception {
+        Path sequentialQc = temporaryDirectory.resolve("sequential-qc.tsv");
+        Path parallelQc = temporaryDirectory.resolve("parallel-qc.tsv");
+        QVariantMatrixSource sequential = new QVariantMatrixSource(gzipFixture(),
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+                QVariantMatrixSource.MissingPolicy.MEAN, 0, 2, sequentialQc, 1));
+        QVariantMatrixSource parallel = new QVariantMatrixSource(gzipFixture(),
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+                QVariantMatrixSource.MissingPolicy.MEAN, 0, 2, parallelQc, 4));
+
+        assertEquals(1, sequential.qcThreadCount());
+        assertEquals(4, parallel.qcThreadCount());
+        assertEquals(sequential.summary(), parallel.summary());
+        assertArrayEquals(Files.readAllBytes(sequentialQc), Files.readAllBytes(parallelQc));
+        try (QMatrixRowSource.BlockReader sequentialReader = sequential.open(new int[] {1, 0, 2, 3});
+             QMatrixRowSource.BlockReader parallelReader = parallel.open(new int[] {1, 0, 2, 3})) {
+            QMatrixRowSource.Block sequentialBlock = sequentialReader.readBlock(10);
+            QMatrixRowSource.Block parallelBlock = parallelReader.readBlock(10);
+            assertArrayEquals(sequentialBlock.rowIds(), parallelBlock.rowIds());
+            for (int row = 0; row < sequentialBlock.rowCount(); row++)
+                assertArrayEquals(sequentialBlock.values()[row], parallelBlock.values()[row], 0);
+        }
+    }
+
+    @Test
+    void interruptedQcResumesFromDurableOrderedPartsAndCompletedScanIsReusable() throws Exception {
+        Path genotype = gzipFixture();
+        Path resumedQc = temporaryDirectory.resolve("resumed-qc.tsv");
+        Path checkpoint = temporaryDirectory.resolve("resumed-checkpoint");
+        String batchProperty = "eqtl.variant.qc.checkpoint.records";
+        String failProperty = "eqtl.test.variant.qc.fail.after";
+        System.setProperty(batchProperty, "2");
+        System.setProperty(failProperty, "4");
+        try {
+            QVariantMatrixSource.Options resumableOptions = new QVariantMatrixSource.Options(
+                QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+                QVariantMatrixSource.MissingPolicy.MEAN,
+                QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 2, resumedQc, 3, checkpoint);
+            IOException interrupted = assertThrows(IOException.class,
+                () -> new QVariantMatrixSource(genotype, resumableOptions));
+            assertTrue(interrupted.getMessage().contains("Injected variant-QC interruption"));
+            assertTrue(!Files.exists(resumedQc));
+
+            System.clearProperty(failProperty);
+            QVariantMatrixSource resumed = new QVariantMatrixSource(genotype, resumableOptions);
+            assertEquals(4, resumed.resumedQcRecords());
+            assertEquals(7, resumed.summary().inputRecords());
+            assertEquals(4, resumed.summary().includedVariants());
+
+            Path freshQc = temporaryDirectory.resolve("fresh-qc.tsv");
+            QVariantMatrixSource fresh = new QVariantMatrixSource(genotype,
+                new QVariantMatrixSource.Options(QVariantMatrixSource.Format.VCF,
+                    QVariantMatrixSource.GenotypeField.AUTO, QVariantMatrixSource.MissingPolicy.MEAN,
+                    QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 2, freshQc, 3,
+                    temporaryDirectory.resolve("fresh-checkpoint")));
+            assertEquals(fresh.summary(), resumed.summary());
+            assertArrayEquals(Files.readAllBytes(freshQc), Files.readAllBytes(resumedQc));
+
+            Files.delete(resumedQc);
+            QVariantMatrixSource reused = new QVariantMatrixSource(genotype, resumableOptions);
+            assertEquals(7, reused.resumedQcRecords());
+            assertTrue(Files.isRegularFile(resumedQc));
+            assertArrayEquals(Files.readAllBytes(freshQc), Files.readAllBytes(resumedQc));
+        } finally {
+            System.clearProperty(batchProperty);
+            System.clearProperty(failProperty);
+        }
+    }
+
+    @Test
+    void excludedHeaderSamplesAreNotEvaluatedForDosageQc() throws Exception {
+        Path invalidExcludedDosage = temporaryDirectory.resolve("invalid-excluded-dosage.vcf");
+        String fixture = Files.readString(fixturePath());
+        String validRecord = "1\t110\trsSingle\tC\tT\t.\tPASS\t.\tGT:DS\t0/0:0\t0/1:1\t0/0:0\t0/0:0";
+        String invalidRecord = validRecord.replace("0/1:1", "0/1:9");
+        assertTrue(fixture.contains(validRecord));
+        Files.writeString(invalidExcludedDosage, fixture.replace(validRecord, invalidRecord));
+
+        QVariantMatrixSource subset = QVariantMatrixSource.openForAlignment(invalidExcludedDosage,
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.DS,
+                QVariantMatrixSource.MissingPolicy.PRESERVE, 0, 0, null, 3));
+        subset.selectAnalysisSamples(new int[] {0, 2, 3});
+        assertEquals(7, subset.summary().inputRecords());
+
+        QVariantMatrixSource allSamples = QVariantMatrixSource.openForAlignment(invalidExcludedDosage,
+            options(QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.DS,
+                QVariantMatrixSource.MissingPolicy.PRESERVE, 0, 0, null, 3));
+        IOException error = assertThrows(IOException.class,
+            () -> allSamples.selectAnalysisSamples(new int[] {0, 1, 2, 3}));
+        assertTrue(error.getMessage().contains("Invalid DS value '9'"));
+    }
+
+    @Test
+    void automaticQcThreadRecommendationRetainsVariantParallelism() {
+        assertEquals(1, QVariantMatrixSource.recommendQcThreads(1));
+        assertEquals(4, QVariantMatrixSource.recommendQcThreads(4));
+        int automatic = QVariantMatrixSource.recommendQcThreads(0);
+        assertTrue(automatic >= 1 && automatic <= 16);
+        if (Runtime.getRuntime().availableProcessors() > 1)
+            assertTrue(automatic >= 2);
+    }
+
+    @Test
     void formatsProgressWithCountsRatePercentageAndEta() {
         String knownTotal = QVariantMatrixSource.progressMessage("Variant input", 250_000,
             1_000_000, 200_000, 600_000_000_000L, false);
@@ -181,8 +284,14 @@ class QVariantMatrixSourceTest {
     private QVariantMatrixSource.Options options(QVariantMatrixSource.Format format,
         QVariantMatrixSource.GenotypeField field, QVariantMatrixSource.MissingPolicy missing,
         double minMaf, double minMac, Path qc) {
+        return options(format, field, missing, minMaf, minMac, qc, 2);
+    }
+
+    private QVariantMatrixSource.Options options(QVariantMatrixSource.Format format,
+        QVariantMatrixSource.GenotypeField field, QVariantMatrixSource.MissingPolicy missing,
+        double minMaf, double minMac, Path qc, int qcThreads) {
         return new QVariantMatrixSource.Options(format, field, missing,
-            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, minMaf, minMac, qc);
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, minMaf, minMac, qc, qcThreads);
     }
 
     private Path gzipFixture() throws IOException {

@@ -1,0 +1,16 @@
+GPU eQTL oneMKL linking exception
+
+Copyright (C) 2011-2026 Roby Joehanes
+
+Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining it with
+the Intel oneAPI Math Kernel Library (oneMKL), or with a modified version of
+that library, containing parts covered by the Intel Simplified Software
+License, the licensors of this Program grant you additional permission to
+convey the resulting work.
+
+This additional permission applies only to portions of the Program for which
+Roby Joehanes is a copyright holder. It does not alter the license terms of
+oneMKL or any other third-party component, and it does not grant permission to
+modify Intel's oneMKL binaries.
