@@ -11,6 +11,7 @@ import gov.nih.eqtl.QeQTLAnalysis;
 import gov.nih.gpu.cuda.CudaGpuBackend;
 import gov.nih.gpu.cpu.CpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
+import gov.nih.jama.QRDecomposition;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -115,6 +116,21 @@ class GpuKernelIntegrationTest {
 	@Test
 	void cpuFp32ResidualizationMatchesScalarReference() {
 		assertResidualization(new CpuBackend(), GpuPrecision.FP32);
+	}
+
+	@Test
+	void cudaCompactPatternStatisticsMatchExplicitQrWhenAvailable() {
+		assertCompactPatternStatistics(new CudaGpuBackend());
+	}
+
+	@Test
+	void openClCompactPatternStatisticsMatchExplicitQrWhenAvailable() {
+		assertCompactPatternStatistics(new JoclGpuBackend());
+	}
+
+	@Test
+	void cpuCompactPatternStatisticsMatchExplicitQr() {
+		assertCompactPatternStatistics(new CpuBackend());
 	}
 
 	private static void assertRealEqtlOperation(GpuBackend backend) {
@@ -308,6 +324,120 @@ class GpuKernelIntegrationTest {
 				for (int column = 0; column < rank; column++)
 					result[row * samples + sample] -= coefficients[column] * q[sample * rank + column];
 		}
+		return result;
+	}
+
+	private static void assertCompactPatternStatistics(GpuBackend backend) {
+		List<GpuDevice> devices;
+		try {
+			devices = new GpuRuntime(backend).getGpuDevices(true, true);
+		} catch (RuntimeException | LinkageError e) {
+			Assumptions.abort("No usable " + backend.getName() + " runtime: " + e.getMessage());
+			return;
+		}
+		Assumptions.assumeFalse(devices.isEmpty(),
+			"No available FP64 device for " + backend.getName());
+		double[][] design = {
+			{1, -3.5}, {1, -2.5}, {1, -1.5}, {1, -0.5},
+			{1, 0.5}, {1, 1.5}, {1, 2.5}, {1, 3.5}
+		};
+		int[][] observed = {
+			{0, 1, 2, 3, 4, 5, 6, 7},
+			{0, 1, 2, 4, 5, 6, 7}
+		};
+		double[][] genotypes = {
+			{0, 1, 2, Double.NaN, 1, 2, 0, 1.5},
+			{2, 1, 0, 1, Double.NaN, 0.5, 1.5, 2},
+			{0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2}
+		};
+		double[][] sums = new double[observed.length][design[0].length];
+		double[][][] upper = new double[observed.length][][];
+		for (int pattern = 0; pattern < observed.length; pattern++) {
+			double[][] selected = new double[observed[pattern].length][design[0].length];
+			for (int row = 0; row < observed[pattern].length; row++) {
+				selected[row] = design[observed[pattern][row]].clone();
+				for (int column = 0; column < design[0].length; column++)
+					sums[pattern][column] += selected[row][column];
+			}
+			upper[pattern] = new QRDecomposition(selected).getR().getArray();
+		}
+		GpuPatternStatisticsPlan plan = new GpuPatternStatisticsPlan(design,
+			new int[] {3, 9}, observed, sums, upper);
+		int paddedSamples = 64;
+		int variantCapacity = 16;
+		double[] aggregate = new double[paddedSamples * variantCapacity * 3];
+		for (int sample = 0; sample < design.length; sample++) {
+			for (int variant = 0; variant < genotypes.length; variant++) {
+				double value = genotypes[variant][sample];
+				if (Double.isFinite(value)) {
+					int base = sample * variantCapacity * 3 + variant * 3;
+					aggregate[base] = 1;
+					aggregate[base + 1] = value;
+					aggregate[base + 2] = value * value;
+				}
+			}
+		}
+		String line = System.lineSeparator();
+		String source = "#define BLOCK_SIZE 16" + line
+			+ "#define DATATYPE double" + line
+			+ "#if defined(cl_khr_fp64)" + line
+			+ "#pragma OPENCL EXTENSION cl_khr_fp64 : enable" + line
+			+ "#elif defined(cl_amd_fp64)" + line
+			+ "#pragma OPENCL EXTENSION cl_amd_fp64 : enable" + line
+			+ "#endif" + line
+			+ "#define N_MIN_1 1" + line
+			+ QeQTLAnalysis.eqtlReal;
+		try (GpuContext context = devices.get(0).openContext()) {
+			context.setProfilingEnabled(true);
+			context.compileKernel(source, "eqtlReal", GpuPrecision.FP64);
+			GpuPatternStatisticsResult actual = context.computePatternStatisticsDouble(
+				aggregate, paddedSamples, genotypes.length, variantCapacity,
+				plan, true, 1, 16);
+			for (int pattern = 0; pattern < observed.length; pattern++) {
+				double[][] selectedDesign = new double[observed[pattern].length][design[0].length];
+				for (int row = 0; row < observed[pattern].length; row++)
+					selectedDesign[row] = design[observed[pattern][row]].clone();
+				double[][] q = new QRDecomposition(selectedDesign).getQ().getArray();
+				for (int variant = 0; variant < genotypes.length; variant++) {
+					double mean = 0;
+					int called = 0;
+					for (int sample : observed[pattern]) {
+						double value = genotypes[variant][sample];
+						if (Double.isFinite(value)) { mean += value; called++; }
+					}
+					mean /= called;
+					double[] filled = new double[observed[pattern].length];
+					double filledSquares = 0;
+					for (int row = 0; row < observed[pattern].length; row++) {
+						double value = genotypes[variant][observed[pattern][row]];
+						filled[row] = Double.isFinite(value) ? value : mean;
+						filledSquares += filled[row] * filled[row];
+					}
+					double[] residual = residualizeOnCpu(filled, flatten(q), 1,
+						filled.length, q[0].length);
+					double residualSquares = 0;
+					for (double value : residual) residualSquares += value * value;
+					assertEquals(mean, actual.value(pattern, variant,
+						GpuPatternStatisticsResult.REPLACEMENT), 2e-12,
+						backend.getName() + " pattern " + pattern + " variant " + variant
+							+ " replacement " + java.util.Arrays.toString(actual.values()));
+					assertEquals(filledSquares, actual.value(pattern, variant,
+						GpuPatternStatisticsResult.FILLED_SUM_SQUARES), 2e-10);
+					assertEquals(residualSquares, actual.value(pattern, variant,
+						GpuPatternStatisticsResult.RESIDUAL_SUM_SQUARES), 2e-10);
+				}
+			}
+			boolean hostOnly = "cpu".equalsIgnoreCase(context.getDevice().getBackendName());
+			assertEquals(hostOnly ? 0 : (long) actual.values().length * Double.BYTES,
+				context.getLastExecutionMetrics().downloadedBytes());
+		}
+	}
+
+	private static double[] flatten(double[][] values) {
+		double[] result = new double[values.length * values[0].length];
+		for (int row = 0; row < values.length; row++)
+			System.arraycopy(values[row], 0, result, row * values[row].length,
+				values[row].length);
 		return result;
 	}
 

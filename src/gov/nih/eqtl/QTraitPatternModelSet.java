@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import gov.nih.eqtl.QeQTLPreprocessor.PreparedBlock;
 import gov.nih.eqtl.io.QMissingnessScan;
+import gov.nih.gpu.GpuPatternStatisticsPlan;
 import gov.nih.jama.QRDecomposition;
 
 /** Covariate/rank/DF state shared by exact trait masks in genotype-outer scheduling. */
@@ -74,7 +75,8 @@ final class QTraitPatternModelSet {
     private final long estimableTraitRows;
     private final long excludedTraitRows;
     private final String firstExclusion;
-    private final String signature;
+	private final String signature;
+	private final GpuPatternStatisticsPlan patternStatisticsPlan;
 
     static QTraitPatternModelSet create(QMissingnessScan scan, double[][] covariateModel,
         int degreesOfFreedomOffset, String thresholdType, double threshold,
@@ -170,9 +172,31 @@ final class QTraitPatternModelSet {
                 preparedPatterns[prepared++] = pattern;
         String signature = signature(scan, design, models, degreesOfFreedomOffset,
             thresholdType, threshold, policy);
-        return new QTraitPatternModelSet(scan, design, models, rowPattern,
-            preparedPatterns, estimableRows, excludedRows, firstFailure, signature);
-    }
+		return new QTraitPatternModelSet(scan, design, models, rowPattern,
+			preparedPatterns, estimableRows, excludedRows, firstFailure, signature,
+			createPatternStatisticsPlan(design, models));
+	}
+
+	private static GpuPatternStatisticsPlan createPatternStatisticsPlan(double[][] design,
+		Model[] models) {
+		int estimable = 0;
+		for (Model model : models)
+			if (model.estimable()) estimable++;
+		int[] ids = new int[estimable];
+		int[][] observed = new int[estimable][];
+		double[][] sums = new double[estimable][];
+		double[][][] upper = new double[estimable][][];
+		int output = 0;
+		for (Model model : models) {
+			if (!model.estimable()) continue;
+			ids[output] = model.id;
+			observed[output] = model.observed;
+			sums[output] = model.designSums;
+			upper[output] = model.upperR;
+			output++;
+		}
+		return new GpuPatternStatisticsPlan(design, ids, observed, sums, upper);
+	}
 
     private static Model buildModel(QMissingnessScan.Pattern pattern, double[][] design,
         int samples, int columns, int degreesOfFreedomOffset, String thresholdType,
@@ -199,9 +223,10 @@ final class QTraitPatternModelSet {
             observed, designSums, upperR, rank, errorDf, rsqThreshold, reason);
     }
 
-    private QTraitPatternModelSet(QMissingnessScan scan, double[][] design, Model[] models,
-        int[] sourceRowPattern, int[] preparedRowPatterns, long estimableTraitRows,
-        long excludedTraitRows, String firstExclusion, String signature) {
+	private QTraitPatternModelSet(QMissingnessScan scan, double[][] design, Model[] models,
+		int[] sourceRowPattern, int[] preparedRowPatterns, long estimableTraitRows,
+		long excludedTraitRows, String firstExclusion, String signature,
+		GpuPatternStatisticsPlan patternStatisticsPlan) {
         this.scan = scan;
         this.design = design;
         this.models = models;
@@ -210,7 +235,8 @@ final class QTraitPatternModelSet {
         this.estimableTraitRows = estimableTraitRows;
         this.excludedTraitRows = excludedTraitRows;
         this.firstExclusion = firstExclusion;
-        this.signature = signature;
+		this.signature = signature;
+		this.patternStatisticsPlan = patternStatisticsPlan;
     }
 
     Model model(int id) { return models[id]; }
@@ -223,7 +249,8 @@ final class QTraitPatternModelSet {
     long excludedTraitRows() { return excludedTraitRows; }
     String firstExclusion() { return firstExclusion; }
     String signature() { return signature; }
-    double designValue(int sample, int column) { return design[sample][column]; }
+	double designValue(int sample, int column) { return design[sample][column]; }
+	GpuPatternStatisticsPlan patternStatisticsPlan() { return patternStatisticsPlan; }
 
     PreparedBlock prepareTrait(long outputRowOffset, long sourceRow, String rowId,
         double[] rawValues) {

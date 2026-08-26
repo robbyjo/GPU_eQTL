@@ -27,6 +27,8 @@ final class CudaGpuDevice implements GpuDevice {
 	private final long totalGlobalMemory;
 	private final long maxWorkGroupSize;
 	private final long[] maxWorkItemSizes;
+	private final int computeMajor;
+	private final int computeMinor;
 
 	CudaGpuDevice(int ordinal, cudaDeviceProp properties, String driverApiVersion, String runtimeVersion) {
 		this.ordinal = ordinal;
@@ -40,6 +42,8 @@ final class CudaGpuDevice implements GpuDevice {
 		totalGlobalMemory = properties.totalGlobalMem;
 		maxWorkGroupSize = properties.maxThreadsPerBlock;
 		maxWorkItemSizes = new long[properties.maxThreadsDim.length];
+		computeMajor = properties.major;
+		computeMinor = properties.minor;
 		for (int i = 0; i < properties.maxThreadsDim.length; i++) {
 			maxWorkItemSizes[i] = properties.maxThreadsDim[i];
 		}
@@ -48,6 +52,9 @@ final class CudaGpuDevice implements GpuDevice {
 	int ordinal() {
 		return ordinal;
 	}
+
+	int computeMajor() { return computeMajor; }
+	int computeMinor() { return computeMinor; }
 
 	@Override
 	public String getBackendName() { return "cuda"; }

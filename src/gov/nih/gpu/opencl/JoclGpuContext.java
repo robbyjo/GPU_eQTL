@@ -11,6 +11,9 @@ import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
 import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuException;
+import gov.nih.gpu.GpuPatternStatisticsPlan;
+import gov.nih.gpu.GpuPatternStatisticsResult;
+import gov.nih.gpu.GpuPatternStatisticsSupport;
 import gov.nih.gpu.GpuPrecision;
 
 import org.jocl.Pointer;
@@ -65,6 +68,16 @@ final class JoclGpuContext implements GpuContext {
 	private long inputACapacity;
 	private long inputBCapacity;
 	private long outputCapacity;
+	private cl_program patternProgram;
+	private cl_kernel patternFinalizeKernel;
+	private cl_mem patternUpperBuffer;
+	private cl_mem patternSumsBuffer;
+	private cl_mem patternObservedBuffer;
+	private cl_mem patternCompactBuffer;
+	private long patternUpperCapacity;
+	private long patternSumsCapacity;
+	private long patternObservedCapacity;
+	private long patternCompactCapacity;
 	private cl_program residualProgram;
 	private cl_kernel residualCoefficientKernel;
 	private cl_kernel residualApplyKernel;
@@ -179,7 +192,7 @@ final class JoclGpuContext implements GpuContext {
 		inputACapacity = Math.max(inputACapacity, inputABytes);
 		inputBBuffer = ensureBuffer(inputBBuffer, inputBBytes, inputBCapacity, CL_MEM_READ_ONLY);
 		inputBCapacity = Math.max(inputBCapacity, inputBBytes);
-		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_WRITE_ONLY);
+		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_READ_WRITE);
 		outputCapacity = Math.max(outputCapacity, outputBytes);
 		double[] output = new double[outputElements];
 		long setupNanos = elapsed(phaseStart);
@@ -245,7 +258,7 @@ final class JoclGpuContext implements GpuContext {
 		inputACapacity = Math.max(inputACapacity, inputABytes);
 		inputBBuffer = ensureBuffer(inputBBuffer, inputBBytes, inputBCapacity, CL_MEM_READ_ONLY);
 		inputBCapacity = Math.max(inputBCapacity, inputBBytes);
-		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_WRITE_ONLY);
+		outputBuffer = ensureBuffer(outputBuffer, outputBytes, outputCapacity, CL_MEM_READ_WRITE);
 		outputCapacity = Math.max(outputCapacity, outputBytes);
 		float[] output = new float[outputElements];
 		long setupNanos = elapsed(phaseStart);
@@ -279,6 +292,142 @@ final class JoclGpuContext implements GpuContext {
 				inputABytes + inputBBytes, outputBytes)
 			: GpuExecutionMetrics.EMPTY;
 		return output;
+	}
+
+	@Override
+	public synchronized GpuPatternStatisticsResult computePatternStatisticsDouble(
+		double[] aggregateInputs, int paddedSamples, int activeVariants, int variantCapacity,
+		GpuPatternStatisticsPlan plan, boolean meanFill, int patternsPerBatch,
+		int workGroupSize) {
+		ensureOpen();
+		if (kernel == null || precision != GpuPrecision.FP64)
+			throw new GpuException("The OpenCL FP64 association kernel must be compiled first");
+		GpuPatternStatisticsSupport.validate(aggregateInputs, paddedSamples, activeVariants,
+			variantCapacity, plan, patternsPerBatch, workGroupSize);
+		if (plan.rank() > 64)
+			throw new GpuException("OpenCL compact pattern finalization supports at most 64 design columns");
+		ensurePatternProgram();
+		int rank = plan.rank();
+		int tripledCapacity = Math.multiplyExact(variantCapacity, 3);
+		int maximumRows = GpuPatternStatisticsSupport.roundUp(
+			patternsPerBatch * plan.rowsPerPattern(), workGroupSize);
+		double[] designMasks = new double[Math.multiplyExact(maximumRows, paddedSamples)];
+		double[] upper = new double[Math.multiplyExact(patternsPerBatch, rank * rank)];
+		double[] designSums = new double[Math.multiplyExact(patternsPerBatch, rank)];
+		int[] observedCounts = new int[patternsPerBatch];
+		double[] compact = new double[Math.multiplyExact(
+			Math.multiplyExact(plan.patternCount(), activeVariants),
+			GpuPatternStatisticsResult.VALUES_PER_CELL)];
+		long aggregateBytes = Math.multiplyExact((long) aggregateInputs.length, Sizeof.cl_double);
+		long maximumDesignBytes = Math.multiplyExact((long) designMasks.length, Sizeof.cl_double);
+		long maximumProductBytes = Math.multiplyExact((long) maximumRows * tripledCapacity,
+			Sizeof.cl_double);
+		long maximumUpperBytes = Math.multiplyExact((long) upper.length, Sizeof.cl_double);
+		long maximumSumsBytes = Math.multiplyExact((long) designSums.length, Sizeof.cl_double);
+		long maximumObservedBytes = Math.multiplyExact((long) observedCounts.length, Sizeof.cl_int);
+		long compactBytes = Math.multiplyExact((long) compact.length, Sizeof.cl_double);
+
+		long setupStarted = profilingEnabled ? System.nanoTime() : 0;
+		inputABuffer = ensureBuffer(inputABuffer, maximumDesignBytes,
+			inputACapacity, CL_MEM_READ_ONLY);
+		inputACapacity = Math.max(inputACapacity, maximumDesignBytes);
+		inputBBuffer = ensureBuffer(inputBBuffer, aggregateBytes,
+			inputBCapacity, CL_MEM_READ_ONLY);
+		inputBCapacity = Math.max(inputBCapacity, aggregateBytes);
+		outputBuffer = ensureBuffer(outputBuffer, maximumProductBytes,
+			outputCapacity, CL_MEM_READ_WRITE);
+		outputCapacity = Math.max(outputCapacity, maximumProductBytes);
+		patternUpperBuffer = ensureBuffer(patternUpperBuffer, maximumUpperBytes,
+			patternUpperCapacity, CL_MEM_READ_ONLY);
+		patternUpperCapacity = Math.max(patternUpperCapacity, maximumUpperBytes);
+		patternSumsBuffer = ensureBuffer(patternSumsBuffer, maximumSumsBytes,
+			patternSumsCapacity, CL_MEM_READ_ONLY);
+		patternSumsCapacity = Math.max(patternSumsCapacity, maximumSumsBytes);
+		patternObservedBuffer = ensureBuffer(patternObservedBuffer, maximumObservedBytes,
+			patternObservedCapacity, CL_MEM_READ_ONLY);
+		patternObservedCapacity = Math.max(patternObservedCapacity, maximumObservedBytes);
+		patternCompactBuffer = ensureBuffer(patternCompactBuffer, compactBytes,
+			patternCompactCapacity, CL_MEM_WRITE_ONLY);
+		patternCompactCapacity = Math.max(patternCompactCapacity, compactBytes);
+		long setupNanos = elapsed(setupStarted);
+
+		long uploadNanos = 0;
+		long computeNanos = 0;
+		long uploadedBytes = aggregateBytes;
+		long phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+		JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputBBuffer, CL_TRUE, 0,
+			aggregateBytes, Pointer.to(aggregateInputs), 0, null, null),
+			"clEnqueueWriteBuffer(pattern aggregate inputs)");
+		uploadNanos += elapsed(phaseStarted);
+		for (int first = 0; first < plan.patternCount(); first += patternsPerBatch) {
+			int count = Math.min(patternsPerBatch, plan.patternCount() - first);
+			int rowCapacity = GpuPatternStatisticsSupport.roundUp(
+				count * plan.rowsPerPattern(), workGroupSize);
+			plan.fillBatch(first, count, paddedSamples, rowCapacity, designMasks,
+				upper, designSums, observedCounts);
+			long designBytes = Math.multiplyExact((long) rowCapacity * paddedSamples,
+				Sizeof.cl_double);
+			long upperBytes = Math.multiplyExact((long) count * rank * rank, Sizeof.cl_double);
+			long sumsBytes = Math.multiplyExact((long) count * rank, Sizeof.cl_double);
+			long observedBytes = Math.multiplyExact((long) count, Sizeof.cl_int);
+			phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+			JoclGpuBackend.check(clEnqueueWriteBuffer(queue, inputABuffer, CL_TRUE, 0,
+				designBytes, Pointer.to(designMasks), 0, null, null),
+				"clEnqueueWriteBuffer(pattern design)");
+			JoclGpuBackend.check(clEnqueueWriteBuffer(queue, patternUpperBuffer, CL_TRUE, 0,
+				upperBytes, Pointer.to(upper), 0, null, null),
+				"clEnqueueWriteBuffer(pattern R)");
+			JoclGpuBackend.check(clEnqueueWriteBuffer(queue, patternSumsBuffer, CL_TRUE, 0,
+				sumsBytes, Pointer.to(designSums), 0, null, null),
+				"clEnqueueWriteBuffer(pattern design sums)");
+			JoclGpuBackend.check(clEnqueueWriteBuffer(queue, patternObservedBuffer, CL_TRUE, 0,
+				observedBytes, Pointer.to(observedCounts), 0, null, null),
+				"clEnqueueWriteBuffer(pattern counts)");
+			uploadNanos += elapsed(phaseStarted);
+			uploadedBytes += designBytes + upperBytes + sumsBytes + observedBytes;
+
+			long localBytes = (long) (workGroupSize + 1) * (4L * workGroupSize)
+				* Double.BYTES;
+			phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+			JoclGpuBackend.check(clSetKernelArg(kernel, 0, Sizeof.cl_mem,
+				Pointer.to(outputBuffer)), "clSetKernelArg(pattern products)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 1, Sizeof.cl_mem,
+				Pointer.to(inputABuffer)), "clSetKernelArg(pattern design)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 2, Sizeof.cl_mem,
+				Pointer.to(inputBBuffer)), "clSetKernelArg(pattern aggregates)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 3, localBytes, null),
+				"clSetKernelArg(pattern local A)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 4, localBytes, null),
+				"clSetKernelArg(pattern local B)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 5, Sizeof.cl_int,
+				Pointer.to(new int[] {paddedSamples})), "clSetKernelArg(pattern samples)");
+			JoclGpuBackend.check(clSetKernelArg(kernel, 6, Sizeof.cl_int,
+				Pointer.to(new int[] {tripledCapacity})), "clSetKernelArg(pattern capacity)");
+			JoclGpuBackend.check(clEnqueueNDRangeKernel(queue, kernel, 2, null,
+				new long[] {GpuPatternStatisticsSupport.roundUp(activeVariants * 3,
+					workGroupSize), rowCapacity},
+				new long[] {workGroupSize, workGroupSize}, 0, null, null),
+				"clEnqueueNDRangeKernel(pattern products)");
+			setPatternFinalizeArguments(rank, tripledCapacity, activeVariants, first,
+				meanFill);
+			JoclGpuBackend.check(clEnqueueNDRangeKernel(queue, patternFinalizeKernel, 2,
+				null, new long[] {GpuPatternStatisticsSupport.roundUp(activeVariants,
+					workGroupSize), count}, new long[] {workGroupSize, 1}, 0, null, null),
+				"clEnqueueNDRangeKernel(pattern finalization)");
+			JoclGpuBackend.check(clFinish(queue), "clFinish(pattern statistics)");
+			computeNanos += elapsed(phaseStarted);
+		}
+
+		phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+		JoclGpuBackend.check(clEnqueueReadBuffer(queue, patternCompactBuffer, CL_TRUE, 0,
+			compactBytes, Pointer.to(compact), 0, null, null),
+			"clEnqueueReadBuffer(compact pattern statistics)");
+		long downloadNanos = elapsed(phaseStarted);
+		lastExecutionMetrics = profilingEnabled
+			? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos, downloadNanos,
+				uploadedBytes, compactBytes)
+			: GpuExecutionMetrics.EMPTY;
+		return new GpuPatternStatisticsResult(plan.patternCount(), activeVariants, compact);
 	}
 
 	@Override
@@ -403,6 +552,79 @@ final class JoclGpuContext implements GpuContext {
 		if (valuesLength != Math.multiplyExact(rowCount, sampleCount)
 			|| qLength != Math.multiplyExact(sampleCount, covariateRank))
 			throw new IllegalArgumentException("Residualization buffers do not match their matrix dimensions");
+	}
+
+	private void ensurePatternProgram() {
+		if (patternProgram != null) return;
+		String source = "#if defined(cl_khr_fp64)\n"
+			+ "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n"
+			+ "#elif defined(cl_amd_fp64)\n"
+			+ "#pragma OPENCL EXTENSION cl_amd_fp64 : enable\n#endif\n"
+			+ "__kernel void finalize_pattern_statistics("
+			+ "__global const double* products, __global const double* upper, "
+			+ "__global const double* design_sums, __global const int* observed, "
+			+ "__global double* compact, const int rank, const int product_width, "
+			+ "const int variants, const int first_pattern, const int mean_fill) {\n"
+			+ "  int variant = get_global_id(0), pattern = get_global_id(1);\n"
+			+ "  if (variant >= variants) return;\n"
+			+ "  int rows_per_pattern = rank + 1;\n"
+			+ "  int mask = (pattern * rows_per_pattern) * product_width + 3 * variant;\n"
+			+ "  double called = products[mask];\n"
+			+ "  double replacement = mean_fill ? (called > 0.0 ? products[mask + 1] / called : (0.0 / 0.0)) : 0.0;\n"
+			+ "  double missing = (double)observed[pattern] - called;\n"
+			+ "  double sum_squares = products[mask + 2] + missing * replacement * replacement;\n"
+			+ "  double projection = 0.0;\n"
+			+ "  double q[64];\n"
+			+ "  for (int row = 0; row < rank; row++) {\n"
+			+ "    int product = (pattern * rows_per_pattern + 1 + row) * product_width + 3 * variant;\n"
+			+ "    double value = products[product + 1] + replacement * (design_sums[pattern * rank + row] - products[product]);\n"
+			+ "    for (int previous = 0; previous < row; previous++) value -= upper[(pattern * rank + previous) * rank + row] * q[previous];\n"
+			+ "    value /= upper[(pattern * rank + row) * rank + row];\n"
+			+ "    q[row] = value; projection += value * value;\n"
+			+ "  }\n"
+			+ "  int target = ((first_pattern + pattern) * variants + variant) * 3;\n"
+			+ "  compact[target] = replacement; compact[target + 1] = sum_squares - projection; compact[target + 2] = sum_squares;\n"
+			+ "}\n";
+		int[] status = new int[1];
+		patternProgram = clCreateProgramWithSource(context, 1, new String[] {source}, null, status);
+		JoclGpuBackend.check(status[0], "clCreateProgramWithSource(pattern statistics)");
+		status[0] = clBuildProgram(patternProgram, 1,
+			new org.jocl.cl_device_id[] {device.deviceId()}, null, null, null);
+		if (status[0] != org.jocl.CL.CL_SUCCESS) {
+			String buildLog = getBuildLog(patternProgram);
+			int buildStatus = status[0];
+			releasePatternResources();
+			throw new GpuException("OpenCL pattern-statistics kernel build failed on "
+				+ device.getName() + ": " + org.jocl.CL.stringFor_errorCode(buildStatus)
+				+ " (" + buildStatus + ")\n" + buildLog);
+		}
+		patternFinalizeKernel = clCreateKernel(patternProgram,
+			"finalize_pattern_statistics", status);
+		JoclGpuBackend.check(status[0], "clCreateKernel(finalize_pattern_statistics)");
+	}
+
+	private void setPatternFinalizeArguments(int rank, int productWidth, int variants,
+		int firstPattern, boolean meanFill) {
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 0, Sizeof.cl_mem,
+			Pointer.to(outputBuffer)), "clSetKernelArg(finalize products)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 1, Sizeof.cl_mem,
+			Pointer.to(patternUpperBuffer)), "clSetKernelArg(finalize R)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 2, Sizeof.cl_mem,
+			Pointer.to(patternSumsBuffer)), "clSetKernelArg(finalize sums)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 3, Sizeof.cl_mem,
+			Pointer.to(patternObservedBuffer)), "clSetKernelArg(finalize observed)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 4, Sizeof.cl_mem,
+			Pointer.to(patternCompactBuffer)), "clSetKernelArg(finalize output)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 5, Sizeof.cl_int,
+			Pointer.to(new int[] {rank})), "clSetKernelArg(finalize rank)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 6, Sizeof.cl_int,
+			Pointer.to(new int[] {productWidth})), "clSetKernelArg(finalize width)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 7, Sizeof.cl_int,
+			Pointer.to(new int[] {variants})), "clSetKernelArg(finalize variants)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 8, Sizeof.cl_int,
+			Pointer.to(new int[] {firstPattern})), "clSetKernelArg(finalize offset)");
+		JoclGpuBackend.check(clSetKernelArg(patternFinalizeKernel, 9, Sizeof.cl_int,
+			Pointer.to(new int[] {meanFill ? 1 : 0})), "clSetKernelArg(finalize fill)");
 	}
 
 	private void ensureResidualProgram(GpuPrecision requestedPrecision) {
@@ -555,6 +777,19 @@ final class JoclGpuContext implements GpuContext {
 		}
 	}
 
+	private void releasePatternResources() {
+		if (patternFinalizeKernel != null) clReleaseKernel(patternFinalizeKernel);
+		if (patternProgram != null) clReleaseProgram(patternProgram);
+		if (patternUpperBuffer != null) clReleaseMemObject(patternUpperBuffer);
+		if (patternSumsBuffer != null) clReleaseMemObject(patternSumsBuffer);
+		if (patternObservedBuffer != null) clReleaseMemObject(patternObservedBuffer);
+		if (patternCompactBuffer != null) clReleaseMemObject(patternCompactBuffer);
+		patternFinalizeKernel = null;
+		patternProgram = null;
+		patternUpperBuffer = patternSumsBuffer = patternObservedBuffer = patternCompactBuffer = null;
+		patternUpperCapacity = patternSumsCapacity = patternObservedCapacity = patternCompactCapacity = 0;
+	}
+
 	@Override
 	public synchronized void close() {
 		if (closed) {
@@ -563,6 +798,7 @@ final class JoclGpuContext implements GpuContext {
 		closed = true;
 		releaseResidualBuffers();
 		releaseResidualProgram();
+		releasePatternResources();
 		releaseProgramAndKernel();
 		if (inputABuffer != null) clReleaseMemObject(inputABuffer);
 		if (inputBBuffer != null) clReleaseMemObject(inputBBuffer);

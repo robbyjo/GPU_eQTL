@@ -18,6 +18,8 @@ import gov.nih.eqtl.io.QPreparedMatrix;
 import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuContextPool;
 import gov.nih.gpu.GpuExecutionMetrics;
+import gov.nih.gpu.GpuPatternStatisticsPlan;
+import gov.nih.gpu.GpuPatternStatisticsResult;
 import gov.nih.gpu.GpuPrecision;
 
 /** One raw genotype block evaluated against all exact trait masks. */
@@ -123,93 +125,43 @@ final class QGenotypeOuterPatternJob implements Runnable {
     private record PatternVariantStatistics(double[][] standardDeviations,
         double[][] replacements) { }
 
-    private PatternVariantStatistics calculatePatternStatistics(GpuContext context,
-        double[] aggregateInputs, int paddedSamples, int activeVariants, int tripledCapacity) {
-        QTraitPatternModelSet.Model[] allModels = models.models();
-        double[][] standardDeviations = new double[allModels.length][];
-        double[][] replacements = new double[allModels.length][];
-        int estimablePatterns = 0;
-        for (QTraitPatternModelSet.Model model : allModels)
-            if (model.estimable()) estimablePatterns++;
-        int rowsPerPattern = models.designColumns() + 1;
-        long bytesPerPattern = (long) rowsPerPattern * tripledCapacity * Double.BYTES;
-        int patternsPerBatch = (int) Math.max(1,
-            Math.min(64, DESIGN_OUTPUT_TARGET_BYTES / Math.max(1, bytesPerPattern)));
-        QTraitPatternModelSet.Model[] batch = new QTraitPatternModelSet.Model[patternsPerBatch];
-        int batchCount = 0;
-        int completed = 0;
-        for (QTraitPatternModelSet.Model model : allModels) {
-            if (!model.estimable()) continue;
-            batch[batchCount++] = model;
-            completed++;
-            if (batchCount == batch.length || completed == estimablePatterns) {
-                calculatePatternBatch(context, aggregateInputs, paddedSamples, activeVariants,
-                    tripledCapacity, batch, batchCount, standardDeviations, replacements);
-                batchCount = 0;
-            }
-        }
-        return new PatternVariantStatistics(standardDeviations, replacements);
-    }
-
-    private void calculatePatternBatch(GpuContext context, double[] aggregateInputs,
-        int paddedSamples, int activeVariants, int tripledCapacity,
-        QTraitPatternModelSet.Model[] batch, int batchCount, double[][] standardDeviations,
-        double[][] replacements) {
-        int rowsPerPattern = models.designColumns() + 1;
-        int activeRows = batchCount * rowsPerPattern;
-        int rowCapacity = roundUp(activeRows, LOCAL_BLOCK_SIZE);
-        double[] designMasks = new double[Math.multiplyExact(rowCapacity, paddedSamples)];
-        for (int pattern = 0; pattern < batchCount; pattern++) {
-            QTraitPatternModelSet.Model model = batch[pattern];
-            int rowBase = pattern * rowsPerPattern;
-            for (int observed : model.observed) {
-                designMasks[rowBase * paddedSamples + observed] = 1;
-                for (int covariate = 0; covariate < models.designColumns(); covariate++)
-                    designMasks[(rowBase + 1 + covariate) * paddedSamples + observed]
-                        = models.designValue(observed, covariate);
-            }
-        }
-        long localBytes = (long) (LOCAL_BLOCK_SIZE + 1) * (4L * LOCAL_BLOCK_SIZE)
-            * Double.BYTES;
-        double[] products = context.executeDoubleKernel(designMasks, aggregateInputs,
-            Math.multiplyExact(rowCapacity, tripledCapacity), localBytes, paddedSamples,
-            tripledCapacity, new long[] {roundUp(activeVariants * 3, LOCAL_BLOCK_SIZE),
-                rowCapacity}, new long[] {LOCAL_BLOCK_SIZE, LOCAL_BLOCK_SIZE});
-        recordGpuMetrics(context.getLastExecutionMetrics());
-        double[] xTranspose = new double[models.designColumns()];
-        double[] workspace = new double[models.designColumns()];
-        for (int pattern = 0; pattern < batchCount; pattern++) {
-            QTraitPatternModelSet.Model model = batch[pattern];
-            double[] sd = new double[activeVariants];
-            double[] replacementValues = new double[activeVariants];
-            int rowBase = pattern * rowsPerPattern;
-            for (int variant = 0; variant < activeVariants; variant++) {
-                int maskBase = rowBase * tripledCapacity + 3 * variant;
-                double called = products[maskBase];
-                double sum = products[maskBase + 1];
-                double replacement = predictorMissingPolicy == QMissingValuePolicy.MEAN
-                    ? (called > 0 ? sum / called : Double.NaN) : 0.0;
-                replacementValues[variant] = replacement;
-                double missing = model.observed.length - called;
-                double sumSquares = products[maskBase + 2] + missing * replacement * replacement;
-                for (int covariate = 0; covariate < xTranspose.length; covariate++) {
-                    int productBase = (rowBase + 1 + covariate) * tripledCapacity
-                        + 3 * variant;
-                    double xCalled = products[productBase];
-                    double xGenotype = products[productBase + 1];
-                    xTranspose[covariate] = xGenotype
-                        + replacement * (model.designSums[covariate] - xCalled);
-                }
-                double residual = QPatternSufficientStatistics.residualSumSquares(sumSquares,
-                    xTranspose, model.upperR, workspace);
-                sd[variant] = residual > 0
-                    ? QPatternSufficientStatistics.standardDeviation(residual, model.observed.length)
-                    : Double.NaN;
+	private PatternVariantStatistics calculatePatternStatistics(GpuContext context,
+		double[] aggregateInputs, int paddedSamples, int activeVariants, int tripledCapacity) {
+		QTraitPatternModelSet.Model[] allModels = models.models();
+		double[][] standardDeviations = new double[allModels.length][];
+		double[][] replacements = new double[allModels.length][];
+		int rowsPerPattern = models.designColumns() + 1;
+		long bytesPerPattern = (long) rowsPerPattern * tripledCapacity * Double.BYTES;
+		int patternsPerBatch = (int) Math.max(1,
+			Math.min(64, DESIGN_OUTPUT_TARGET_BYTES / Math.max(1, bytesPerPattern)));
+		GpuPatternStatisticsPlan plan = models.patternStatisticsPlan();
+		GpuPatternStatisticsResult compact = context.computePatternStatisticsDouble(
+			aggregateInputs, paddedSamples, activeVariants, genotypeCapacity, plan,
+			predictorMissingPolicy == QMissingValuePolicy.MEAN, patternsPerBatch,
+			LOCAL_BLOCK_SIZE);
+		recordGpuMetrics(context.getLastExecutionMetrics());
+		for (int pattern = 0; pattern < plan.patternCount(); pattern++) {
+			QTraitPatternModelSet.Model model = models.model(plan.patternId(pattern));
+			double[] sd = new double[activeVariants];
+			double[] replacementValues = new double[activeVariants];
+			for (int variant = 0; variant < activeVariants; variant++) {
+				double replacement = compact.value(pattern, variant,
+					GpuPatternStatisticsResult.REPLACEMENT);
+				replacementValues[variant] = replacement;
+				double residual = QPatternSufficientStatistics.validateResidualSumSquares(
+					compact.value(pattern, variant,
+						GpuPatternStatisticsResult.FILLED_SUM_SQUARES),
+					compact.value(pattern, variant,
+						GpuPatternStatisticsResult.RESIDUAL_SUM_SQUARES));
+				sd[variant] = residual > 0
+					? QPatternSufficientStatistics.standardDeviation(residual, model.observed.length)
+					: Double.NaN;
             }
             standardDeviations[model.id] = sd;
             replacements[model.id] = replacementValues;
-        }
-    }
+		}
+		return new PatternVariantStatistics(standardDeviations, replacements);
+	}
 
     private void calculateAndWriteAssociations(GpuContext context, double[] traitInputs,
         int paddedSamples, int activeVariants, int doubledCapacity, PreparedBlock traitBlock,

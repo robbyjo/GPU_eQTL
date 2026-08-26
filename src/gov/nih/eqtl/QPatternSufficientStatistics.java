@@ -46,12 +46,18 @@ final class QPatternSufficientStatistics {
 			qTransposeWorkspace[row] = value;
             projectionSumSquares += value * value;
         }
-        double residual = sumSquares - projectionSumSquares;
-        double tolerance = Math.max(1.0, sumSquares) * NEGATIVE_ROUNDOFF_TOLERANCE;
-        if (residual < -tolerance || !Double.isFinite(residual))
-            throw new IllegalArgumentException("Invalid negative genotype residual sum of squares " + residual);
-        return Math.max(0, residual);
-    }
+		return validateResidualSumSquares(sumSquares, sumSquares - projectionSumSquares);
+	}
+
+	static double validateResidualSumSquares(double sumSquares, double residual) {
+		if (!Double.isFinite(sumSquares) || sumSquares < 0 || !Double.isFinite(residual))
+			throw new IllegalArgumentException("Invalid genotype residual sufficient statistics");
+		double tolerance = Math.max(1.0, sumSquares) * NEGATIVE_ROUNDOFF_TOLERANCE;
+		if (residual < -tolerance)
+			throw new IllegalArgumentException(
+				"Invalid negative genotype residual sum of squares " + residual);
+		return Math.max(0, residual);
+	}
 
     static double standardDeviation(double residualSumSquares, int sampleCount) {
         if (!Double.isFinite(residualSumSquares) || residualSumSquares <= 0 || sampleCount <= 1)

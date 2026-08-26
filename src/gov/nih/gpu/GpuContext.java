@@ -43,6 +43,18 @@ public interface GpuContext extends AutoCloseable {
 		long[] globalWorkSize,
 		long[] localWorkSize);
 
+	/**
+	 * Compute compact FP64 pattern-specific predictor replacement and variance state.
+	 * Implementations may retain device allocations while this exclusive context is open.
+	 */
+	default GpuPatternStatisticsResult computePatternStatisticsDouble(
+		double[] aggregateInputs, int paddedSamples, int activeVariants, int variantCapacity,
+		GpuPatternStatisticsPlan plan, boolean meanFill, int patternsPerBatch,
+		int workGroupSize) {
+		return GpuPatternStatisticsSupport.calculate(this, aggregateInputs, paddedSamples,
+			activeVariants, variantCapacity, plan, meanFill, patternsPerBatch, workGroupSize);
+	}
+
 	default float[] executeFloatKernel(
 		float[] inputA,
 		float[] inputB,

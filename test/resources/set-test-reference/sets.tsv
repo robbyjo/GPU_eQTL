@@ -1,0 +1,7 @@
+SET_ID	VARIANT_ID	REF	ALT	EFFECT_ALLELE	WEIGHT
+geneA	v1	A	G	G	1
+geneA	v2	C	T	C	0.5
+geneB	v2	C	T	C	0.5
+geneB	v3	G	A	A	2
+geneEmpty	vMissing	C	G	G	1
+mono	v4	A	C	C	1

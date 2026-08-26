@@ -11,12 +11,21 @@ import gov.nih.gpu.GpuContext;
 import gov.nih.gpu.GpuDevice;
 import gov.nih.gpu.GpuExecutionMetrics;
 import gov.nih.gpu.GpuException;
+import gov.nih.gpu.GpuPatternStatisticsPlan;
+import gov.nih.gpu.GpuPatternStatisticsResult;
+import gov.nih.gpu.GpuPatternStatisticsSupport;
 import gov.nih.gpu.GpuPrecision;
 
 import jcuda.Pointer;
 import jcuda.Sizeof;
+import jcuda.driver.CUcontext;
+import jcuda.driver.CUfunction;
+import jcuda.driver.CUmodule;
+import jcuda.driver.JCudaDriver;
 import jcuda.jcublas.JCublas2;
 import jcuda.jcublas.cublasHandle;
+import jcuda.nvrtc.JNvrtc;
+import jcuda.nvrtc.nvrtcProgram;
 import jcuda.runtime.JCuda;
 
 import java.util.regex.Matcher;
@@ -42,6 +51,16 @@ final class CudaGpuContext implements GpuContext {
 	private long inputACapacity;
 	private long inputBCapacity;
 	private long outputCapacity;
+	private CUmodule patternModule;
+	private CUfunction patternFinalizeFunction;
+	private Pointer patternUpperBuffer;
+	private Pointer patternSumsBuffer;
+	private Pointer patternObservedBuffer;
+	private Pointer patternCompactBuffer;
+	private long patternUpperCapacity;
+	private long patternSumsCapacity;
+	private long patternObservedCapacity;
+	private long patternCompactCapacity;
 	private Pointer residualValuesBuffer;
 	private Pointer residualQBuffer;
 	private Pointer residualCoefficientsBuffer;
@@ -268,6 +287,119 @@ final class CudaGpuContext implements GpuContext {
 	}
 
 	@Override
+	public synchronized GpuPatternStatisticsResult computePatternStatisticsDouble(
+		double[] aggregateInputs, int paddedSamples, int activeVariants, int variantCapacity,
+		GpuPatternStatisticsPlan plan, boolean meanFill, int patternsPerBatch,
+		int workGroupSize) {
+		ensureOpen();
+		if (!kernelReady || precision != GpuPrecision.FP64)
+			throw new GpuException("The CUDA FP64 association operation must be compiled first");
+		GpuPatternStatisticsSupport.validate(aggregateInputs, paddedSamples, activeVariants,
+			variantCapacity, plan, patternsPerBatch, workGroupSize);
+		if (plan.rank() > 64)
+			throw new GpuException("CUDA compact pattern finalization supports at most 64 design columns");
+		try {
+			selectDevice();
+			ensurePatternKernel();
+			int rank = plan.rank();
+			int tripledCapacity = Math.multiplyExact(variantCapacity, 3);
+			int maximumRows = GpuPatternStatisticsSupport.roundUp(
+				patternsPerBatch * plan.rowsPerPattern(), workGroupSize);
+			double[] designMasks = new double[Math.multiplyExact(maximumRows, paddedSamples)];
+			double[] upper = new double[Math.multiplyExact(patternsPerBatch, rank * rank)];
+			double[] designSums = new double[Math.multiplyExact(patternsPerBatch, rank)];
+			int[] observedCounts = new int[patternsPerBatch];
+			double[] compact = new double[Math.multiplyExact(
+				Math.multiplyExact(plan.patternCount(), activeVariants),
+				GpuPatternStatisticsResult.VALUES_PER_CELL)];
+			long aggregateBytes = Math.multiplyExact((long) aggregateInputs.length, Sizeof.DOUBLE);
+			long maximumDesignBytes = Math.multiplyExact((long) designMasks.length, Sizeof.DOUBLE);
+			long maximumProductBytes = Math.multiplyExact((long) maximumRows * tripledCapacity,
+				Sizeof.DOUBLE);
+			long maximumUpperBytes = Math.multiplyExact((long) upper.length, Sizeof.DOUBLE);
+			long maximumSumsBytes = Math.multiplyExact((long) designSums.length, Sizeof.DOUBLE);
+			long maximumObservedBytes = Math.multiplyExact((long) observedCounts.length, Sizeof.INT);
+			long compactBytes = Math.multiplyExact((long) compact.length, Sizeof.DOUBLE);
+
+			long setupStarted = profilingEnabled ? System.nanoTime() : 0;
+			ensureInputABuffer(maximumDesignBytes);
+			ensureInputBBuffer(aggregateBytes);
+			ensureOutputBuffer(maximumProductBytes);
+			patternUpperBuffer = ensurePatternBuffer(patternUpperBuffer,
+				maximumUpperBytes, patternUpperCapacity);
+			patternUpperCapacity = Math.max(patternUpperCapacity, maximumUpperBytes);
+			patternSumsBuffer = ensurePatternBuffer(patternSumsBuffer,
+				maximumSumsBytes, patternSumsCapacity);
+			patternSumsCapacity = Math.max(patternSumsCapacity, maximumSumsBytes);
+			patternObservedBuffer = ensurePatternBuffer(patternObservedBuffer,
+				maximumObservedBytes, patternObservedCapacity);
+			patternObservedCapacity = Math.max(patternObservedCapacity, maximumObservedBytes);
+			patternCompactBuffer = ensurePatternBuffer(patternCompactBuffer,
+				compactBytes, patternCompactCapacity);
+			patternCompactCapacity = Math.max(patternCompactCapacity, compactBytes);
+			long setupNanos = elapsed(setupStarted);
+
+			long uploadNanos = 0;
+			long computeNanos = 0;
+			long uploadedBytes = aggregateBytes;
+			long phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(inputBBuffer, Pointer.to(aggregateInputs), aggregateBytes,
+				cudaMemcpyHostToDevice);
+			if (profilingEnabled) JCuda.cudaDeviceSynchronize();
+			uploadNanos += elapsed(phaseStarted);
+			Pointer alpha = Pointer.to(new double[] {normalization});
+			Pointer beta = Pointer.to(new double[] {0.0});
+			for (int first = 0; first < plan.patternCount(); first += patternsPerBatch) {
+				int count = Math.min(patternsPerBatch, plan.patternCount() - first);
+				int rowCapacity = GpuPatternStatisticsSupport.roundUp(
+					count * plan.rowsPerPattern(), workGroupSize);
+				plan.fillBatch(first, count, paddedSamples, rowCapacity, designMasks,
+					upper, designSums, observedCounts);
+				long designBytes = Math.multiplyExact((long) rowCapacity * paddedSamples,
+					Sizeof.DOUBLE);
+				long upperBytes = Math.multiplyExact((long) count * rank * rank, Sizeof.DOUBLE);
+				long sumsBytes = Math.multiplyExact((long) count * rank, Sizeof.DOUBLE);
+				long observedBytes = Math.multiplyExact((long) count, Sizeof.INT);
+				phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+				JCuda.cudaMemcpy(inputABuffer, Pointer.to(designMasks), designBytes,
+					cudaMemcpyHostToDevice);
+				JCuda.cudaMemcpy(patternUpperBuffer, Pointer.to(upper), upperBytes,
+					cudaMemcpyHostToDevice);
+				JCuda.cudaMemcpy(patternSumsBuffer, Pointer.to(designSums), sumsBytes,
+					cudaMemcpyHostToDevice);
+				JCuda.cudaMemcpy(patternObservedBuffer, Pointer.to(observedCounts), observedBytes,
+					cudaMemcpyHostToDevice);
+				if (profilingEnabled) JCuda.cudaDeviceSynchronize();
+				uploadNanos += elapsed(phaseStarted);
+				uploadedBytes += designBytes + upperBytes + sumsBytes + observedBytes;
+
+				phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+				JCublas2.cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+					activeVariants * 3, rowCapacity, paddedSamples,
+					alpha, inputBBuffer, tripledCapacity,
+					inputABuffer, paddedSamples,
+					beta, outputBuffer, tripledCapacity);
+				launchPatternFinalizer(rank, tripledCapacity, activeVariants, count,
+					first, meanFill);
+				JCuda.cudaDeviceSynchronize();
+				computeNanos += elapsed(phaseStarted);
+			}
+			phaseStarted = profilingEnabled ? System.nanoTime() : 0;
+			JCuda.cudaMemcpy(Pointer.to(compact), patternCompactBuffer, compactBytes,
+				cudaMemcpyDeviceToHost);
+			long downloadNanos = elapsed(phaseStarted);
+			lastExecutionMetrics = profilingEnabled
+				? new GpuExecutionMetrics(setupNanos, uploadNanos, computeNanos,
+					downloadNanos, uploadedBytes, compactBytes)
+				: GpuExecutionMetrics.EMPTY;
+			return new GpuPatternStatisticsResult(plan.patternCount(), activeVariants, compact);
+		} catch (RuntimeException | LinkageError e) {
+			throw new GpuException("CUDA compact pattern-statistics execution failed on "
+				+ device.getName(), e);
+		}
+	}
+
+	@Override
 	public synchronized double[] residualizeDoubleRows(double[] rowMajorValues, double[] rowMajorQ,
 		int rowCount, int sampleCount, int covariateRank) {
 		ensureOpen();
@@ -478,6 +610,85 @@ final class CudaGpuContext implements GpuContext {
 		inputACapacity = requiredBytes;
 	}
 
+	private void ensurePatternKernel() {
+		if (patternFinalizeFunction != null) return;
+		JCudaDriver.cuInit(0);
+		CUcontext current = new CUcontext();
+		JCudaDriver.cuCtxGetCurrent(current);
+		nvrtcProgram program = new nvrtcProgram();
+		JNvrtc.nvrtcCreateProgram(program, patternKernelSource(),
+			"gpu_eqtl_pattern_statistics.cu", 0, null, null);
+		try {
+			String architecture = "--gpu-architecture=compute_" + device.computeMajor()
+				+ device.computeMinor();
+			try {
+				JNvrtc.nvrtcCompileProgram(program, 1, new String[] {architecture});
+			} catch (RuntimeException e) {
+				long[] logSize = new long[1];
+				JNvrtc.nvrtcGetProgramLogSize(program, logSize);
+				String[] log = new String[1];
+				JNvrtc.nvrtcGetProgramLog(program, log);
+				throw new GpuException("NVRTC pattern-statistics compilation failed: "
+					+ (log[0] == null ? "no compiler log" : log[0]), e);
+			}
+			String[] ptx = new String[1];
+			JNvrtc.nvrtcGetPTX(program, ptx);
+			patternModule = new CUmodule();
+			JCudaDriver.cuModuleLoadData(patternModule, ptx[0]);
+			patternFinalizeFunction = new CUfunction();
+			JCudaDriver.cuModuleGetFunction(patternFinalizeFunction, patternModule,
+				"finalize_pattern_statistics");
+		} finally {
+			JNvrtc.nvrtcDestroyProgram(program);
+		}
+	}
+
+	private void launchPatternFinalizer(int rank, int productWidth, int variants,
+		int patterns, int firstPattern, boolean meanFill) {
+		int threads = 128;
+		Pointer parameters = Pointer.to(
+			Pointer.to(outputBuffer), Pointer.to(patternUpperBuffer),
+			Pointer.to(patternSumsBuffer), Pointer.to(patternObservedBuffer),
+			Pointer.to(patternCompactBuffer), Pointer.to(new int[] {rank}),
+			Pointer.to(new int[] {productWidth}), Pointer.to(new int[] {variants}),
+			Pointer.to(new int[] {firstPattern}), Pointer.to(new int[] {meanFill ? 1 : 0}));
+		JCudaDriver.cuLaunchKernel(patternFinalizeFunction,
+			(variants + threads - 1) / threads, patterns, 1,
+			threads, 1, 1, 0, null, parameters, null);
+	}
+
+	private Pointer ensurePatternBuffer(Pointer current, long requiredBytes, long capacity) {
+		return current != null && capacity >= requiredBytes
+			? current : replaceBuffer(current, requiredBytes);
+	}
+
+	private static String patternKernelSource() {
+		return "extern \"C\" __global__ void finalize_pattern_statistics("
+			+ "const double* products, const double* upper, const double* design_sums, "
+			+ "const int* observed, double* compact, int rank, int product_width, "
+			+ "int variants, int first_pattern, int mean_fill) {\n"
+			+ "  int variant = blockIdx.x * blockDim.x + threadIdx.x;\n"
+			+ "  int pattern = blockIdx.y;\n"
+			+ "  if (variant >= variants) return;\n"
+			+ "  int rows_per_pattern = rank + 1;\n"
+			+ "  int mask = (pattern * rows_per_pattern) * product_width + 3 * variant;\n"
+			+ "  double called = products[mask];\n"
+			+ "  double replacement = mean_fill ? (called > 0.0 ? products[mask + 1] / called : (0.0 / 0.0)) : 0.0;\n"
+			+ "  double missing = (double)observed[pattern] - called;\n"
+			+ "  double sum_squares = products[mask + 2] + missing * replacement * replacement;\n"
+			+ "  double projection = 0.0; double q[64];\n"
+			+ "  for (int row = 0; row < rank; row++) {\n"
+			+ "    int product = (pattern * rows_per_pattern + 1 + row) * product_width + 3 * variant;\n"
+			+ "    double value = products[product + 1] + replacement * (design_sums[pattern * rank + row] - products[product]);\n"
+			+ "    for (int previous = 0; previous < row; previous++) value -= upper[(pattern * rank + previous) * rank + row] * q[previous];\n"
+			+ "    value /= upper[(pattern * rank + row) * rank + row];\n"
+			+ "    q[row] = value; projection += value * value;\n"
+			+ "  }\n"
+			+ "  int target = ((first_pattern + pattern) * variants + variant) * 3;\n"
+			+ "  compact[target] = replacement; compact[target + 1] = sum_squares - projection; compact[target + 2] = sum_squares;\n"
+			+ "}\n";
+	}
+
 	private void ensureInputBBuffer(long requiredBytes) {
 		if (inputBBuffer != null && inputBCapacity >= requiredBytes) {
 			return;
@@ -520,6 +731,11 @@ final class CudaGpuContext implements GpuContext {
 		}
 		try {
 			selectDevice();
+			if (patternModule != null) JCudaDriver.cuModuleUnload(patternModule);
+			if (patternUpperBuffer != null) JCuda.cudaFree(patternUpperBuffer);
+			if (patternSumsBuffer != null) JCuda.cudaFree(patternSumsBuffer);
+			if (patternObservedBuffer != null) JCuda.cudaFree(patternObservedBuffer);
+			if (patternCompactBuffer != null) JCuda.cudaFree(patternCompactBuffer);
 			if (residualValuesBuffer != null) JCuda.cudaFree(residualValuesBuffer);
 			if (residualQBuffer != null) JCuda.cudaFree(residualQBuffer);
 			if (residualCoefficientsBuffer != null) JCuda.cudaFree(residualCoefficientsBuffer);
@@ -531,6 +747,9 @@ final class CudaGpuContext implements GpuContext {
 			throw new GpuException("Could not release the CUDA resources for " + device.getName(), e);
 		} finally {
 			inputABuffer = inputBBuffer = outputBuffer = null;
+			patternUpperBuffer = patternSumsBuffer = patternObservedBuffer = patternCompactBuffer = null;
+			patternFinalizeFunction = null;
+			patternModule = null;
 			residualValuesBuffer = residualQBuffer = residualCoefficientsBuffer = null;
 			handle = null;
 			closed = true;

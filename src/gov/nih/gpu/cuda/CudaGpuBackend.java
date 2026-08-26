@@ -12,6 +12,8 @@ import gov.nih.gpu.GpuDevice;
 import gov.nih.gpu.GpuException;
 
 import jcuda.jcublas.JCublas2;
+import jcuda.driver.JCudaDriver;
+import jcuda.nvrtc.JNvrtc;
 import jcuda.runtime.JCuda;
 import jcuda.runtime.cudaDeviceProp;
 
@@ -26,6 +28,8 @@ public final class CudaGpuBackend implements GpuBackend {
 	static {
 		JCuda.setExceptionsEnabled(true);
 		JCublas2.setExceptionsEnabled(true);
+		JCudaDriver.setExceptionsEnabled(true);
+		JNvrtc.setExceptionsEnabled(true);
 	}
 
 	@Override
