@@ -83,6 +83,7 @@ public final class QSetTestNullModel {
     public int sampleCount() { return sampleCount; }
     public int covariateRank() { return covariateRank; }
     public int residualDegreesOfFreedom() { return residualDegreesOfFreedom; }
+    public int nullResidualDegreesOfFreedom() { return sampleCount - covariateRank; }
     public String[] traitIds() { return traits.rowIds().clone(); }
 
     double[][] covariateQ() { return covariateQ; }

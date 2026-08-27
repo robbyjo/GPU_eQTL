@@ -19,6 +19,7 @@ package gov.nih.eqtl;
 
 import gov.nih.eqtl.io.QIniLoader;
 import gov.nih.eqtl.io.QSampleAlignmentPolicy;
+import gov.nih.eqtl.settest.QSetTestMethod;
 import gov.nih.gpu.GpuPrecision;
 
 import java.io.File;
@@ -86,6 +87,67 @@ public class QeQTLAnalysisConfig {
 
 	public String getOutputFilename()
 	{	return expandPath(mIni.get("output_file"), getIniPath()); } //$NON-NLS-1$
+
+	public QSetTestMethod getAnalysisMethod()
+	{ return QSetTestMethod.parse(mIni.get("analysis")); }
+
+	public String getVariantSetsFilename()
+	{ return expandPath(mIni.get("variant_sets"), getIniPath()); }
+
+	public String getSetAuditFilename()
+	{ return expandPath(mIni.get("set_audit_output"), getIniPath()); }
+
+	public double getSetMinimumMaf()
+	{ return getNonNegativeDouble("set_min_maf"); }
+
+	public double getSetMaximumMaf()
+	{
+		String value = mIni.get("set_max_maf");
+		return value == null ? 0.5 : Double.parseDouble(value);
+	}
+
+	public double getSetMinimumMac()
+	{ return getNonNegativeDouble("set_min_mac"); }
+
+	public double getSetMaximumMac()
+	{
+		String value = mIni.get("set_max_mac");
+		return value == null ? Double.POSITIVE_INFINITY : Double.parseDouble(value);
+	}
+
+	public String getSetAbsentVariantPolicy()
+	{ return mIni.get("set_absent_variant"); }
+
+	public String getSetDegeneratePolicy()
+	{ return mIni.get("set_degenerate"); }
+
+	public int getSetBlockSize()
+	{
+		String value = mIni.get("set_block_size");
+		return value == null ? 256 : Integer.parseInt(value);
+	}
+
+	public double[] getSkatORhoGrid()
+	{
+		String value = mIni.get("skat_o_rho_grid");
+		if (value == null || value.isBlank()) return new double[] {0, 0.25, 0.5, 0.75, 1};
+		String[] fields = value.split(",", -1);
+		double[] result = new double[fields.length];
+		for (int i = 0; i < fields.length; i++) result[i] = Double.parseDouble(fields[i].trim());
+		return result;
+	}
+
+	public int getSkatOSimulations()
+	{
+		String value = mIni.get("skat_o_simulations");
+		return value == null ? 10000 : Integer.parseInt(value);
+	}
+
+	public long getSkatOSeed()
+	{
+		String value = mIni.get("skat_o_seed");
+		return value == null ? 20260827L : Long.parseLong(value);
+	}
 
 	public String[] getLibraryPaths()
 	{

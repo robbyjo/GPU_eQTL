@@ -7,6 +7,8 @@
  */
 package gov.nih.eqtl.settest;
 
+import static gov.nih.utils.QDataUtils.kUndefinedValue;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +22,8 @@ import gov.nih.eqtl.io.QMatrixRowSource.Block;
 import gov.nih.eqtl.settest.QSetTestPolicy.FailurePolicy;
 import gov.nih.eqtl.settest.QVariantSetTable.Entry;
 import gov.nih.eqtl.settest.QVariantSetTable.SetDefinition;
+import gov.nih.utils.matrix.EMultiplicationMode;
+import gov.nih.utils.matrix.QMatrixUtils;
 
 /** Deterministic scalar/CPU weighted-burden reference for continuous traits. */
 public final class QBurdenReference {
@@ -63,19 +67,34 @@ public final class QBurdenReference {
 
     public static Analysis analyze(QVariantSetTable table, List<Variant> variants,
         QSetTestNullModel nullModel, QSetTestPolicy policy) {
+        return analyze(table, variants, nullModel, policy, false);
+    }
+
+    /** Production FP64 path: prepares each burden once and batches all set-by-trait products. */
+    public static Analysis analyzeBatched(QVariantSetTable table, List<Variant> variants,
+        QSetTestNullModel nullModel, QSetTestPolicy policy) {
+        return analyze(table, variants, nullModel, policy, true);
+    }
+
+    private static Analysis analyze(QVariantSetTable table, List<Variant> variants,
+        QSetTestNullModel nullModel, QSetTestPolicy policy, boolean batched) {
         if (table == null || variants == null || nullModel == null || policy == null)
             throw new IllegalArgumentException("Set definitions, variants, null model, and policy are required");
         Map<String, Variant> source = indexVariants(variants, nullModel.sampleCount());
         List<SetAudit> audits = new ArrayList<>();
         List<Result> results = new ArrayList<>();
-        for (SetDefinition set : table.sets())
-            analyzeSet(set, source, nullModel, policy, audits, results);
+        List<PreparedSet> preparedSets = new ArrayList<>();
+        for (SetDefinition set : table.sets()) {
+            PreparedSet prepared = prepareSet(set, source, nullModel, policy, audits);
+            if (prepared != null) preparedSets.add(prepared);
+        }
+        if (batched) calculateBatched(preparedSets, nullModel, results);
+        else calculateScalar(preparedSets, nullModel, results);
         return new Analysis(audits, results);
     }
 
-    private static void analyzeSet(SetDefinition set, Map<String, Variant> source,
-        QSetTestNullModel nullModel, QSetTestPolicy policy, List<SetAudit> audits,
-        List<Result> results) {
+    private static PreparedSet prepareSet(SetDefinition set, Map<String, Variant> source,
+        QSetTestNullModel nullModel, QSetTestPolicy policy, List<SetAudit> audits) {
         double[] burden = new double[nullModel.sampleCount()];
         int absent = 0;
         int frequencyExcluded = 0;
@@ -104,7 +123,7 @@ public final class QBurdenReference {
                     + "' has no variants after source and frequency filtering");
             audits.add(new SetAudit(set.id(), set.entries().size(), absent,
                 frequencyExcluded, 0, List.of(), "skipped-empty"));
-            return;
+            return null;
         }
         PreparedBlock prepared;
         try {
@@ -116,22 +135,49 @@ public final class QBurdenReference {
                     + "' has zero or invalid burden variance after covariate adjustment", e);
             audits.add(new SetAudit(set.id(), set.entries().size(), absent,
                 frequencyExcluded, includedIds.size(), includedIds, "skipped-monomorphic"));
-            return;
+            return null;
         }
         audits.add(new SetAudit(set.id(), set.entries().size(), absent,
             frequencyExcluded, includedIds.size(), includedIds, "analyzed"));
+        return new PreparedSet(set.id(), includedIds.size(), prepared.values()[0],
+            prepared.standardDeviations()[0]);
+    }
+
+    private static void calculateScalar(List<PreparedSet> sets,
+        QSetTestNullModel nullModel, List<Result> results) {
         PreparedBlock traits = nullModel.traits();
-        for (int trait = 0; trait < traits.values().length; trait++) {
-            double correlation = QeQTLPreprocessor.correlation(
-                prepared.values()[0], traits.values()[trait]);
-            QeQTLStatistics.Result statistic = QeQTLStatistics.calculate(correlation,
-                traits.standardDeviations()[trait], prepared.standardDeviations()[0],
-                nullModel.residualDegreesOfFreedom(), 0);
-            results.add(new Result(set.id(), traits.rowIds()[trait], includedIds.size(),
-                nullModel.sampleCount(), nullModel.residualDegreesOfFreedom(),
-                statistic.rSquared(), statistic.effect(), statistic.tStatistic(),
-                statistic.log10P()));
-        }
+        for (PreparedSet set : sets)
+            for (int trait = 0; trait < traits.values().length; trait++)
+                addResult(results, set, traits, trait,
+                    QeQTLPreprocessor.correlation(set.standardizedBurden(),
+                        traits.values()[trait]), nullModel);
+    }
+
+    private static void calculateBatched(List<PreparedSet> sets,
+        QSetTestNullModel nullModel, List<Result> results) {
+        if (sets.isEmpty()) return;
+        PreparedBlock traits = nullModel.traits();
+        double[][] burdens = new double[sets.size()][];
+        for (int set = 0; set < sets.size(); set++) burdens[set] = sets.get(set).standardizedBurden();
+        double[][] products = QMatrixUtils.parallelMatrixMultiplication(burdens,
+            QMatrixUtils.transpose(traits.values()), null, 1, burdens.length,
+            traits.values().length, EMultiplicationMode.XY);
+        double denominator = nullModel.sampleCount() - 1.0;
+        for (int set = 0; set < sets.size(); set++)
+            for (int trait = 0; trait < traits.values().length; trait++)
+                addResult(results, sets.get(set), traits, trait,
+                    products[set][trait] / denominator, nullModel);
+    }
+
+    private static void addResult(List<Result> results, PreparedSet set,
+        PreparedBlock traits, int trait, double correlation, QSetTestNullModel nullModel) {
+        QeQTLStatistics.Result statistic = QeQTLStatistics.calculate(correlation,
+            traits.standardDeviations()[trait], set.standardDeviation(),
+            nullModel.residualDegreesOfFreedom(), 0);
+        results.add(new Result(set.id(), traits.rowIds()[trait], set.variantCount(),
+            nullModel.sampleCount(), nullModel.residualDegreesOfFreedom(),
+            statistic.rSquared(), statistic.effect(), statistic.tStatistic(),
+            statistic.log10P()));
     }
 
     private static Map<String, Variant> indexVariants(List<Variant> variants, int samples) {
@@ -149,7 +195,7 @@ public final class QBurdenReference {
         int called = 0;
         double sum = 0;
         for (double dosage : variant.altDosages) {
-            if (Double.isNaN(dosage))
+            if (isMissing(dosage))
                 continue;
             double valid = validateDosage(variant.id(), dosage);
             called++;
@@ -169,7 +215,7 @@ public final class QBurdenReference {
         for (int sample = 0; sample < burden.length; sample++) {
             double dosage = variant.altDosages[sample];
             double effectDosage;
-            if (Double.isNaN(dosage)) {
+            if (isMissing(dosage)) {
                 if (missingPolicy == QMissingValuePolicy.ERROR)
                     throw new IllegalArgumentException("Variant '" + variant.id()
                         + "' contains a missing dosage under set-test policy error");
@@ -191,5 +237,11 @@ public final class QBurdenReference {
         return Math.max(0, Math.min(2, dosage));
     }
 
+    private static boolean isMissing(double dosage) {
+        return Double.isNaN(dosage) || dosage == kUndefinedValue;
+    }
+
     private record Frequency(int called, double eaf, double maf, double mac) { }
+    private record PreparedSet(String id, int variantCount, double[] standardizedBurden,
+        double standardDeviation) { }
 }

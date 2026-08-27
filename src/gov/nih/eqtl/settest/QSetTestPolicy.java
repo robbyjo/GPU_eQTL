@@ -14,7 +14,19 @@ public record QSetTestPolicy(double minMaf, double maxMaf, double minMac, double
     QMissingValuePolicy predictorMissing, FailurePolicy absentVariant,
     FailurePolicy degenerateSet) {
 
-    public enum FailurePolicy { ERROR, SKIP }
+    public enum FailurePolicy {
+        ERROR, SKIP;
+
+        public static FailurePolicy parse(String value, FailurePolicy defaultValue) {
+            if (value == null || value.isBlank()) return defaultValue;
+            return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "error" -> ERROR;
+                case "skip" -> SKIP;
+                default -> throw new IllegalArgumentException(
+                    "Set-test failure policy must be error or skip");
+            };
+        }
+    }
 
     public QSetTestPolicy {
         if (!Double.isFinite(minMaf) || !Double.isFinite(maxMaf)

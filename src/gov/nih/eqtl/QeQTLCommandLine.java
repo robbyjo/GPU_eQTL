@@ -34,6 +34,19 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--traits", "expression_file");
         VALUE_OPTIONS.put("--covariates", "covariate_file");
         VALUE_OPTIONS.put("--output", "output_file");
+        VALUE_OPTIONS.put("--analysis", "analysis");
+        VALUE_OPTIONS.put("--variant-sets", "variant_sets");
+        VALUE_OPTIONS.put("--set-audit-output", "set_audit_output");
+        VALUE_OPTIONS.put("--set-min-maf", "set_min_maf");
+        VALUE_OPTIONS.put("--set-max-maf", "set_max_maf");
+        VALUE_OPTIONS.put("--set-min-mac", "set_min_mac");
+        VALUE_OPTIONS.put("--set-max-mac", "set_max_mac");
+        VALUE_OPTIONS.put("--set-absent-variant", "set_absent_variant");
+        VALUE_OPTIONS.put("--set-degenerate", "set_degenerate");
+        VALUE_OPTIONS.put("--set-block-size", "set_block_size");
+        VALUE_OPTIONS.put("--skat-o-rho-grid", "skat_o_rho_grid");
+        VALUE_OPTIONS.put("--skat-o-simulations", "skat_o_simulations");
+        VALUE_OPTIONS.put("--skat-o-seed", "skat_o_seed");
         VALUE_OPTIONS.put("--family", "family_file");
         VALUE_OPTIONS.put("--pedigree", "pedigree_file");
         VALUE_OPTIONS.put("--genotype-format", "genotype_format");
@@ -89,7 +102,8 @@ public final class QeQTLCommandLine {
     private static final List<String> PATH_OPTIONS = List.of(
         "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
         "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output",
-        "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output");
+        "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output",
+        "variant_sets", "set_audit_output");
 
     private QeQTLCommandLine() { }
 
@@ -224,6 +238,15 @@ public final class QeQTLCommandLine {
 
             Main options:
               --genotype-format {auto|csv|vcf|vcf.gz|bcf}
+              --analysis {eqtl|burden|skat|skat-o} (default: eqtl)
+              --variant-sets FILE              Explicit set/variant/REF/ALT/effect-allele TSV
+              --set-audit-output FILE          Default: OUTPUT.sets.tsv
+              --set-min-maf V --set-max-maf V  Inclusive aligned-cohort set-test MAF mask
+              --set-min-mac V --set-max-mac V  Inclusive aligned-cohort set-test MAC mask
+              --set-absent-variant {error|skip} --set-degenerate {error|skip}
+              --set-block-size N               Resident set tile size (default: 256)
+              --skat-o-rho-grid LIST           Default: 0,0.25,0.5,0.75,1
+              --skat-o-simulations N --skat-o-seed N
               --predictor-type {genotype|expression|methylation|proteomics|continuous}
               --trait-type {genotype|expression|methylation|proteomics|continuous}
               --genotype-field {auto|DS|GT}   Prefer DS when auto and declared (default: auto)

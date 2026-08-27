@@ -38,23 +38,23 @@ Bounded CPU-output profiling and release validation should proceed alongside tha
 
 - Delivered initial CPU contract/reference: strict tab-separated variant-to-set definitions; exact REF/ALT and explicit effect-allele orientation without implicit swaps/strand flips; positive explicit/default-one weights; deterministic overlapping memberships; aligned-cohort min/max MAF/MAC masks; mean/zero/error genotype missingness; reusable full-rank continuous-trait FP64 null models; and explicit error/skip behavior for absent, empty, and post-projection monomorphic sets. Definitions have a deterministic content signature.
 - Delivered deterministic eight-sample FP64 fixtures covering retained IDs/order, overlapping membership, REF-effect orientation, non-unit weights, mean-filled dosage, MAF exclusion, effective N, residual DF, R-squared, effect, t, log10 p, empty/monomorphic audit states, allele mismatch, duplicate membership, missing-dosage failure, and covariate-rank failure. R-squared/effect/t values were independently calculated with NumPy QR before being anchored to the Java reference.
-- Integrate this contract with aligned VCF/BCF and CSV sources, adapt existing genomic region/set memberships into exact variant definitions, and add a production set-audit/output schema. The current foundation is a developer CPU reference and is intentionally not exposed as a CLI mode yet.
-- Stream variant/set and trait blocks and write only requested or retained set/trait results. Add restartable deterministic scheduling so set tests do not require complete variant-by-trait QTL files on disk.
+- Delivered: aligned CSV and VCF/BCF production adapters, exact ALT-effect adaptation of indexed region memberships, stable set-audit/result schemas, and CLI/INI modes for burden, SKAT, and SKAT-O.
+- Delivered: bounded set/trait tiling, retained-result filtering, and signature-bound atomic checkpoint/restart without materializing complete variant-by-trait QTL files.
 
 ### 3b. Burden tests first
 
-- Delivered the scalar FP64 weighted-burden reference; unweighted burden is the exact all-weights-one case. It reuses the shared null model and existing production correlation/effect/t/p-value conversion. Complete production region ingestion, bounded scheduling, audit/result writing, CLI/configuration, and checkpoint assembly remain before this becomes a supported analysis mode.
-- Add GPU/optimized-CPU acceleration only after exact CPU-reference agreement. Reuse prepared covariate/null-model state and bounded variant/set tiles.
+- Delivered production weighted/unweighted FP64 burden execution. The batched optimized-CPU set-by-trait path reuses prepared null state and is tested directly against the scalar reference over partial set/trait tiles.
+- Direct GPU burden products remain optional future work after profiling demonstrates value over the batched CPU path.
 
 ### 3c. SKAT
 
-- Implement a deterministic CPU SKAT reference, including the weighted kernel, covariance/eigenvalue construction, and a defined quadratic-form p-value method with explicit convergence/fallback behavior.
-- Accelerate the large repeated set-by-trait score and covariance operations through CPU BLAS and the existing multi-GPU context pool. Keep the relatively small eigenvalue and p-value work on the CPU unless profiling proves otherwise.
+- Delivered deterministic FP64 CPU SKAT with weighted projected kernels, batched score/covariance products, CPU eigenvalues, exact single/equal-eigenvalue chi-square cases, bounded Imhof inversion, and an explicitly reported Satterthwaite fallback.
+- Direct multi-GPU score/covariance products remain optional future work; keep eigenvalue and p-value work on the CPU.
 
 ### 3d. SKAT-O
 
-- Define and test the rho grid, burden/SKAT mixture construction, correlation between component tests, and the adjusted omnibus p-value. Never report the minimum unadjusted component p-value as SKAT-O.
-- Compare every optimized/GPU statistic and final adjusted p-value with the deterministic CPU reference over common, rare, singleton, empty, collinear, overlapping, and missing-data fixtures.
+- Delivered a configurable rho grid (default `0,0.25,0.5,0.75,1`), weighted burden/SKAT mixture construction, shared-Gaussian correlated parametric-null replicates, fixed seed/signature, and adjusted omnibus p-value. The minimum component p-value is audit-only.
+- Expand production reference fixtures with additional singleton and high-collinearity datasets before enabling any direct GPU set-test product.
 - Defer relatedness-aware burden/SKAT/SKAT-O until the cohort covariance/null-model design below is implemented and verified.
 
 ## 4. Missing-data production hardening

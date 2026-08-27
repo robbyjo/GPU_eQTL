@@ -66,8 +66,8 @@ public final class QVariantSetTable {
     public record SetDefinition(String id, List<Entry> entries) {
         public SetDefinition {
             entries = List.copyOf(entries);
-            if (id == null || id.isBlank() || entries.isEmpty())
-                throw new IllegalArgumentException("A variant set must have an ID and entries");
+            if (id == null || id.isBlank())
+                throw new IllegalArgumentException("A variant set must have an ID");
         }
     }
 
@@ -147,9 +147,67 @@ public final class QVariantSetTable {
         return new QVariantSetTable(normalized, sets, signature(sets));
     }
 
+    /** Adapt the aligned VCF/BCF QC region memberships to exact ALT-effect definitions. */
+    public static QVariantSetTable fromVariantQc(Path path, List<String> regionSetIds)
+        throws IOException {
+        if (path == null || regionSetIds == null || regionSetIds.isEmpty())
+            throw new IllegalArgumentException("Variant QC and declared region-set IDs are required");
+        Path normalized = path.toAbsolutePath().normalize();
+        LinkedHashMap<String, List<Entry>> bySet = new LinkedHashMap<>();
+        for (String setId : regionSetIds) {
+            if (setId == null || setId.isBlank())
+                throw new IOException("A declared region set has a blank ID");
+            bySet.putIfAbsent(setId, new ArrayList<>());
+        }
+        try (BufferedReader reader = Files.newBufferedReader(normalized, StandardCharsets.UTF_8)) {
+            String header = reader.readLine();
+            if (header == null) throw new IOException("Variant QC file is empty: " + normalized);
+            String[] names = header.split("\\t", -1);
+            Map<String, Integer> columns = new LinkedHashMap<>();
+            for (int i = 0; i < names.length; i++)
+                columns.put(names[i].trim().toLowerCase(Locale.ROOT), i);
+            int variant = requiredQcColumn(columns, "variant_id", normalized);
+            int ref = requiredQcColumn(columns, "ref", normalized);
+            int alt = requiredQcColumn(columns, "alt", normalized);
+            int included = requiredQcColumn(columns, "included", normalized);
+            int memberships = requiredQcColumn(columns, "region_sets", normalized);
+            String line;
+            int lineNumber = 1;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                if (line.isBlank()) continue;
+                String[] fields = line.split("\\t", -1);
+                int width = Math.max(Math.max(variant, ref), Math.max(alt,
+                    Math.max(included, memberships))) + 1;
+                if (fields.length < width)
+                    throw new IOException("Variant QC line " + lineNumber + " is truncated");
+                if (!Boolean.parseBoolean(fields[included]) || fields[memberships].equals("."))
+                    continue;
+                for (String setId : fields[memberships].split(";", -1)) {
+                    List<Entry> entries = bySet.get(setId);
+                    if (entries == null)
+                        throw new IOException("Variant QC names undeclared region set '" + setId + "'");
+                    entries.add(new Entry(setId, fields[variant], fields[ref], fields[alt],
+                        fields[alt], 1.0, lineNumber));
+                }
+            }
+        }
+        List<SetDefinition> sets = new ArrayList<>();
+        for (Map.Entry<String, List<Entry>> set : bySet.entrySet())
+            sets.add(new SetDefinition(set.getKey(), set.getValue()));
+        return new QVariantSetTable(normalized, sets, signature(sets));
+    }
+
     public Path source() { return source; }
     public List<SetDefinition> sets() { return sets; }
     public String signature() { return signature; }
+
+    public QVariantSetTable subset(int fromInclusive, int toExclusive) {
+        if (fromInclusive < 0 || toExclusive > sets.size() || fromInclusive >= toExclusive)
+            throw new IllegalArgumentException("Invalid variant-set subset");
+        List<SetDefinition> selected = sets.subList(fromInclusive, toExclusive);
+        return new QVariantSetTable(source, selected, signature(selected));
+    }
 
     private static int[] parseHeader(String[] fields, Path path, int lineNumber)
         throws IOException {
@@ -170,6 +228,14 @@ public final class QVariantSetTable {
         }
         columns[5] = indices.getOrDefault("WEIGHT", -1);
         return columns;
+    }
+
+    private static int requiredQcColumn(Map<String, Integer> columns, String name, Path path)
+        throws IOException {
+        Integer column = columns.get(name);
+        if (column == null) throw new IOException("Variant QC file " + path
+            + " is missing column " + name);
+        return column;
     }
 
     private static String requireIdentifier(String value, String kind, int line) {

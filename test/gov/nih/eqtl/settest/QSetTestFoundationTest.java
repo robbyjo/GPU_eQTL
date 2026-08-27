@@ -55,6 +55,20 @@ class QSetTestFoundationTest {
             QMissingValuePolicy.MEAN, FailurePolicy.SKIP, FailurePolicy.SKIP);
 
         Analysis analysis = QBurdenReference.analyze(sets, variants(), nullModel, policy);
+        Analysis batched = QBurdenReference.analyzeBatched(sets, variants(), nullModel, policy);
+
+        assertEquals(analysis.audits(), batched.audits());
+        assertEquals(analysis.results().size(), batched.results().size());
+        for (int i = 0; i < analysis.results().size(); i++) {
+            Result expected = analysis.results().get(i);
+            Result actual = batched.results().get(i);
+            assertEquals(expected.setId(), actual.setId());
+            assertEquals(expected.traitId(), actual.traitId());
+            assertEquals(expected.rSquared(), actual.rSquared(), 1e-15);
+            assertEquals(expected.effect(), actual.effect(), 1e-15);
+            assertEquals(expected.tStatistic(), actual.tStatistic(), 1e-14);
+            assertEquals(expected.log10P(), actual.log10P(), 1e-14);
+        }
 
         assertEquals(2, nullModel.covariateRank());
         assertEquals(5, nullModel.residualDegreesOfFreedom());
@@ -131,6 +145,22 @@ class QSetTestFoundationTest {
             () -> QSetTestNullModel.create(new String[] {"trait"},
                 new double[][] {{1, 2, 3, 4, 5, 6, 7, 8}}, rankDeficient));
         assertTrue(rank.getMessage().contains("rank deficient"));
+    }
+
+    @Test
+    void adaptsAlignedRegionMembershipsToExactAltEffectDefinitions(@TempDir Path directory)
+        throws Exception {
+        Path qc = directory.resolve("variants.tsv");
+        Files.writeString(qc, "variant_id\tref\talt\tincluded\tregion_sets\n"
+            + "1:100:A:G\tA\tG\ttrue\tsetA;setB\n"
+            + "1:110:C:T\tC\tT\tfalse\tsetA\n");
+        QVariantSetTable table = QVariantSetTable.fromVariantQc(qc,
+            List.of("setA", "setB", "empty"));
+        assertArrayEquals(new String[] {"setA", "setB", "empty"}, table.sets().stream()
+            .map(QVariantSetTable.SetDefinition::id).toArray(String[]::new));
+        assertEquals("G", table.sets().get(0).entries().get(0).effectAllele());
+        assertEquals(1.0, table.sets().get(0).entries().get(0).weight());
+        assertTrue(table.sets().get(2).entries().isEmpty());
     }
 
     private static QSetTestNullModel nullModel() throws IOException {

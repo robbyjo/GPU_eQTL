@@ -14,6 +14,26 @@ import org.junit.jupiter.api.io.TempDir;
 
 class QeQTLCommandLineTest {
     @Test
+    void parsesSetTestOptions() throws Exception {
+        QeQTLCommandLine.Result parsed = QeQTLCommandLine.parse(new String[] {
+            "--genotype", "genotype.csv", "--expression", "traits.csv",
+            "--output", "burden.csv", "--analysis", "burden",
+            "--variant-sets", "sets.tsv", "--set-max-maf", "0.01",
+            "--set-min-mac", "2", "--set-absent-variant", "skip",
+            "--set-degenerate", "skip", "--skat-o-rho-grid", "0,0.5,1",
+            "--skat-o-simulations", "999", "--skat-o-seed", "71",
+            "--set-block-size", "12"});
+        assertEquals("burden", parsed.config().getAnalysisMethod().optionName());
+        assertTrue(parsed.config().getVariantSetsFilename().endsWith("sets.tsv"));
+        assertEquals(0.01, parsed.config().getSetMaximumMaf());
+        assertEquals(2.0, parsed.config().getSetMinimumMac());
+        assertEquals("skip", parsed.config().getSetAbsentVariantPolicy());
+        assertArrayEquals(new double[] {0, 0.5, 1}, parsed.config().getSkatORhoGrid());
+        assertEquals(999, parsed.config().getSkatOSimulations());
+        assertEquals(71, parsed.config().getSkatOSeed());
+        assertEquals(12, parsed.config().getSetBlockSize());
+    }
+    @Test
     void legacyIniCanBeOverriddenByArguments(@TempDir Path directory) throws Exception {
         Path ini = directory.resolve("analysis.ini");
         Files.writeString(ini, "genotype_file = genotype.csv\n"

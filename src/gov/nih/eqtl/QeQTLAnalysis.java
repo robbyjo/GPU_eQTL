@@ -65,6 +65,11 @@ import gov.nih.eqtl.io.QPreparedMatrix;
 import gov.nih.eqtl.io.QSampleAlignment;
 import gov.nih.eqtl.io.QSampleAlignmentPolicy;
 import gov.nih.eqtl.io.QVariantMatrixSource;
+import gov.nih.eqtl.settest.QSetTestMethod;
+import gov.nih.eqtl.settest.QSetTestPolicy;
+import gov.nih.eqtl.settest.QSetTestPolicy.FailurePolicy;
+import gov.nih.eqtl.settest.QSetTestRunner;
+import gov.nih.eqtl.settest.QVariantSetTable;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.eqtl.datastructure.QSNPDataReal;
 import gov.nih.jama.QRDecomposition;
@@ -990,6 +995,53 @@ public class QeQTLAnalysis implements IJobOwner
 			covariateRank = decomposition.getRank();
 			covariateQ = decomposition.getQ().getArray();
 			covariateModel = model.values();
+		}
+		QSetTestMethod setTestMethod = config.getAnalysisMethod();
+		if (setTestMethod.isSetTest()) {
+			QVariantSetTable setDefinitions;
+			Path explicitSetPath = config.getVariantSetsFilename() == null
+				? null : Path.of(config.getVariantSetsFilename());
+			if (explicitSetPath != null) {
+				setDefinitions = QVariantSetTable.load(explicitSetPath);
+			} else if (variantSource != null && variantSource.regions() != null) {
+				setDefinitions = QVariantSetTable.fromVariantQc(variantQcOutput,
+					variantSource.regions().setIds());
+				System.out.println("Set definitions: exact ALT-effect memberships adapted from aligned VCF/BCF region QC");
+			} else {
+				throw new IllegalArgumentException("--variant-sets is required for --analysis "
+					+ setTestMethod.optionName() + " unless indexed VCF/BCF regions define the sets");
+			}
+			if (traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues())
+				throw new IllegalArgumentException("Set-test production execution currently requires complete, mean-filled, zero-filled, or excluded traits; exact trait patterns are not yet supported");
+			if (gpuPrecision != GpuPrecision.FP64)
+				throw new IllegalArgumentException("Set-test production execution currently requires --precision fp64");
+			double[][] setDesign = covariateModel;
+			if (setDesign == null) {
+				setDesign = new double[alignment.sampleCount()][1];
+				for (double[] row : setDesign) row[0] = 1.0;
+			}
+			QSetTestPolicy setPolicy = new QSetTestPolicy(config.getSetMinimumMaf(),
+				config.getSetMaximumMaf(), config.getSetMinimumMac(), config.getSetMaximumMac(),
+				predictorMissing, FailurePolicy.parse(config.getSetAbsentVariantPolicy(),
+					FailurePolicy.ERROR), FailurePolicy.parse(config.getSetDegeneratePolicy(),
+					FailurePolicy.ERROR));
+			Path setOutput = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
+			Path setAudit = config.getSetAuditFilename() == null
+				? Path.of(config.getOutputFilename() + ".sets.tsv").toAbsolutePath().normalize()
+				: Path.of(config.getSetAuditFilename()).toAbsolutePath().normalize();
+			Path setCheckpoint = config.getCheckpointDirectory() == null
+				? Path.of(config.getOutputFilename() + ".checkpoint").toAbsolutePath().normalize()
+				: Path.of(config.getCheckpointDirectory()).toAbsolutePath().normalize();
+			int setTraitRows = config.getExpressionBlockRows() > 0
+				? config.getExpressionBlockRows() : 1024;
+			QSetTestRunner.run(unfilledPredictorSource, predictorColumnOrder, expressionSource,
+				alignment.expressionColumnOrder(), setDesign, setDefinitions,
+				new QSetTestRunner.Options(setTestMethod,
+					explicitSetPath, setOutput, setAudit, setCheckpoint,
+					setTraitRows, setPolicy, config.getResume(), config.getKeepCheckpoints(),
+					thresholdType, threshold, config.getSetBlockSize(), config.getSkatORhoGrid(),
+					config.getSkatOSimulations(), config.getSkatOSeed()));
+			return;
 		}
 
 		long genotypeRowCount = genotypeSource.metadata().rowCount();

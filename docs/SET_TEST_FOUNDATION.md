@@ -1,6 +1,6 @@
 # Rare-variant set-test foundation
 
-This document freezes the scientific contracts implemented by the initial deterministic FP64 CPU reference. These classes are a developer/reference API under `gov.nih.eqtl.settest`; they are not yet a supported command-line analysis mode.
+This document freezes the scientific contracts implemented by the deterministic FP64 references and the production burden, SKAT, and SKAT-O modes under `gov.nih.eqtl.settest`.
 
 ## Explicit variant-set input
 
@@ -18,6 +18,8 @@ This document freezes the scientific contracts implemented by the initial determ
 One variant may occur in several sets; this is the supported overlapping-set representation. Repeating the same variant within one set is fatal. The normalized ordered content has a SHA-256 signature. Set IDs and variant IDs may not contain tabs, commas, or semicolons.
 
 Allele harmonization is intentionally conservative. Declared REF/ALT must match the source REF/ALT exactly. The reference does not infer strand complements, swap REF/ALT, or guess from allele frequency. A mismatch is fatal before statistics are produced.
+
+For indexed VCF/BCF region runs, omitting `--variant-sets` adapts the aligned variant-QC `region_sets` memberships. Each retained biallelic row becomes an exact REF/ALT definition with ALT as the effect allele and weight one. Declared region order, overlapping memberships, and empty declared regions are retained. An explicit TSV takes precedence when supplied.
 
 ## Frequency, missingness, and weights
 
@@ -47,10 +49,24 @@ in deterministic file order. It projects the resulting burden through the same c
 
 Output order is set first-appearance order followed by input trait order. Every result records set ID, trait ID, retained variant count, effective N, residual DF, R-squared, effect, t, and log10 p.
 
-## Deliberately remaining work
+The production burden path prepares every resident set burden once and batches its FP64 set-by-trait products. Tests compare this path directly with the scalar reference.
 
-- Connect the contract to aligned CSV and VCF/BCF readers and to existing indexed region/set memberships.
-- Define a stable user-facing set audit/result schema and CLI/INI options.
-- Stream bounded variant/set and trait blocks and add signature-bound checkpoint/restart.
-- Add production weighted/unweighted burden execution only after the end-to-end input/output path matches this scalar reference.
-- Do not begin GPU burden, SKAT, or SKAT-O acceleration until those boundaries are deterministic and tested.
+## SKAT and SKAT-O
+
+SKAT residualizes every declared-effect dosage row against the fixed-effect Q matrix without genotype standardization. Positive definition weights multiply kernel columns. The statistic is the weighted score quadratic form divided by the FP64 null residual variance; covariance eigenvalues come from the weighted projected-genotype Gram matrix. The null variance uses `N - rank(X)` degrees of freedom.
+
+Quadratic-form survival probabilities use deterministic Imhof numerical inversion with fixed tolerance, block, and iteration limits. A single positive eigenvalue and equal positive eigenvalues use their exact scaled chi-square distributions. Failure of the bounded Imhof convergence test is reported as `satterthwaite-fallback` in the output; it is never silent.
+
+SKAT-O defaults to rho `0,0.25,0.5,0.75,1`. Each component combines `(1-rho)` times the SKAT kernel with `rho` times the weighted burden kernel. The same seeded Gaussian vector drives all rho components in each parametric-null replicate, preserving their correlation. The adjusted p-value is `(extreme + 1)/(simulations + 1)` and the output includes the minimum component p-value only as an audit field; it is not reported as the omnibus result. Defaults are 10,000 simulations and seed 20260827, both configurable.
+
+## Production scheduling and output
+
+Use `--analysis burden|skat|skat-o` with `--variant-sets FILE`, or with indexed VCF/BCF region definitions. `--set-block-size` (default 256) bounds resident set definitions/dosages and `--expression-block-rows` bounds resident traits. The scheduler writes one atomic checkpoint part for each deterministic set-tile/trait-tile pair. Resume validates source identities, aligned sample orders, covariate design, definitions, masks, thresholds, tile sizes, method, and SKAT-O settings before reusing a part.
+
+The stable CSV result columns are `Set_ID,Trait_ID,Method,Variants,N,DF,Statistic,R_squared,Effect,T,P_value,log10P,P_value_method,Minimum_component_P,Rho_component_P_values`. Inapplicable fields are `NaN` or blank. The companion TSV audit records requested, absent, frequency-excluded, and included variants, status, retained IDs, definition signature, and method.
+
+## Current limits
+
+- Set tests require FP64 and continuous traits. Exact trait-pattern deletion is not yet supported in these modes.
+- Optimized CPU products are production-supported; direct multi-GPU set-test products remain a profiling-led extension and must match these references before becoming selectable.
+- Relatedness-aware set tests remain deferred until the cohort covariance/null-model design is implemented.
