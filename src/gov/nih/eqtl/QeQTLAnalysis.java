@@ -779,6 +779,20 @@ public class QeQTLAnalysis implements IJobOwner
 			QVariantMatrixSource.FrequencyScope.parse(config.getFrequencyScope());
 		boolean regionsRequested = (config.getRegions() != null && !config.getRegions().isBlank())
 			|| config.getRegionsFilename() != null;
+		boolean windowOptionsPresent = config.get("window_size") != null
+			|| config.get("window_stride") != null;
+		int windowSize = config.getWindowSize();
+		int windowStride = config.getWindowStride();
+		if (windowOptionsPresent) {
+			if (windowSize < 1)
+				throw new IllegalArgumentException("--window-size must be positive when sliding windows are requested");
+			if (windowStride < 1 || windowStride > windowSize)
+				throw new IllegalArgumentException("--window-stride must be positive and no larger than --window-size");
+			if (!config.getAnalysisMethod().isSetTest())
+				throw new IllegalArgumentException("--window-size/--window-stride require --analysis burden, skat, or skat-o");
+			if (config.getVariantSetsFilename() != null || regionsRequested)
+				throw new IllegalArgumentException("Automatic sliding windows cannot be combined with --variant-sets, --region, or --regions-file");
+		}
 		if (genotypeFormat.equals("csv") && regionsRequested)
 			throw new IllegalArgumentException("--region/--regions-file requires VCF or BCF genotype input");
 		if (genotypeFormat.equals("csv") && frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED)
@@ -933,6 +947,18 @@ public class QeQTLAnalysis implements IJobOwner
 				predictorColumnOrder = identity(alignment.sampleCount());
 			}
 		}
+		if (windowOptionsPresent && preprocessedPredictors == null) {
+			Path cacheRoot = matrixCacheDirectory(genotypeFilename);
+			String rawSignature = QRawMatrixCache.signature(genotypeSource,
+				predictorColumnOrder);
+			int rowsPerBlock = config.getGenotypeBlockRows() > 0
+				? config.getGenotypeBlockRows() : 2048;
+			preprocessedPredictors = QRawMatrixCache.openOrBuild(
+				cacheRoot.resolve("aligned-raw"), rawSignature, genotypeSource,
+				predictorColumnOrder, rowsPerBlock, config.getRebuildCache());
+			genotypeSource = preprocessedPredictors;
+			predictorColumnOrder = identity(alignment.sampleCount());
+		}
 		QMatrixRowSource unfilledPredictorSource = genotypeSource;
 
 		System.out.println("Inspecting matrix missingness...");
@@ -1001,14 +1027,22 @@ public class QeQTLAnalysis implements IJobOwner
 			QVariantSetTable setDefinitions;
 			Path explicitSetPath = config.getVariantSetsFilename() == null
 				? null : Path.of(config.getVariantSetsFilename());
-			if (explicitSetPath != null) {
+			if (windowOptionsPresent) {
+				int scanRows = config.getGenotypeBlockRows() > 0
+					? config.getGenotypeBlockRows() : 1024;
+				setDefinitions = QVariantSetTable.fromSlidingWindows(unfilledPredictorSource,
+					predictorColumnOrder, windowSize, windowStride, scanRows);
+				System.out.println("Set definitions: " + setDefinitions.sets().size()
+					+ " nonempty automatic sliding windows; size=" + windowSize
+					+ " bp, stride=" + windowStride + " bp, one-based grid anchored at 1");
+			} else if (explicitSetPath != null) {
 				setDefinitions = QVariantSetTable.load(explicitSetPath);
 			} else if (variantSource != null && variantSource.regions() != null) {
 				setDefinitions = QVariantSetTable.fromVariantQc(variantQcOutput,
 					variantSource.regions().setIds());
 				System.out.println("Set definitions: exact ALT-effect memberships adapted from aligned VCF/BCF region QC");
 			} else {
-				throw new IllegalArgumentException("--variant-sets is required for --analysis "
+				throw new IllegalArgumentException("--variant-sets or --window-size is required for --analysis "
 					+ setTestMethod.optionName() + " unless indexed VCF/BCF regions define the sets");
 			}
 			if (traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues())

@@ -38,8 +38,10 @@ Bounded CPU-output profiling and release validation should proceed alongside tha
 
 - Delivered initial CPU contract/reference: strict tab-separated variant-to-set definitions; exact REF/ALT and explicit effect-allele orientation without implicit swaps/strand flips; positive explicit/default-one weights; deterministic overlapping memberships; aligned-cohort min/max MAF/MAC masks; mean/zero/error genotype missingness; reusable full-rank continuous-trait FP64 null models; and explicit error/skip behavior for absent, empty, and post-projection monomorphic sets. Definitions have a deterministic content signature.
 - Delivered deterministic eight-sample FP64 fixtures covering retained IDs/order, overlapping membership, REF-effect orientation, non-unit weights, mean-filled dosage, MAF exclusion, effective N, residual DF, R-squared, effect, t, log10 p, empty/monomorphic audit states, allele mismatch, duplicate membership, missing-dosage failure, and covariate-rank failure. R-squared/effect/t values were independently calculated with NumPy QR before being anchored to the Java reference.
-- Delivered: aligned CSV and VCF/BCF production adapters, exact ALT-effect adaptation of indexed region memberships, stable set-audit/result schemas, and CLI/INI modes for burden, SKAT, and SKAT-O.
+- Delivered: aligned CSV and VCF/BCF production adapters, native one-based sliding windows with configurable size/stride, exact ALT-effect adaptation of automatic/custom memberships, stable set-audit/result schemas, and CLI/INI modes for burden, SKAT, and SKAT-O.
 - Delivered: bounded set/trait tiling, retained-result filtering, and signature-bound atomic checkpoint/restart without materializing complete variant-by-trait QTL files.
+- Delivered: end-to-end automatic-window CSV/VCF/BCF byte equality for burden, SKAT, and SKAT-O plus byte-identical CSV checkpoint resume. Sliding runs reuse a version-1 checksummed aligned raw cache and a derived signature/file-identity-bound row-offset sidecar; requested rows retain source order and CRC validation, adjacent rows are read sequentially in bulk, and trusted buffers transfer without a duplicate dosage copy.
+- Delivered full chr22 CPU burden profiles on 428,629 variants, 4,746 samples, two traits, and default 256-set tiles. Warm-cache 10-kb/5-kb, 50-kb/10-kb, and 100-kb/50-kb grids emitted 7,453/3,808/765 windows in 182.14/229.10/148.35 seconds and observed 3.86/6.30/7.91 GB JVM heap at tile boundaries. Broad dense windows should lower `--set-block-size` when heap is smaller; preserve the 16.29-GB raw cache because its cold build is a substantial one-time cost.
 
 ### 3b. Burden tests first
 
@@ -54,7 +56,7 @@ Bounded CPU-output profiling and release validation should proceed alongside tha
 ### 3d. SKAT-O
 
 - Delivered a configurable rho grid (default `0,0.25,0.5,0.75,1`), weighted burden/SKAT mixture construction, shared-Gaussian correlated parametric-null replicates, fixed seed/signature, and adjusted omnibus p-value. The minimum component p-value is audit-only.
-- Expand production reference fixtures with additional singleton and high-collinearity datasets before enabling any direct GPU set-test product.
+- Delivered additional statistical hardening fixtures for singleton exact scaled chi-square behavior, nearly collinear variants, extreme finite weights, an explicitly forced bounded-Imhof fallback, and SKAT-O Monte Carlo resolution/determinism. Retain these as gates before enabling any direct GPU set-test product.
 - Defer relatedness-aware burden/SKAT/SKAT-O until the cohort covariance/null-model design below is implemented and verified.
 
 ## 4. Missing-data production hardening

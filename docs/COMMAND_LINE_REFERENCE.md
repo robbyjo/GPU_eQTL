@@ -160,6 +160,19 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--traits FILE` | Required trait path | `expression_file` | Generic trait spelling; requires `--trait-type`. |
 | `--covariates FILE` | Optional path | `covariate_file` | Mixed numeric/categorical covariate table. At least one fixed covariate must be named when this file is supplied. |
 | `--output FILE` | Required for association | `output_file` | Association CSV. Optional for validation, missingness inspection, and VCF/BCF preprocessing. |
+| `--analysis METHOD` | `eqtl` (default), `burden`, `skat`, `skat-o` | `analysis` | Selects ordinary variant-by-trait eQTL or an FP64 set test. Expression rows are the tested phenotypes; fixed covariates are adjustment variables. |
+| `--variant-sets FILE` | Optional TSV | `variant_sets` | Explicit set membership, exact REF/ALT/effect allele, and optional positive weight definitions. Required for custom CSV sets. |
+| `--window-size BP` | Positive integer; none | `window_size` | Generates nonempty chromosome-local one-based sliding-window sets directly from canonical variant coordinates. Mutually exclusive with explicit/custom regions and sets. |
+| `--window-stride BP` | Window size when omitted | `window_stride` | Distance between automatic window starts; positive and no larger than the window size. |
+| `--set-audit-output FILE` | `<output>.sets.tsv` | `set_audit_output` | Set membership/filter/status audit. |
+| `--set-min-maf V`, `--set-max-maf V` | `0`, `0.5` | `set_min_maf`, `set_max_maf` | Inclusive aligned-cohort set-member MAF mask. No rare cutoff is inferred. |
+| `--set-min-mac V`, `--set-max-mac V` | `0`, unbounded | `set_min_mac`, `set_max_mac` | Inclusive aligned-cohort set-member MAC mask. |
+| `--set-absent-variant POLICY` | `error` (default), `skip` | `set_absent_variant` | Handling for explicit definitions absent from the aligned source. |
+| `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
+| `--set-block-size N` | `256` | `set_block_size` | Resident set tile size for bounded execution. Broad/high-density windows can make one tile span many unique variants; lower this value when heap headroom is limited. |
+| `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
+| `--skat-o-simulations N` | `10000` | `skat_o_simulations` | Correlated parametric-null replicate count. |
+| `--skat-o-seed N` | `20260827` | `skat_o_seed` | Deterministic SKAT-O simulation seed. |
 | `--genotype-format FORMAT` | `auto` (CLI default), `csv`, `vcf`, `vcf.gz`, `bcf`; `tped` legacy | `genotype_format` | `auto` infers `.vcf`, `.vcf.gz`, and `.bcf`, otherwise headered CSV. An old INI that omits this key retains the historical `tped` default. |
 | `--expression-format FORMAT` | `csv` | `expression_format` | Current modern trait input is a headered delimited matrix. |
 | `--predictor-type TYPE` | `genotype` for compatibility spelling | `predictor_type` | `genotype`, `expression`, `methylation`, `proteomics`, or `continuous`. Aliases accepted for some types include `protein`, `proteomic`, `dna-methylation`, and `dnm`. |

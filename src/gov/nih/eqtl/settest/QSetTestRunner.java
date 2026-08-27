@@ -27,6 +27,7 @@ import gov.nih.eqtl.QAnalysisCheckpoint;
 import gov.nih.eqtl.QMissingValuePolicy;
 import gov.nih.eqtl.io.QMatrixRowSource;
 import gov.nih.eqtl.io.QMatrixRowSource.Block;
+import gov.nih.eqtl.io.QRawMatrixCache;
 import gov.nih.eqtl.settest.QBurdenReference.Analysis;
 import gov.nih.eqtl.settest.QBurdenReference.Result;
 import gov.nih.eqtl.settest.QBurdenReference.SetAudit;
@@ -85,6 +86,11 @@ public final class QSetTestRunner {
         int setBlocks = (definitions.sets().size() + options.setBlockSize() - 1)
             / options.setBlockSize();
         int totalBlocks = Math.multiplyExact(setBlocks, traitBlocks);
+        System.out.println("Set-test schedule: sets=" + definitions.sets().size()
+            + ", set_blocks=" + setBlocks + ", set_block_size=" + options.setBlockSize()
+            + ", traits=" + traitRows + ", trait_blocks=" + traitBlocks
+            + ", trait_block_rows=" + options.traitBlockRows());
+        long observedHeapPeak = usedHeapBytes();
         String signature = signature(variants, variantColumns, traits, traitColumns,
             covariateDesign, definitions, options);
         QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(
@@ -97,6 +103,7 @@ public final class QSetTestRunner {
                 Math.min(definitions.sets().size(), setFrom + options.setBlockSize()));
             List<Variant> selectedVariants = loadSelectedVariants(variants, variantColumns,
                 setTile, options.traitBlockRows());
+            observedHeapPeak = Math.max(observedHeapPeak, usedHeapBytes());
             List<SetAudit> tileAudit = null;
             try (QMatrixRowSource.BlockReader reader = traits.open(traitColumns)) {
                 for (int traitBlock = 0; traitBlock < traitBlocks; traitBlock++) {
@@ -129,11 +136,22 @@ public final class QSetTestRunner {
                 tileAudit = regenerateAudit(traits, traitColumns, covariateDesign,
                     setTile, selectedVariants, options);
             audits.addAll(tileAudit);
+            observedHeapPeak = Math.max(observedHeapPeak, usedHeapBytes());
         }
         writeAudit(options.auditOutput(), audits, definitions.signature(), options);
         checkpoint.assemble(options.output(),
             "Set_ID,Trait_ID,Method,Variants,N,DF,Statistic,R_squared,Effect,T,P_value,"
                 + "log10P,P_value_method,Minimum_component_P,Rho_component_P_values");
+        if (variants instanceof QRawMatrixCache raw) {
+            QRawMatrixCache.IndexedReadStatistics statistics = raw.indexedReadStatistics();
+            System.out.println("Indexed set-test variant reads: selections="
+                + statistics.selectionCalls() + ", indexed_rows=" + statistics.indexedRows()
+                + ", selected_rows=" + statistics.selectedRows() + ", numeric_bytes="
+                + statistics.numericBytesRead() + ", persistent_index_reused="
+                + statistics.persistentIndexReused());
+        }
+        System.out.println("Set-test observed JVM heap peak at tile boundaries: "
+            + observedHeapPeak + " bytes");
     }
 
     private static List<SetAudit> regenerateAudit(QMatrixRowSource traits, int[] traitColumns,
@@ -163,6 +181,17 @@ public final class QSetTestRunner {
         for (QVariantSetTable.SetDefinition set : definitions.sets())
             for (QVariantSetTable.Entry entry : set.entries())
                 requested.add(entry.variantId());
+        if (source instanceof QRawMatrixCache raw) {
+            Block block = raw.readSelected(requested, columnOrder);
+            List<Variant> selected = new ArrayList<>(block.rowCount());
+            for (int row = 0; row < block.rowCount(); row++) {
+                String id = block.rowIds()[row];
+                String[] alleles = allelesFromIdentifier(id);
+                selected.add(Variant.takeOwnership(id, alleles[0], alleles[1],
+                    block.values()[row]));
+            }
+            return List.copyOf(selected);
+        }
         List<Variant> selected = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         try (QMatrixRowSource.BlockReader reader = source.open(columnOrder)) {
@@ -324,5 +353,10 @@ public final class QSetTestRunner {
     private static void update(MessageDigest digest, String value) {
         digest.update((byte) 0);
         digest.update(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static long usedHeapBytes() {
+        Runtime runtime = Runtime.getRuntime();
+        return runtime.totalMemory() - runtime.freeMemory();
     }
 }

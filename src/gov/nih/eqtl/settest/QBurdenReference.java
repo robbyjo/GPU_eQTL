@@ -29,19 +29,37 @@ import gov.nih.utils.matrix.QMatrixUtils;
 public final class QBurdenReference {
     private static final double DOSAGE_TOLERANCE = 1e-12;
 
-    public record Variant(String id, String ref, String alt, double[] altDosages) {
-        public Variant {
+    public static final class Variant {
+        private final String id;
+        private final String ref;
+        private final String alt;
+        private final double[] altDosages;
+
+        public Variant(String id, String ref, String alt, double[] altDosages) {
+            this(id, ref, alt, altDosages, false);
+        }
+
+        private Variant(String id, String ref, String alt, double[] altDosages,
+            boolean takeOwnership) {
             if (id == null || id.isBlank() || ref == null || ref.isBlank()
                 || alt == null || alt.isBlank() || altDosages == null || altDosages.length == 0)
                 throw new IllegalArgumentException("A burden-reference variant is incomplete");
-            id = id.trim();
-            ref = ref.trim().toUpperCase(java.util.Locale.ROOT);
-            alt = alt.trim().toUpperCase(java.util.Locale.ROOT);
-            altDosages = altDosages.clone();
+            this.id = id.trim();
+            this.ref = ref.trim().toUpperCase(java.util.Locale.ROOT);
+            this.alt = alt.trim().toUpperCase(java.util.Locale.ROOT);
+            this.altDosages = takeOwnership ? altDosages : altDosages.clone();
         }
 
-        @Override
+        static Variant takeOwnership(String id, String ref, String alt,
+            double[] altDosages) {
+            return new Variant(id, ref, alt, altDosages, true);
+        }
+
+        public String id() { return id; }
+        public String ref() { return ref; }
+        public String alt() { return alt; }
         public double[] altDosages() { return altDosages.clone(); }
+        double[] altDosagesInternal() { return altDosages; }
     }
 
     public record SetAudit(String setId, int requestedVariants, int absentVariants,

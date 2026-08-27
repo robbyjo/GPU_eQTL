@@ -127,6 +127,15 @@ public class QeQTLAnalysisConfig {
 		return value == null ? 256 : Integer.parseInt(value);
 	}
 
+	public int getWindowSize()
+	{ return getNonNegativeInt("window_size"); }
+
+	public int getWindowStride()
+	{
+		String value = mIni.get("window_stride");
+		return value == null ? getWindowSize() : Integer.parseInt(value);
+	}
+
 	public double[] getSkatORhoGrid()
 	{
 		String value = mIni.get("skat_o_rho_grid");

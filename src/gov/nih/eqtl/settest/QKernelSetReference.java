@@ -164,7 +164,7 @@ public final class QKernelSetReference {
     private static Map<String, Variant> indexVariants(List<Variant> variants, int samples) {
         Map<String, Variant> indexed = new LinkedHashMap<>();
         for (Variant variant : variants) {
-            if (variant == null || variant.altDosages().length != samples)
+            if (variant == null || variant.altDosagesInternal().length != samples)
                 throw new IllegalArgumentException("Kernel-reference variant has wrong sample count");
             if (indexed.putIfAbsent(variant.id(), variant) != null)
                 throw new IllegalArgumentException("Duplicate aligned variant ID '" + variant.id() + "'");
@@ -175,7 +175,7 @@ public final class QKernelSetReference {
     private static Frequency frequency(Variant variant) {
         int called = 0;
         double sum = 0;
-        for (double dosage : variant.altDosages()) {
+        for (double dosage : variant.altDosagesInternal()) {
             if (isMissing(dosage)) continue;
             sum += validateDosage(variant.id(), dosage);
             called++;
@@ -188,7 +188,7 @@ public final class QKernelSetReference {
 
     private static double[] effectDosages(Variant variant, Entry entry, Frequency frequency,
         QMissingValuePolicy missingPolicy) {
-        double[] source = variant.altDosages();
+        double[] source = variant.altDosagesInternal();
         double[] result = new double[source.length];
         double mean = 2 * (entry.effectIsAlt() ? frequency.eaf() : 1 - frequency.eaf());
         for (int sample = 0; sample < source.length; sample++) {

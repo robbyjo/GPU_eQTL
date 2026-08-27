@@ -44,6 +44,8 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--set-absent-variant", "set_absent_variant");
         VALUE_OPTIONS.put("--set-degenerate", "set_degenerate");
         VALUE_OPTIONS.put("--set-block-size", "set_block_size");
+        VALUE_OPTIONS.put("--window-size", "window_size");
+        VALUE_OPTIONS.put("--window-stride", "window_stride");
         VALUE_OPTIONS.put("--skat-o-rho-grid", "skat_o_rho_grid");
         VALUE_OPTIONS.put("--skat-o-simulations", "skat_o_simulations");
         VALUE_OPTIONS.put("--skat-o-seed", "skat_o_seed");
@@ -245,6 +247,8 @@ public final class QeQTLCommandLine {
               --set-min-mac V --set-max-mac V  Inclusive aligned-cohort set-test MAC mask
               --set-absent-variant {error|skip} --set-degenerate {error|skip}
               --set-block-size N               Resident set tile size (default: 256)
+              --window-size BP                 Automatic one-based sliding-window size
+              --window-stride BP               Window-start stride (default: window size)
               --skat-o-rho-grid LIST           Default: 0,0.25,0.5,0.75,1
               --skat-o-simulations N --skat-o-seed N
               --predictor-type {genotype|expression|methylation|proteomics|continuous}

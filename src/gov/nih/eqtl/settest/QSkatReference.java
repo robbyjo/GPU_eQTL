@@ -106,8 +106,15 @@ public final class QSkatReference {
     }
 
     public static MixturePValue mixturePValue(double statistic, double[] eigenvalues) {
+        return mixturePValue(statistic, eigenvalues, IMHOF_MAX_BLOCKS);
+    }
+
+    static MixturePValue mixturePValue(double statistic, double[] eigenvalues,
+        int imhofMaximumBlocks) {
         if (!Double.isFinite(statistic) || statistic < 0 || eigenvalues == null)
             throw new IllegalArgumentException("Invalid quadratic-form inputs");
+        if (imhofMaximumBlocks < 0)
+            throw new IllegalArgumentException("Imhof maximum blocks must be non-negative");
         double first = 0, second = 0;
         int positive = 0;
         double firstPositive = Double.NaN;
@@ -133,7 +140,7 @@ public final class QSkatReference {
             return new MixturePValue(clampProbability(p),
                 "exact-equal-eigenvalue-chi-square", positive, firstPositive);
         }
-        Double imhof = imhofSurvival(statistic, eigenvalues);
+        Double imhof = imhofSurvival(statistic, eigenvalues, imhofMaximumBlocks);
         if (imhof != null)
             return new MixturePValue(clampProbability(imhof), "imhof-converged", df, scale);
         double p = ChiSquare.cumulative(statistic / scale, df, false, false);
@@ -149,13 +156,14 @@ public final class QSkatReference {
     }
 
     /** Imhof inversion in fixed deterministic blocks; null means the convergence test failed. */
-    private static Double imhofSurvival(double statistic, double[] eigenvalues) {
+    private static Double imhofSurvival(double statistic, double[] eigenvalues,
+        int maximumBlocks) {
         double maximum = Arrays.stream(eigenvalues).max().orElse(0);
         if (!(maximum > 0)) return null;
         double blockWidth = 1.0 / maximum;
         double integral = 0;
         int quiet = 0;
-        for (int block = 0; block < IMHOF_MAX_BLOCKS; block++) {
+        for (int block = 0; block < maximumBlocks; block++) {
             double start = block * blockWidth;
             double contribution = simpson(start, start + blockWidth,
                 IMHOF_INTERVALS_PER_BLOCK, statistic, eigenvalues);

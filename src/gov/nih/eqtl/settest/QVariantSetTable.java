@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -22,6 +23,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+
+import gov.nih.eqtl.io.QMatrixRowSource;
+import gov.nih.eqtl.io.QMatrixRowSource.Block;
 
 /**
  * Deterministic explicit variant-to-set membership and effect-allele definitions.
@@ -198,6 +203,60 @@ public final class QVariantSetTable {
         return new QVariantSetTable(normalized, sets, signature(sets));
     }
 
+    /**
+     * Build unit-weight ALT-effect sets on a chromosome-local, one-based sliding grid.
+     * Grid starts are {@code 1 + k * stride}; only windows containing a source variant
+     * are emitted. Variant identifiers must encode CHROM:POS:REF:ALT.
+     */
+    public static QVariantSetTable fromSlidingWindows(QMatrixRowSource source,
+        int[] columnOrder, int windowSize, int stride, int blockRows) throws IOException {
+        if (source == null || columnOrder == null)
+            throw new IllegalArgumentException("A variant source and aligned columns are required");
+        if (windowSize < 1 || stride < 1)
+            throw new IllegalArgumentException("Sliding-window size and stride must be positive");
+        if (stride > windowSize)
+            throw new IllegalArgumentException("Sliding-window stride must not exceed window size");
+        if (blockRows < 1)
+            throw new IllegalArgumentException("Sliding-window scan block size must be positive");
+
+        LinkedHashMap<String, TreeMap<Long, List<Entry>>> byContig = new LinkedHashMap<>();
+        Set<String> seenVariants = new HashSet<>();
+        try (QMatrixRowSource.BlockReader reader = source.open(columnOrder)) {
+            Block block;
+            while ((block = reader.readBlock(blockRows)) != null) {
+                for (int row = 0; row < block.rowCount(); row++) {
+                    String variantId = block.rowIds()[row];
+                    if (!seenVariants.add(variantId))
+                        throw new IOException("Duplicate aligned variant ID '" + variantId + "'");
+                    VariantCoordinate variant = VariantCoordinate.parse(variantId);
+                    TreeMap<Long, List<Entry>> windows = byContig.computeIfAbsent(
+                        variant.contig(), ignored -> new TreeMap<>());
+                    long firstIndex = variant.position() <= windowSize ? 0
+                        : divideCeiling(variant.position() - windowSize, stride);
+                    long lastIndex = (variant.position() - 1) / stride;
+                    int sourceLine = (int) Math.min(Integer.MAX_VALUE,
+                        block.rowOffset() + row + 2);
+                    for (long index = firstIndex; index <= lastIndex; index++) {
+                        long start = 1 + index * (long) stride;
+                        String setId = variant.contig() + ":" + start + "-"
+                            + (start + windowSize - 1L);
+                        windows.computeIfAbsent(start, ignored -> new ArrayList<>()).add(
+                            new Entry(setId, variantId, variant.ref(), variant.alt(),
+                                variant.alt(), 1.0, sourceLine));
+                    }
+                }
+            }
+        }
+        List<SetDefinition> sets = new ArrayList<>();
+        for (TreeMap<Long, List<Entry>> windows : byContig.values())
+            for (List<Entry> entries : windows.values())
+                sets.add(new SetDefinition(entries.get(0).setId(), entries));
+        if (sets.isEmpty())
+            throw new IOException("Sliding-window variant source has no rows");
+        Path path = source.metadata().path().toAbsolutePath().normalize();
+        return new QVariantSetTable(path, sets, signature(sets));
+    }
+
     public Path source() { return source; }
     public List<SetDefinition> sets() { return sets; }
     public String signature() { return signature; }
@@ -207,6 +266,31 @@ public final class QVariantSetTable {
             throw new IllegalArgumentException("Invalid variant-set subset");
         List<SetDefinition> selected = sets.subList(fromInclusive, toExclusive);
         return new QVariantSetTable(source, selected, signature(selected));
+    }
+
+    private record VariantCoordinate(String contig, long position, String ref, String alt) {
+        private static VariantCoordinate parse(String id) {
+            String[] fields = id == null ? new String[0] : id.split(":", -1);
+            if (fields.length < 4 || fields[0].isBlank() || fields[1].isBlank()
+                || fields[2].isBlank() || fields[3].isBlank())
+                throw new IllegalArgumentException("Sliding-window source variant ID '" + id
+                    + "' must encode CHROM:POS:REF:ALT");
+            long position;
+            try {
+                position = Long.parseLong(fields[1]);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Sliding-window source variant ID '" + id
+                    + "' has an invalid POS", e);
+            }
+            if (position < 1 || position > Integer.MAX_VALUE)
+                throw new IllegalArgumentException("Sliding-window source variant ID '" + id
+                    + "' has POS outside the supported one-based coordinate range");
+            return new VariantCoordinate(fields[0].trim(), position, fields[2], fields[3]);
+        }
+    }
+
+    private static long divideCeiling(long numerator, long denominator) {
+        return (numerator + denominator - 1) / denominator;
     }
 
     private static int[] parseHeader(String[] fields, Path path, int lineNumber)

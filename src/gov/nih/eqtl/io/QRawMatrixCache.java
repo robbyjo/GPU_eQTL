@@ -13,6 +13,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -20,17 +22,33 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
 
 /** Durable aligned FP64 rows before residualization/standardization. */
 public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
     private static final int MAGIC = 0x51524157; // QRAW
     private static final int VERSION = 1;
+    private static final int INDEX_MAGIC = 0x51524958; // QRIX
+    private static final int INDEX_VERSION = 2;
 
     private final Path path;
     private final String signature;
     private final Metadata metadata;
+    private final AtomicLong indexedSelectionCalls = new AtomicLong();
+    private final AtomicLong indexedRowsRead = new AtomicLong();
+    private final AtomicLong indexedNumericBytesRead = new AtomicLong();
+    private volatile RowIndex rowIndex;
+    private volatile boolean persistentIndexReused;
+
+    public record IndexedReadStatistics(long selectionCalls, long selectedRows,
+        long numericBytesRead, long indexedRows, boolean persistentIndexReused) { }
+
+    private record RowIndex(String[] ids, long[] offsets) { }
 
     public static QRawMatrixCache openOrBuild(Path cacheDirectory, String signature,
         QMatrixRowSource source, int[] columnOrder, int rowsPerBlock, boolean rebuild)
@@ -125,6 +143,81 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
 
     @Override
     public BlockReader open(int[] columnOrder) throws IOException {
+        int[] selected = validateColumns(columnOrder);
+        return new Reader(selected);
+    }
+
+    /**
+     * Read only requested rows, preserving cache/source order and validating every
+     * returned row checksum. The lazy row-offset index does not alter the version-1
+     * on-disk format.
+     */
+    public Block readSelected(Set<String> requested, int[] columnOrder) throws IOException {
+        if (requested == null)
+            throw new IllegalArgumentException("Requested raw-cache row IDs are required");
+        int[] selected = validateColumns(columnOrder);
+        int[] outputIndex = new int[metadata.columnCount()];
+        java.util.Arrays.fill(outputIndex, -1);
+        for (int output = 0; output < selected.length; output++)
+            outputIndex[selected[output]] = output;
+        RowIndex index = rowIndex();
+        ArrayList<String> ids = new ArrayList<>();
+        ArrayList<double[]> values = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        byte[] numericBytes = new byte[Math.multiplyExact(metadata.columnCount(), Double.BYTES)];
+        try (RandomAccessFile input = new RandomAccessFile(path.toFile(), "r")) {
+            long nextOffset = -1;
+            for (int row = 0; row < index.ids().length; row++) {
+                String indexedId = index.ids()[row];
+                if (!requested.contains(indexedId)) continue;
+                if (!seen.add(indexedId))
+                    throw new IOException("Duplicate aligned raw-cache row ID '" + indexedId
+                        + "' in " + path);
+                if (nextOffset != index.offsets()[row])
+                    input.seek(index.offsets()[row]);
+                byte[] idBytes = readBytes(input);
+                String id = new String(idBytes, StandardCharsets.UTF_8);
+                if (!id.equals(indexedId))
+                    throw new IOException("Aligned raw-cache row index changed at row " + row
+                        + " in " + path);
+                CRC32 checksum = new CRC32();
+                checksum.update(idBytes);
+                input.readFully(numericBytes);
+                checksum.update(numericBytes);
+                ByteBuffer numeric = ByteBuffer.wrap(numericBytes);
+                double[] selectedValues = new double[selected.length];
+                for (int column = 0; column < metadata.columnCount(); column++) {
+                    int output = outputIndex[column];
+                    if (output >= 0)
+                        selectedValues[output] = Double.longBitsToDouble(
+                            numeric.getLong(column * Double.BYTES));
+                }
+                int expected = input.readInt();
+                if ((int) checksum.getValue() != expected)
+                    throw new IOException("Aligned raw cache checksum failure at row " + row
+                        + " in " + path);
+                ids.add(id);
+                values.add(selectedValues);
+                nextOffset = input.getFilePointer();
+            }
+        } catch (EOFException e) {
+            throw new IOException("Truncated aligned raw cache " + path, e);
+        }
+        indexedSelectionCalls.incrementAndGet();
+        indexedRowsRead.addAndGet(ids.size());
+        indexedNumericBytesRead.addAndGet(Math.multiplyExact((long) ids.size(),
+            Math.multiplyExact((long) metadata.columnCount(), Double.BYTES)));
+        return new Block(0, ids.toArray(String[]::new), values.toArray(double[][]::new));
+    }
+
+    public IndexedReadStatistics indexedReadStatistics() {
+        RowIndex index = rowIndex;
+        return new IndexedReadStatistics(indexedSelectionCalls.get(), indexedRowsRead.get(),
+            indexedNumericBytesRead.get(), index == null ? 0 : index.ids().length,
+            persistentIndexReused);
+    }
+
+    private int[] validateColumns(int[] columnOrder) {
         int[] selected = columnOrder == null ? identity(metadata.columnCount()) : columnOrder.clone();
         boolean[] seen = new boolean[metadata.columnCount()];
         for (int column : selected) {
@@ -132,15 +225,148 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
                 throw new IllegalArgumentException("Invalid or duplicate aligned raw-cache column index");
             seen[column] = true;
         }
-        return new Reader(selected);
+        return selected;
     }
 
     @Override public void close() { }
+
+    private RowIndex rowIndex() throws IOException {
+        RowIndex cached = rowIndex;
+        if (cached != null) return cached;
+        synchronized (this) {
+            if (rowIndex != null) return rowIndex;
+            Path indexPath = indexPath();
+            if (Files.isRegularFile(indexPath)) {
+                try {
+                    rowIndex = loadIndex(indexPath);
+                    persistentIndexReused = true;
+                    return rowIndex;
+                } catch (IOException e) {
+                    System.err.println("Aligned raw row index is unusable and will be rebuilt: "
+                        + e.getMessage());
+                }
+            }
+            String[] ids = new String[Math.toIntExact(metadata.rowCount())];
+            long[] offsets = new long[ids.length];
+            Set<String> seen = new HashSet<>();
+            try (RandomAccessFile input = new RandomAccessFile(path.toFile(), "r")) {
+                validateHeader(input);
+                long numericBytes = Math.multiplyExact((long) metadata.columnCount(),
+                    Double.BYTES);
+                for (int row = 0; row < ids.length; row++) {
+                    offsets[row] = input.getFilePointer();
+                    ids[row] = readString(input);
+                    if (!seen.add(ids[row]))
+                        throw new IOException("Duplicate aligned raw-cache row ID '" + ids[row]
+                            + "' at row " + row + " in " + path);
+                    long checksumOffset = Math.addExact(input.getFilePointer(), numericBytes);
+                    if (checksumOffset + Integer.BYTES > input.length())
+                        throw new IOException("Truncated aligned raw cache " + path);
+                    input.seek(checksumOffset + Integer.BYTES);
+                }
+                if (input.getFilePointer() != input.length())
+                    throw new IOException("Aligned raw cache has trailing data: " + path);
+            }
+            rowIndex = new RowIndex(ids, offsets);
+            writeIndex(indexPath, rowIndex);
+            return rowIndex;
+        }
+    }
+
+    private RowIndex loadIndex(Path indexPath) throws IOException {
+        try (DataInputStream input = openInput(indexPath)) {
+            if (input.readInt() != INDEX_MAGIC || input.readInt() != INDEX_VERSION)
+                throw new IOException("Unsupported aligned raw row index " + indexPath);
+            if (!readString(input).equals(signature)
+                || input.readLong() != Files.size(path)
+                || input.readLong() != Files.getLastModifiedTime(path).toMillis())
+                throw new IOException("Aligned raw row index source identity mismatch in "
+                    + indexPath);
+            int rows = input.readInt();
+            if (rows != metadata.rowCount())
+                throw new IOException("Aligned raw row index dimension mismatch in " + indexPath);
+            String[] ids = new String[rows];
+            long[] offsets = new long[rows];
+            Set<String> seen = new HashSet<>();
+            long previous = -1;
+            long sourceLength = Files.size(path);
+            for (int row = 0; row < rows; row++) {
+                byte[] idBytes = readBytes(input);
+                ids[row] = new String(idBytes, StandardCharsets.UTF_8);
+                offsets[row] = input.readLong();
+                CRC32 checksum = new CRC32();
+                checksum.update(idBytes);
+                update(checksum, offsets[row]);
+                if ((int) checksum.getValue() != input.readInt())
+                    throw new IOException("Aligned raw row index checksum failure at row "
+                        + row + " in " + indexPath);
+                if (!seen.add(ids[row]) || offsets[row] <= previous || offsets[row] >= sourceLength)
+                    throw new IOException("Invalid aligned raw row index entry at row " + row
+                        + " in " + indexPath);
+                previous = offsets[row];
+            }
+            if (input.read() != -1)
+                throw new IOException("Aligned raw row index has trailing data: " + indexPath);
+            return new RowIndex(ids, offsets);
+        } catch (EOFException e) {
+            throw new IOException("Truncated aligned raw row index " + indexPath, e);
+        }
+    }
+
+    private void writeIndex(Path indexPath, RowIndex index) throws IOException {
+        Path temporary = Files.createTempFile(indexPath.getParent(),
+            indexPath.getFileName().toString(), ".partial");
+        boolean complete = false;
+        try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
+                Files.newOutputStream(temporary)))) {
+            output.writeInt(INDEX_MAGIC);
+            output.writeInt(INDEX_VERSION);
+            writeString(output, signature);
+            output.writeLong(Files.size(path));
+            output.writeLong(Files.getLastModifiedTime(path).toMillis());
+            output.writeInt(index.ids().length);
+            for (int row = 0; row < index.ids().length; row++) {
+                byte[] idBytes = index.ids()[row].getBytes(StandardCharsets.UTF_8);
+                writeBytes(output, idBytes);
+                output.writeLong(index.offsets()[row]);
+                CRC32 checksum = new CRC32();
+                checksum.update(idBytes);
+                update(checksum, index.offsets()[row]);
+                output.writeInt((int) checksum.getValue());
+            }
+            output.flush();
+            complete = true;
+        } finally {
+            if (complete)
+                moveAtomically(temporary, indexPath);
+            else
+                Files.deleteIfExists(temporary);
+        }
+    }
+
+    private Path indexPath() {
+        return path.resolveSibling(path.getFileName().toString() + ".idx");
+    }
+
+    private void validateHeader(RandomAccessFile input) throws IOException {
+        if (input.readInt() != MAGIC || input.readInt() != VERSION
+            || !readString(input).equals(signature))
+            throw new IOException("Aligned raw cache header changed: " + path);
+        long rows = input.readLong();
+        int columns = input.readInt();
+        if (rows != metadata.rowCount() || columns != metadata.columnCount())
+            throw new IOException("Aligned raw cache dimensions changed: " + path);
+        String[] sampleIds = metadata.sampleIds();
+        for (int column = 0; column < columns; column++)
+            if (!readString(input).equals(sampleIds[column]))
+                throw new IOException("Aligned raw cache sample IDs changed: " + path);
+    }
 
     private final class Reader implements BlockReader {
         private final DataInputStream input;
         private final int[] selectedColumns;
         private final int[] outputIndex;
+        private final byte[] numericBytes;
         private long rowsRead;
         private boolean closed;
 
@@ -150,6 +376,7 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
             java.util.Arrays.fill(outputIndex, -1);
             for (int output = 0; output < selectedColumns.length; output++)
                 outputIndex[selectedColumns[output]] = output;
+            numericBytes = new byte[Math.multiplyExact(metadata.columnCount(), Double.BYTES)];
             input = openInput(path);
             if (input.readInt() != MAGIC || input.readInt() != VERSION
                 || !readString(input).equals(signature))
@@ -184,12 +411,14 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
                     ids[row] = new String(idBytes, StandardCharsets.UTF_8);
                     CRC32 checksum = new CRC32();
                     checksum.update(idBytes);
+                    input.readFully(numericBytes);
+                    checksum.update(numericBytes);
+                    ByteBuffer numeric = ByteBuffer.wrap(numericBytes);
                     for (int column = 0; column < metadata.columnCount(); column++) {
-                        long bits = input.readLong();
                         int output = outputIndex[column];
                         if (output >= 0)
-                            values[row][output] = Double.longBitsToDouble(bits);
-                        update(checksum, bits);
+                            values[row][output] = Double.longBitsToDouble(
+                                numeric.getLong(column * Double.BYTES));
                     }
                     int expected = input.readInt();
                     if ((int) checksum.getValue() != expected)
@@ -290,6 +519,19 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
         byte[] value = input.readNBytes(length);
         if (value.length != length)
             throw new EOFException("Truncated aligned raw cache string");
+        return value;
+    }
+
+    private static String readString(RandomAccessFile input) throws IOException {
+        return new String(readBytes(input), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] readBytes(RandomAccessFile input) throws IOException {
+        int length = input.readInt();
+        if (length < 0 || length > 16 * 1024 * 1024)
+            throw new IOException("Invalid aligned raw cache string length " + length);
+        byte[] value = new byte[length];
+        input.readFully(value);
         return value;
     }
 

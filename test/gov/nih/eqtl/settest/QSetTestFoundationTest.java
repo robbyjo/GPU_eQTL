@@ -7,6 +7,8 @@
  */
 package gov.nih.eqtl.settest;
 
+import static gov.nih.utils.QStringUtils.cCommonDelimiter;
+import static gov.nih.utils.QStringUtils.cCommonDelimiter;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import gov.nih.eqtl.QMissingValuePolicy;
+import gov.nih.eqtl.io.QDelimitedMatrixSource;
+import gov.nih.eqtl.io.QDelimitedMatrixSource;
 import gov.nih.eqtl.settest.QBurdenReference.Analysis;
 import gov.nih.eqtl.settest.QBurdenReference.Result;
 import gov.nih.eqtl.settest.QBurdenReference.SetAudit;
@@ -161,6 +165,36 @@ class QSetTestFoundationTest {
         assertEquals("G", table.sets().get(0).entries().get(0).effectAllele());
         assertEquals(1.0, table.sets().get(0).entries().get(0).weight());
         assertTrue(table.sets().get(2).entries().isEmpty());
+    }
+
+    @Test
+    void createsNonemptyOneBasedSlidingWindowsWithoutARegionFile(@TempDir Path directory)
+        throws Exception {
+        Path variants = directory.resolve("variants.csv");
+        Files.writeString(variants, ",S1,S2\n"
+            + "chr1:100:A:G:rs1,0,1\n"
+            + "chr1:105:C:T:rs2,1,2\n"
+            + "chr1:111:G:A:rs3,0,1\n"
+            + "chr2:3:T:C:rs4,1,0\n");
+        QDelimitedMatrixSource source = new QDelimitedMatrixSource(variants,
+            cCommonDelimiter, "#");
+        QVariantSetTable table = QVariantSetTable.fromSlidingWindows(source,
+            new int[] {0, 1}, 10, 5, 2);
+
+        assertArrayEquals(new String[] {"chr1:91-100", "chr1:96-105",
+            "chr1:101-110", "chr1:106-115", "chr1:111-120", "chr2:1-10"},
+            table.sets().stream().map(QVariantSetTable.SetDefinition::id)
+                .toArray(String[]::new));
+        assertArrayEquals(new String[] {"chr1:100:A:G:rs1", "chr1:105:C:T:rs2"},
+            table.sets().get(1).entries().stream().map(QVariantSetTable.Entry::variantId)
+                .toArray(String[]::new));
+        for (QVariantSetTable.SetDefinition set : table.sets())
+            for (QVariantSetTable.Entry entry : set.entries()) {
+                assertEquals(entry.alt(), entry.effectAllele());
+                assertEquals(1.0, entry.weight());
+            }
+        assertThrows(IllegalArgumentException.class, () ->
+            QVariantSetTable.fromSlidingWindows(source, new int[] {0, 1}, 10, 11, 2));
     }
 
     private static QSetTestNullModel nullModel() throws IOException {

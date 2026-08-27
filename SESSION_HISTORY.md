@@ -1190,3 +1190,67 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - Optimized CPU products are production-supported and anchored to scalar FP64 references. Direct CUDA/OpenCL set-test products are not enabled yet; add them only after profiling shows benefit and every statistic/final adjusted p-value matches the deterministic references on singleton, collinear, overlapping, missing, empty, and common/rare fixtures.
 - Imhof non-convergence is explicit in `P_value_method` and uses the documented Satterthwaite approximation. SKAT-O precision depends on the requested simulation count; the output records simulations and the derived per-set/trait seed.
 - Next recommended step: add larger independent singleton/high-collinearity SKAT/SKAT-O fixtures and profile set/trait tile sizes plus Imhof convergence on representative production set definitions before implementing an optional multi-GPU score/covariance path.
+
+## 2026-08-27T01:58:40-04:00 — Native sliding-window set tests
+
+### Baseline and goal
+
+- Baseline commit: `48e9e020e201620bcc6446843c528902550216c7` (`Add production burden, SKAT, and SKAT-O analyses`) on `master`; the worktree was clean at the start.
+- Goal: let Burden, SKAT, and SKAT-O users specify ordinary sliding-window size and stride directly, without requiring a generated regions TSV, while retaining explicit TSV/region definitions for custom memberships and weights.
+
+### Decisions and files changed
+
+- Added `--window-size BP` / `window_size` and optional `--window-stride BP` / `window_stride`; stride defaults to size. Both must be positive, stride cannot exceed size, and the automatic mode is restricted to set-test analyses and is mutually exclusive with `--variant-sets`, `--region`, and `--regions-file`.
+- Defined a deterministic chromosome-local one-based grid anchored at coordinate 1: starts are `1 + k * stride`, ends are inclusive, only windows containing a retained variant are emitted, set IDs are `CHROM:START-END`, contigs retain source first-appearance order, windows are start-sorted, and variant membership retains source order.
+- Added aligned CSV and VCF/BCF generation from canonical `CHROM:POS:REF:ALT` identifiers, allowing additional colon-separated ID fields. Automatic memberships use POS, exact ALT effect orientation, and unit weight. Explicit definitions remain the path for custom weights/effect alleles/memberships.
+- Clarified the model contract: every expression-matrix row is a tested phenotype; every selected fixed covariate is an adjustment variable, not a competing main phenotype.
+- Changed `QeQTLCommandLine.java`, `QeQTLAnalysisConfig.java`, `QeQTLAnalysis.java`, and `QVariantSetTable.java`; extended `QeQTLCommandLineTest.java` and `QSetTestFoundationTest.java`; updated `README.md`, `TODO.md`, `docs/COMMAND_LINE_REFERENCE.md`, and `docs/SET_TEST_FOUNDATION.md`.
+
+### Verification
+
+- `.\mvnw.cmd -q "-Dtest=QSetTestFoundationTest,QeQTLCommandLineTest" test` — passed after Maven resolved the declared antrun plugin; deterministic tests cover overlapping 10-bp windows at 5-bp stride, chromosome separation, nonempty-window emission, source membership order, ALT/unit-weight adaptation, stride validation, explicit parsing, and stride-default-to-size behavior.
+- `.\mvnw.cmd test` — full suite passed: 118 tests, zero failures, zero errors, five intentional hardware/platform skips; Maven reported `BUILD SUCCESS` in 24.513 seconds.
+- `.\mvnw.cmd -q -DskipTests package` — packaged the updated runnable jar successfully. `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar` is 135,874,782 bytes with SHA-256 `C0743E0D0499884AE3242989F0C4FF51297C895456D9269B7191FF7C08A3DEBD`.
+- Real-data CLI smoke, with no variant-set or region file: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend cpu --genotype target\settest-smoke\variants.csv --genotype-format csv --expression target\settest-smoke\traits.csv --covariates D:\Research\topmed\sqtl\sqtl-batch1234\sqtl-batch1234-mastermat-withpcs-4746.csv --fixed-covariates Age --genotype-id-column framid --expression-id-column SampleName --expression-id-strip-prefix X --output target\settest-smoke\sliding-burden.csv --analysis burden --window-size 500 --window-stride 250 --predictor-missing mean --trait-missing error --set-degenerate skip --set-block-size 2 --expression-block-rows 1 --threshold none 0`. Eight real chr22 variants generated five ordered nonempty windows and ten result rows for two real expression phenotypes over all 4,746 samples; the companion audit recorded exact membership for each overlapping window.
+- `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo` — detected NVIDIA GeForce RTX 2080, CUDA driver API 13.3, CUDA Runtime 12.6, compute capability 7.5, FP64, and 8,589,606,912 bytes VRAM; CPU was OpenBLAS 0.3.34 with 15 BLAS threads. The production sliding-window smoke explicitly used CPU.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF working-copy warnings.
+
+### Compatibility, limitations, and next step
+
+- Existing explicit set TSVs and indexed custom region behavior are unchanged. Automatic windows require canonical genomic variant IDs, use unit ALT weights, and deliberately omit empty grid cells; custom weights/effect alleles or empty interval auditing still use explicit definitions.
+- All expression rows remain analyzed because there is no row-level phenotype selector. Use a phenotype-subset expression matrix when only selected outcomes are intended.
+- The bounded set runner rereads the variant source per set tile. This preserves bounded heap use but can amplify I/O for very small strides that create thousands of windows. Profile representative window/stride choices and tune `--set-block-size` before launching a whole-chromosome schedule; add a source-indexed or streaming active-window schedule if repeated reads dominate.
+- Next recommended step: add a full VCF/BCF automatic-window integration fixture and profile the production chr22 CSV over representative 10-kb/5-kb and larger windows before changing the bounded scheduler.
+
+## 2026-08-27T13:42:03-04:00 — Sliding-window integration, profiling, and statistical hardening
+
+### Baseline and goal
+
+- Baseline commit: `48e9e020e201620bcc6446843c528902550216c7` (`Add production burden, SKAT, and SKAT-O analyses`) on `master`; this increment includes the preceding uncommitted native sliding-window work.
+- Goal: complete the five requested follow-ups: finish native size/stride windows, prove CSV/VCF/BCF and restart equivalence, profile three full chr22 grids, optimize the scheduler only where profiling justified it, and harden SKAT/SKAT-O edge statistics before committing and pushing.
+
+### Decisions and files changed
+
+- Automatic windows now use `--window-size` and optional `--window-stride` directly; they retain the one-based chromosome-local grid, source-order membership, exact ALT orientation, unit weights, expression rows as phenotypes, and selected fixed covariates strictly as adjustment variables. Custom TSV/region definitions remain separate and mutually exclusive.
+- Made automatic CSV and VCF/BCF runs converge on the existing signature-bound version-1 aligned FP64 raw cache. `QRawMatrixCache` now builds a lazy derived row-ID/offset index, persists it atomically as a version-2 sidecar bound to the raw signature/size/mtime/row count, checksums every sidecar entry, rebuilds corrupt/incompatible sidecars, coalesces adjacent selected rows, bulk-decodes big-endian FP64 values, and still validates every raw-row CRC. Existing raw-cache bytes remain unchanged.
+- Replaced the repeated whole-source scan per set tile with indexed selected-row reads when the source is an aligned raw cache. Added schedule/read-volume/heap diagnostics. Trusted checksummed row buffers transfer internally without a second dosage clone; the public `QBurdenReference.Variant` constructor remains defensive.
+- Added actual end-to-end CSV, VCF, and generated BCF 2.2 runs for Burden, SKAT, and SKAT-O. Results and audits are byte-identical for exactly representable DS values, and CSV checkpoint resume reproduces identical output bytes. Added sidecar reuse/corruption recovery tests.
+- Added statistical fixtures for the existing singleton exact scaled-chi-square path, nearly collinear variants, extreme finite weights, forced bounded-Imhof fallback labeling, and seeded SKAT-O Monte Carlo resolution/determinism.
+- Changed source under `QeQTLAnalysis`, its config/CLI, `QRawMatrixCache`, and the set-test package; expanded command/foundation/TODO documentation and tests including new `QSlidingWindowAnalysisTest`.
+
+### Verification and profiling evidence
+
+- Full chr22 profile command form, repeated with `(10000,5000)`, `(50000,10000)`, and `(100000,50000)` for size/stride and matching output/checkpoint names: `java -Xmx8g --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --backend cpu --genotype D:\Research\topmed\sqtl\sqtl-batch1234\chr22-filtered-batch1234-dose-meanimp.csv --genotype-format csv --expression target\settest-smoke\traits.csv --covariates D:\Research\topmed\sqtl\sqtl-batch1234\sqtl-batch1234-mastermat-withpcs-4746.csv --fixed-covariates Age --genotype-id-column framid --expression-id-column SampleName --expression-id-strip-prefix X --analysis burden --window-size <size> --window-stride <stride> --set-block-size 256 --expression-block-rows 1 --predictor-missing mean --trait-missing error --set-degenerate skip --cache-dir target\sliding-full-cache --checkpoint-dir target\sliding-full-<grid>-final.checkpoint --output target\sliding-full-<grid>-final.csv --threshold none 0`. All used CPU OpenBLAS FP64, 428,629 variants, 4,746 aligned samples, two expression traits, and 256/1 set/trait tiles.
+- Completed warm-cache profiles: 10-kb/5-kb emitted 7,453 windows in 30 blocks, wall 182.143 seconds (application overall 181.458), selected 16,345,186,032 numeric bytes, and observed 3,861,495,624 bytes heap; 50-kb/10-kb emitted 3,808 windows in 15 blocks, wall 229.098 seconds (overall 228.355), selected 16,451,762,208 bytes, and observed 6,297,342,968 bytes heap; 100-kb/50-kb emitted 765 windows in three blocks, wall 148.352 seconds (overall 148.008), selected 16,315,419,120 bytes, and observed 7,905,198,712 bytes heap. Each reused the persistent index.
+- The cold/unoptimized 10-kb/5-kb run took 4,531.037 seconds and exposed repeated scans/per-value random I/O. Two intermediate 100-kb/50-kb attempts were stopped when per-row seeks and then per-double reads were clearly pathological; the first bulk-read attempt failed before association with an 8-GiB heap because the defensive constructor temporarily duplicated the tile. The final indexed, bulk, ownership-transfer path completed all grids. The aligned raw cache is 16,290,664,721 bytes and is intentionally ignored under `target`.
+- `.\mvnw.cmd -q '-Dtest=QRawMatrixCacheTest,QSetTestFoundationTest,QSkatReferenceTest,QSlidingWindowAnalysisTest,QeQTLCommandLineTest' test` — focused cache/window/statistics/CLI suite passed. `.\mvnw.cmd -q '-Dtest=QSlidingWindowAnalysisTest' test` — final expanded CSV/VCF/BCF test passed after changing fractional DS values to exactly binary-representable quarters; the initial generated-BCF assertion correctly exposed ordinary BCF Float rounding for decimal 0.2/0.8/1.4 rather than a scheduler discrepancy.
+- `.\mvnw.cmd -q test` — final complete suite passed: 122 tests in 29 suites, zero failures, zero errors, and five intentional runtime/platform/optional-fixture skips.
+- `.\mvnw.cmd -q -DskipTests package` — final runnable jar built successfully. `target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar` is 135,882,617 bytes with SHA-256 `F0F9FA2876CB4ED596669D2659DBC2FD103ACBD58799365B4CE0FDB3670832E6`; inspection confirmed `META-INF/LICENSE`, `META-INF/LICENSE_EXCEPTION`, and all Intel oneMKL/OpenMP notices under `META-INF/licenses/`.
+- `java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --printbackendinfo` — detected NVIDIA GeForce RTX 2080, CUDA driver API 13.3, CUDA Runtime 12.6, compute capability 7.5, compiler available, FP64, and 8,589,606,912 bytes VRAM; CPU was bundled OpenBLAS 0.3.34 with 15 BLAS threads. No usable OpenCL device was reported. Full-suite available CUDA tests passed; unavailable runtime/device cases skipped cleanly.
+- `git diff --check` — no whitespace errors; only informational LF-to-CRLF working-copy warnings.
+
+### Compatibility, limitations, and next step
+
+- Legacy positional INI, explicit set TSVs, indexed custom regions, result/audit schemas, checkpoint ordering, FP64 defaults, and version-1 raw-cache bytes remain compatible. Sidecars are derived state and rebuild automatically when absent, old, corrupt, or source-incompatible.
+- Heap scales with the unique variants spanned by a resident set tile. The 100-kb/50-kb default 256-set tile approached the 8-GiB limit; use a smaller `--set-block-size` for broad/dense windows or smaller heaps. The raw cache has a substantial one-time cold-build cost and should be preserved across grids.
+- Direct CUDA/OpenCL set-test products and relatedness-aware null models remain deferred. The next profiling-led extension is automatic heap-aware set-tile sizing or, only if a demonstrated compute bottleneck remains after indexed I/O, backend-neutral accelerated score/covariance products anchored to these references.

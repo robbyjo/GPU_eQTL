@@ -34,6 +34,36 @@ class QSkatReferenceTest {
     }
 
     @Test
+    void nearlyCollinearVariantsAndExtremeWeightsRemainFinite() {
+        double[][] nearlyCollinear = {
+            {1, -1, 0.5, -0.5, 0.25, -0.25},
+            {1.0001, -0.9999, 0.5001, -0.4999, 0.2501, -0.2499}
+        };
+        double[] trait = {0.5, -1, 1.5, -0.25, 0.75, -1.5};
+        QSkatReference.Result collinear = QSkatReference.calculate(nearlyCollinear,
+            new double[] {1, 1}, trait, 5);
+        assertTrue(Double.isFinite(collinear.statistic()));
+        assertTrue(Double.isFinite(collinear.pValue()));
+        assertTrue(collinear.eigenvalues().length >= 1);
+
+        QSkatReference.Result extreme = QSkatReference.calculate(VARIANTS,
+            new double[] {1e-50, 1e50}, TRAIT, 4);
+        assertTrue(Double.isFinite(extreme.statistic()));
+        assertTrue(Double.isFinite(extreme.pValue()));
+        assertEquals("exact-scaled-chi-square", extreme.pValueMethod());
+    }
+
+    @Test
+    void namedSatterthwaiteFallbackIsFiniteWhenImhofBudgetIsExhausted() {
+        QSkatReference.MixturePValue fallback = QSkatReference.mixturePValue(
+            3.25, new double[] {0.5, 2.0, 7.0}, 0);
+        assertEquals("satterthwaite-fallback", fallback.method());
+        assertTrue(fallback.pValue() > 0 && fallback.pValue() <= 1);
+        assertTrue(Double.isFinite(fallback.degreesOfFreedom()));
+        assertTrue(Double.isFinite(fallback.scale()));
+    }
+
+    @Test
     void skatOIsSeededCorrelatedAndReportsAdjustedPInsteadOfMinimum() {
         double[] grid = {0, 0.5, 1};
         QSkatReference.OmnibusResult first = QSkatReference.calculateOmnibus(VARIANTS,
@@ -60,5 +90,20 @@ class QSkatReferenceTest {
         assertTrue(first.adjustedP() >= 1.0 / 1000);
         assertNotEquals(first.minimumComponentP(), first.adjustedP());
         assertEquals("correlated-parametric-null", first.adjustmentMethod());
+    }
+
+    @Test
+    void skatOMonteCarloPValuesHonorDeclaredResolution() {
+        double[] grid = {0, 0.5, 1};
+        QSkatReference.OmnibusResult coarse = QSkatReference.calculateOmnibus(VARIANTS,
+            new double[] {1, 1}, TRAIT, 4, grid, 9, 8172);
+        QSkatReference.OmnibusResult fine = QSkatReference.calculateOmnibus(VARIANTS,
+            new double[] {1, 1}, TRAIT, 4, grid, 999, 8172);
+        assertEquals(Math.rint(coarse.adjustedP() * 10), coarse.adjustedP() * 10, 1e-12);
+        assertEquals(Math.rint(fine.adjustedP() * 1000), fine.adjustedP() * 1000, 1e-12);
+        assertTrue(coarse.adjustedP() >= 0.1);
+        assertTrue(fine.adjustedP() >= 0.001);
+        assertEquals(9, coarse.simulations());
+        assertEquals(999, fine.simulations());
     }
 }

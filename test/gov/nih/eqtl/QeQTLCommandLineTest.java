@@ -33,6 +33,22 @@ class QeQTLCommandLineTest {
         assertEquals(71, parsed.config().getSkatOSeed());
         assertEquals(12, parsed.config().getSetBlockSize());
     }
+
+    @Test
+    void parsesSlidingWindowSizeAndStride() throws Exception {
+        QeQTLCommandLine.Result explicit = QeQTLCommandLine.parse(new String[] {
+            "--genotype", "genotype.csv", "--expression", "traits.csv",
+            "--output", "skat.csv", "--analysis", "skat",
+            "--window-size", "10000", "--window-stride", "2500"});
+        assertEquals(10000, explicit.config().getWindowSize());
+        assertEquals(2500, explicit.config().getWindowStride());
+
+        QeQTLCommandLine.Result defaultStride = QeQTLCommandLine.parse(new String[] {
+            "--genotype", "genotype.csv", "--expression", "traits.csv",
+            "--output", "burden.csv", "--analysis", "burden",
+            "--window-size", "5000"});
+        assertEquals(5000, defaultStride.config().getWindowStride());
+    }
     @Test
     void legacyIniCanBeOverriddenByArguments(@TempDir Path directory) throws Exception {
         Path ini = directory.resolve("analysis.ini");

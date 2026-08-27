@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,6 +42,30 @@ class QRawMatrixCacheTest {
             assertArrayEquals(new double[] {2}, block.values()[1], 0);
             assertNull(reader.readBlock(1));
         }
+        QMatrixRowSource.Block selected = cache.readSelected(Set.of("v2"),
+            new int[] {1, 0});
+        assertArrayEquals(new String[] {"v2"}, selected.rowIds());
+        assertArrayEquals(new double[] {2, 0}, selected.values()[0], 0);
+        assertEquals(1, cache.indexedReadStatistics().selectionCalls());
+        assertEquals(1, cache.indexedReadStatistics().selectedRows());
+        assertEquals(2, cache.indexedReadStatistics().indexedRows());
+        assertEquals(16, cache.indexedReadStatistics().numericBytesRead());
+        Path indexPath = cache.path().resolveSibling(
+            cache.path().getFileName().toString() + ".idx");
+        assertTrue(Files.isRegularFile(indexPath));
+        QRawMatrixCache indexedReopen = QRawMatrixCache.open(cache.path(), signature);
+        assertArrayEquals(new String[] {"v1"},
+            indexedReopen.readSelected(Set.of("v1"), null).rowIds());
+        assertTrue(indexedReopen.indexedReadStatistics().persistentIndexReused());
+
+        try (RandomAccessFile file = new RandomAccessFile(indexPath.toFile(), "rw")) {
+            file.seek(file.length() - 1);
+            file.writeByte(file.readByte() ^ 1);
+        }
+        QRawMatrixCache rebuiltIndex = QRawMatrixCache.open(cache.path(), signature);
+        assertArrayEquals(new String[] {"v2"},
+            rebuiltIndex.readSelected(Set.of("v2"), null).rowIds());
+        assertTrue(!rebuiltIndex.indexedReadStatistics().persistentIndexReused());
 
         try (RandomAccessFile file = new RandomAccessFile(cache.path().toFile(), "rw")) {
             long position = file.length() - 6;
