@@ -82,6 +82,12 @@ public class QeQTLAnalysisConfig {
 	public String getCovariateFilename()
 	{	return expandPath(mIni.get("covariate_file"), getIniPath()); } //$NON-NLS-1$
 
+	public String getCohortModelFilename()
+	{	return expandPath(mIni.get("cohort_model"), getIniPath()); }
+
+	public String getCohortColumn()
+	{	return mIni.get("cohort_column"); }
+
 	public String getPedigreeFilename()
 	{	return expandPath(mIni.get("pedigree_file"), getIniPath()); } //$NON-NLS-1$
 
@@ -424,6 +430,21 @@ public class QeQTLAnalysisConfig {
 
 	public String getCacheDirectory()
 	{ return expandPath(mIni.get("cache_dir"), getIniPath()); }
+
+	public boolean getInspectCache()
+	{ return getBoolean("inspect_cache"); }
+
+	public boolean getPruneCache()
+	{ return getBoolean("prune_cache"); }
+
+	public boolean getApplyCachePrune()
+	{ return getBoolean("apply_cache_prune"); }
+
+	public int getCachePruneOlderThanDays()
+	{ return getNonNegativeInt("cache_prune_older_than_days"); }
+
+	public String getCacheReportFilename()
+	{ return expandPath(mIni.get("cache_report"), getIniPath()); }
 
 	public boolean getRebuildCache()
 	{ return getBoolean("rebuild_cache"); }

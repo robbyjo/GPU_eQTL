@@ -762,6 +762,16 @@ public class QeQTLAnalysis implements IJobOwner
 		QSampleAlignmentPolicy sampleAlignmentPolicy = config.getSampleAlignmentPolicy();
 		QTraitCacheMode traitCacheMode = config.getTraitCacheMode();
 		boolean preprocessOnly = config.getPreprocessOnly();
+		String cohortModelFilename = config.getCohortModelFilename();
+		String cohortColumn = config.getCohortColumn();
+		if ((cohortModelFilename == null) != (cohortColumn == null))
+			throw new IllegalArgumentException("--cohort-model and --cohort-column must be specified together");
+		if (cohortModelFilename != null && covariateFilename == null)
+			throw new IllegalArgumentException("Cohort-aware analysis requires --covariates");
+		if (cohortModelFilename != null && config.getAnalysisMethod().isSetTest())
+			throw new IllegalArgumentException("Cohort-aware covariance is not yet supported for burden/SKAT/SKAT-O analyses");
+		QCohortModel.Definitions cohortDefinitions = cohortModelFilename == null ? null
+			: QCohortModel.Definitions.load(Path.of(cohortModelFilename));
 		if (preprocessOnly && (config.getValidateOnly() || config.getInspectMissingness()))
 			throw new IllegalArgumentException("--preprocess-only cannot be combined with --validate-only or --inspect-missingness");
 		if (!preprocessOnly && !config.getValidateOnly() && !config.getInspectMissingness()
@@ -856,6 +866,7 @@ public class QeQTLAnalysis implements IJobOwner
 		QCovariateTable.Missingness covariateMissingness = null;
 		boolean[] retainedCovariateRows = null;
 		String[] canonicalSampleIds;
+		QCohortModel cohortModel = null;
 		double[][] covariateQ = null;
 		double[][] covariateModel = null;
 		int covariateRank = 1;
@@ -867,7 +878,9 @@ public class QeQTLAnalysis implements IJobOwner
 				config.getExpressionIdColumn(), sampleAlignmentPolicy,
 				config.getGenotypeIdStripPrefix(), config.getExpressionIdStripPrefix());
 			canonicalSampleIds = reorder(sourceGenotypeSampleIds, fullAlignment.genotypeColumnOrder());
-			covariateMissingness = covariates.inspectMissingness(fixedCovariates);
+			String[] missingnessTerms = cohortDefinitions == null ? fixedCovariates
+				: cohortDefinitions.missingnessTerms(cohortColumn, fixedCovariates);
+			covariateMissingness = covariates.inspectMissingness(missingnessTerms);
 			retainedCovariateRows = covariateMissingness.completeRows();
 			if (covariateMissing.equals("error")) {
 				java.util.Arrays.fill(retainedCovariateRows, true);
@@ -1009,18 +1022,34 @@ public class QeQTLAnalysis implements IJobOwner
 			expressionSource = new QPolicyMatrixSource(expressionSource, traitScan, traitMissing);
 
 		if (covariates != null) {
-			QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(
-				fixedCovariates, factorCovariates, retainedCovariateRows);
-			if (model.automaticFactors().length > 0)
-				System.out.println("Automatically categorical covariates: " + String.join(", ", model.automaticFactors()));
-			System.out.println("Covariate model columns: " + String.join(", ", model.columnNames()));
-			QRDecomposition decomposition = new QRDecomposition(model.values());
+			double[][] modelValues;
+			String[] modelColumnNames;
+			if (cohortDefinitions == null) {
+				QCovariateTable.ModelMatrix model = covariates.buildModelMatrix(
+					fixedCovariates, factorCovariates, retainedCovariateRows);
+				if (model.automaticFactors().length > 0)
+					System.out.println("Automatically categorical covariates: " + String.join(", ", model.automaticFactors()));
+				modelValues = model.values();
+				modelColumnNames = model.columnNames();
+			} else {
+				cohortModel = QCohortModel.create(cohortDefinitions, covariates, cohortColumn,
+					retainedCovariateRows, canonicalSampleIds, fixedCovariates, factorCovariates);
+				modelValues = cohortModel.design();
+				modelColumnNames = cohortModel.columnNames();
+				Path audit = config.getOutputFilename() == null
+					? Path.of(cohortModelFilename + ".audit.tsv")
+					: Path.of(config.getOutputFilename() + ".cohorts.tsv");
+				cohortModel.writeAudit(audit);
+				System.out.println("Cohort model audit: " + audit.toAbsolutePath().normalize());
+			}
+			System.out.println("Covariate model columns: " + String.join(", ", modelColumnNames));
+			QRDecomposition decomposition = new QRDecomposition(modelValues);
 			if (!decomposition.isFullRank())
 				throw new IllegalArgumentException("Covariate model is rank deficient: rank "
 					+ decomposition.getRank() + " for " + decomposition.getNumColumns() + " columns");
 			covariateRank = decomposition.getRank();
 			covariateQ = decomposition.getQ().getArray();
-			covariateModel = model.values();
+			covariateModel = modelValues;
 		}
 		QSetTestMethod setTestMethod = config.getAnalysisMethod();
 		if (setTestMethod.isSetTest()) {
@@ -1187,6 +1216,8 @@ public class QeQTLAnalysis implements IJobOwner
 		long start = System.currentTimeMillis();
 		long analysisStarted = profiler.start();
 		if (dynamicTraitPatterns) {
+			if (cohortModel != null && cohortModel.hasWhitening())
+				throw new IllegalArgumentException("Cohort covariance whitening currently requires complete or filled traits; it cannot be combined with exact trait-pattern deletion");
 			if (!isAdditive)
 				throw new IllegalArgumentException("Pattern-wise trait deletion currently supports the additive model only");
 			int maximumPatterns = config.getMaximumTraitPatterns();
@@ -1209,15 +1240,15 @@ public class QeQTLAnalysis implements IJobOwner
 			} else {
 				if (gpuPrecision != GpuPrecision.FP64)
 					throw new IllegalArgumentException("Genotype-outer exact deletion currently requires --precision fp64");
-				if (frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED)
-					throw new IllegalArgumentException("Genotype-outer exact deletion currently requires "
-						+ "--frequency-scope aligned");
 				System.out.println("Genotype-outer exact deletion prepares each predictor block once and "
 					+ "uses QR-equivalent pattern sufficient statistics; result order is genotype block, "
 					+ "trait block, variant, then original estimable trait row.");
 				if (predictorScan.hasMissingValues())
 					System.out.println("Predictor missing values are handled inside each exact trait mask using "
 						+ predictorMissing.optionName() + " policy.");
+				if (frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN)
+					System.out.println("Pattern-specific MAF/MAC filters are applied independently inside "
+						+ "each exact trait mask.");
 			}
 			if (variantSource != null) {
 				Path cacheRoot = matrixCacheDirectory(genotypeFilename);
@@ -1235,7 +1266,8 @@ public class QeQTLAnalysis implements IJobOwner
 					if (patternScheduler == QTraitPatternScheduler.GENOTYPE)
 						runGenotypeOuterTraitPatternAnalysis(rawPredictors, identity(alignment.sampleCount()),
 							expressionSource, traitScan, alignment, covariateModel, thresholdType,
-							threshold, dfOffset, genotypeRows, expressionRows, predictorMissing);
+							threshold, dfOffset, genotypeRows, expressionRows, predictorMissing,
+							frequencyScope);
 					else
 						runTraitPatternAnalysis(plugin, rawPredictors, expressionSource, traitScan,
 							alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
@@ -1250,9 +1282,10 @@ public class QeQTLAnalysis implements IJobOwner
 					QMatrixRowSource genotypeOuterSource = predictorMissing == QMissingValuePolicy.MEAN
 						|| predictorMissing == QMissingValuePolicy.ZERO
 						? unfilledPredictorSource : genotypeSource;
-					runGenotypeOuterTraitPatternAnalysis(genotypeOuterSource, predictorColumnOrder,
+				runGenotypeOuterTraitPatternAnalysis(genotypeOuterSource, predictorColumnOrder,
 						expressionSource, traitScan, alignment, covariateModel, thresholdType,
-						threshold, dfOffset, genotypeRows, expressionRows, predictorMissing);
+						threshold, dfOffset, genotypeRows, expressionRows, predictorMissing,
+						frequencyScope);
 				} else
 					runTraitPatternAnalysis(plugin, genotypeSource, expressionSource, traitScan,
 						alignment, covariateModel, thresholdType, threshold, dfOffset, genotypeRows,
@@ -1273,6 +1306,8 @@ public class QeQTLAnalysis implements IJobOwner
 		} else if (covariateQ != null) {
 			System.out.println("Fixed-effect residualization = CPU FP64");
 		}
+		QeQTLPreprocessor.Residualizer preprocessingResidualizer = cohortModel == null
+			? gpuResidualizer : cohortModel.wrap(gpuResidualizer);
 		try {
 		if (stream) {
 			System.out.println("Bounded-RAM matrix mode: genotype blocks=" + genotypeRows
@@ -1282,7 +1317,8 @@ public class QeQTLAnalysis implements IJobOwner
 				? outputPath.getParent().resolve(".gpu-eqtl-cache")
 				: Path.of(config.getCacheDirectory());
 			long signatureStarted = profiler.start();
-			String preprocessingTag = gpuResidualizer == null ? null : gpuResidualizer.cacheSignatureTag();
+			String preprocessingTag = preprocessingResidualizer == null ? null
+				: preprocessingResidualizer.cacheSignatureTag();
 			String genotypeSignature = QBinaryMatrixCache.signature("Genotype", genotypeSource,
 				predictorColumnOrder, covariateQ, preprocessingTag);
 			String expressionSignature = QBinaryMatrixCache.signature("Expression", expressionSource,
@@ -1291,13 +1327,13 @@ public class QeQTLAnalysis implements IJobOwner
 			long genotypeCacheStarted = profiler.start();
 			try (QBinaryMatrixCache genotypeCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Genotype", genotypeSignature, genotypeSource, predictorColumnOrder, covariateQ,
-				genotypeRows, config.getRebuildCache(), gpuResidualizer)) {
+				genotypeRows, config.getRebuildCache(), preprocessingResidualizer)) {
 				profiler.record(QeQTLProfiler.Phase.GENOTYPE_CACHE_OPEN_OR_BUILD, genotypeCacheStarted,
 					genotypeCache.rowCount(), java.nio.file.Files.size(genotypeCache.path()));
 				long expressionCacheStarted = profiler.start();
 				try (QBinaryMatrixCache expressionCache = QBinaryMatrixCache.openOrBuild(cacheDirectory,
 				"Expression", expressionSignature, expressionSource, alignment.expressionColumnOrder(), covariateQ,
-				expressionRows, config.getRebuildCache(), gpuResidualizer)) {
+				expressionRows, config.getRebuildCache(), preprocessingResidualizer)) {
 					profiler.record(QeQTLProfiler.Phase.EXPRESSION_CACHE_OPEN_OR_BUILD, expressionCacheStarted,
 						expressionCache.rowCount(), java.nio.file.Files.size(expressionCache.path()));
 					if (gpuResidualizer != null) {
@@ -1325,9 +1361,9 @@ public class QeQTLAnalysis implements IJobOwner
 				expressionBlock = reader.readBlock(numTraits);
 			}
 			QeQTLPreprocessor.PreparedBlock preparedGenotypes = QeQTLPreprocessor.prepare(
-				genotypeBlock, covariateQ, "Genotype", gpuResidualizer);
+				genotypeBlock, covariateQ, "Genotype", preprocessingResidualizer);
 			QeQTLPreprocessor.PreparedBlock preparedExpressions = QeQTLPreprocessor.prepare(
-				expressionBlock, covariateQ, "Expression", gpuResidualizer);
+				expressionBlock, covariateQ, "Expression", preprocessingResidualizer);
 			if (gpuResidualizer != null) {
 				gpuResidualizer.close();
 				gpuResidualizer = null;
@@ -1353,7 +1389,8 @@ public class QeQTLAnalysis implements IJobOwner
 		int[] predictorColumns, QMatrixRowSource rawTraitSource, QMissingnessScan traitScan,
 		QSampleAlignment alignment, double[][] covariateModel, String thresholdType,
 		double threshold, int dfOffset, int predictorRowsPerBlock,
-		int traitRowsPerBlock, QMissingValuePolicy predictorMissing) throws Exception {
+		int traitRowsPerBlock, QMissingValuePolicy predictorMissing,
+		QVariantMatrixSource.FrequencyScope frequencyScope) throws Exception {
 		Path output = Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
 		Path parent = output.getParent() == null
 			? Path.of(".").toAbsolutePath().normalize() : output.getParent();
@@ -1389,7 +1426,8 @@ public class QeQTLAnalysis implements IJobOwner
 			try {
 				 runGenotypeOuterBlocks(predictorSource, predictorColumns, preparedTraits,
 					models, output, predictorRowsPerBlock, traitRowsPerBlock, dfOffset,
-					predictorMissing, config.getMinimumMaf(), config.getMinimumMac());
+					predictorMissing, config.getMinimumMaf(), config.getMinimumMac(),
+					frequencyScope);
 			} finally {
 				closeMemoryPreparedMatrix(preparedTraits);
 			}
@@ -1399,7 +1437,8 @@ public class QeQTLAnalysis implements IJobOwner
 	private static void runGenotypeOuterBlocks(QMatrixRowSource predictorSource,
 		int[] predictorColumns, QPreparedMatrix traits, QTraitPatternModelSet models,
 		Path output, int predictorRowsPerBlock, int traitRowsPerBlock, int dfOffset,
-		QMissingValuePolicy predictorMissing, double minimumMaf, double minimumMac)
+		QMissingValuePolicy predictorMissing, double minimumMaf, double minimumMac,
+		QVariantMatrixSource.FrequencyScope frequencyScope)
 		throws Exception {
 		int totalBlocks = (int) ((predictorSource.metadata().rowCount()
 			+ predictorRowsPerBlock - 1) / predictorRowsPerBlock);
@@ -1408,12 +1447,11 @@ public class QeQTLAnalysis implements IJobOwner
 			: Path.of(config.getCheckpointDirectory()).toAbsolutePath().normalize();
 		String signature = genotypeOuterCheckpointSignature(predictorSource,
 			predictorColumns, traits, models, predictorRowsPerBlock, traitRowsPerBlock, dfOffset,
-			predictorMissing);
+			predictorMissing, frequencyScope, minimumMaf, minimumMac);
 		QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(checkpointDirectory,
 			signature, totalBlocks, config.getResume(), config.getKeepCheckpoints());
 		Path patternQcDirectory = Path.of(checkpointDirectory.toString() + ".pattern-qc");
-		String patternQcSignature = signature + ":pattern-qc-v1:"
-			+ Double.toHexString(minimumMaf) + ":" + Double.toHexString(minimumMac);
+		String patternQcSignature = signature + ":pattern-qc-v2";
 		QGenotypeOuterPatternQcCheckpoint patternQc =
 			QGenotypeOuterPatternQcCheckpoint.open(patternQcDirectory, patternQcSignature,
 				totalBlocks, models.models().length, config.getResume(),
@@ -1421,12 +1459,11 @@ public class QeQTLAnalysis implements IJobOwner
 		long completedComparisons = 0;
 		for (int block = 0; block < totalBlocks; block++)
 			if (checkpoint.isComplete(block) && patternQc.isComplete(block)) {
-				long rows = Math.min(predictorRowsPerBlock,
-					predictorSource.metadata().rowCount() - (long) block * predictorRowsPerBlock);
-				completedComparisons += rows * traits.rowCount();
+				completedComparisons = Math.addExact(completedComparisons,
+					patternQc.activeComparisons(block, models));
 			}
-		QAnalysisProgress progress = new QAnalysisProgress("Association genotype-outer trait patterns",
-			predictorSource.metadata().rowCount() * traits.rowCount(), completedComparisons);
+		QAnalysisProgress progress = QAnalysisProgress.dynamic(
+			"Association genotype-outer trait patterns", completedComparisons);
 		GpuContextPool contextPool = new GpuContextPool(mContexts);
 		try {
 			String header = kernelHeader(16, GpuPrecision.FP64) + "#define N_MIN_1 1" + sLn;
@@ -1454,7 +1491,8 @@ public class QeQTLAnalysis implements IJobOwner
 					pending.addLast(threadPool.submit(new QGenotypeOuterPatternJob(submitted,
 						traits, models, checkpoint, block, patternQc, contextPool,
 						predictorRowsPerBlock, traitRowsPerBlock, predictorMissing, dfOffset,
-						profiler, progress, minimumMaf, minimumMac)));
+						profiler, progress, minimumMaf, minimumMac,
+						frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN)));
 					if (pending.size() >= numThreads) pending.removeFirst().get();
 				}
 				if (reader.readBlock(1) != null)
@@ -1469,7 +1507,9 @@ public class QeQTLAnalysis implements IJobOwner
 			String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir,N,DF"
 				: "Rs_ID,ProbesetID,RSq,Fx,T,log10P,N,DF";
 			patternQc.assemble(Path.of(output.toString() + ".pattern-variant-qc.tsv"),
-				models, minimumMaf, minimumMac);
+				models, minimumMaf, minimumMac,
+				frequencyScope.name().toLowerCase(Locale.ROOT),
+				frequencyScope == QVariantMatrixSource.FrequencyScope.PATTERN);
 			checkpoint.assemble(output, outputHeader);
 			patternQc.finishSuccess();
 		} catch (Exception e) {
@@ -1499,12 +1539,14 @@ public class QeQTLAnalysis implements IJobOwner
 
 	private static String genotypeOuterCheckpointSignature(QMatrixRowSource predictorSource,
 		int[] predictorColumns, QPreparedMatrix traits, QTraitPatternModelSet models,
-		int predictorRows, int traitRows, int dfOffset, QMissingValuePolicy predictorMissing)
+		int predictorRows, int traitRows, int dfOffset, QMissingValuePolicy predictorMissing,
+		QVariantMatrixSource.FrequencyScope frequencyScope, double minimumMaf,
+		double minimumMac)
 		throws IOException {
 		MessageDigest digest;
 		try { digest = MessageDigest.getInstance("SHA-256"); }
 		catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
-		patternSignatureUpdate(digest, "gpu-eqtl-genotype-outer-pattern-v1");
+		patternSignatureUpdate(digest, "gpu-eqtl-genotype-outer-pattern-v2");
 		patternSignatureUpdate(digest, QBinaryMatrixCache.signature("PatternGenotypeRoot",
 			predictorSource, predictorColumns, null));
 		patternSignatureUpdate(digest, traits.signature());
@@ -1513,6 +1555,9 @@ public class QeQTLAnalysis implements IJobOwner
 		patternSignatureUpdate(digest, traitRows);
 		patternSignatureUpdate(digest, dfOffset);
 		patternSignatureUpdate(digest, predictorMissing.optionName());
+		patternSignatureUpdate(digest, frequencyScope.name());
+		patternSignatureUpdate(digest, Double.doubleToLongBits(minimumMaf));
+		patternSignatureUpdate(digest, Double.doubleToLongBits(minimumMac));
 		patternSignatureUpdate(digest, simplifyResult ? 1 : 0);
 		patternSignatureUpdate(digest, rsqOnly ? 1 : 0);
 		patternSignatureUpdate(digest, GpuPrecision.FP64.optionName());
@@ -2058,6 +2103,20 @@ public class QeQTLAnalysis implements IJobOwner
 			System.setProperty("eqtl.gpu.backend", commandLine.gpuBackend());
 		config = commandLine.config();
 		profiler = new QeQTLProfiler(config.getProfile());
+		if (config.getInspectCache() || config.getPruneCache() || config.getApplyCachePrune()) {
+			try {
+				QCacheManager.run(new QCacheManager.Options(
+					config.getCacheDirectory() == null ? null : Path.of(config.getCacheDirectory()),
+					config.getCacheReportFilename() == null ? null : Path.of(config.getCacheReportFilename()),
+					config.getPruneCache(), config.getApplyCachePrune(),
+					config.getCachePruneOlderThanDays()));
+				return;
+			} catch (Exception error) {
+				System.err.println("ERROR: " + error.getMessage());
+				System.exit(kExitCodeErrorInvalidParam);
+				return;
+			}
+		}
 		try {
 			gpuPrecision = config.getGpuPrecision();
 			residualizationMode = config.getResidualizationMode();
@@ -2123,17 +2182,18 @@ public class QeQTLAnalysis implements IJobOwner
 		System.out.println("Expression file: " + exprFilename);
 		if (covarFilename != null) {
 			System.out.println("Covariate file: " + covarFilename);
-			if (covarFixed == null && covarRandom == null) {
+			boolean cohortAware = config.getCohortModelFilename() != null;
+			if (covarFixed == null && covarRandom == null && !cohortAware) {
 				System.err.println("ERROR: Fixed or random covariates are not mentioned, but the covariate file is specified.");
 				System.exit(kExitCodeErrorWrongCovarSpec);
 			} else if (covarRandom != null) {
 				System.err.println("WARNING: Random covariates are currently ignored.");
 			}
-			if (covarFixed == null) {
+			if (covarFixed == null && !cohortAware) {
 				System.err.println("ERROR: At present, you will need to specify at least one fixed covariate with a specified covariate file.");
 				System.exit(kExitCodeErrorWrongCovarSpec);
 			}
-			System.out.println("Fixed covariates: " + QStringUtils.toString(covarFixed));
+			System.out.println("Fixed covariates: " + (covarFixed == null ? "<per cohort>" : QStringUtils.toString(covarFixed)));
 		} else {
 			if (covarFixed != null || covarRandom != null) {
 				System.err.println("ERROR: Fixed or random covariates are mentioned without specifying the covariate file.");

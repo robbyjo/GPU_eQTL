@@ -205,9 +205,16 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+										<exclude>META-INF/versions/*/module-info.class</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
+							<transformers>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+									<mainClass>gov.nih.eqtl.QeQTLAnalysis</mainClass>
+								</transformer>
+							</transformers>
                         </configuration>
                     </execution>
                 </executions>
@@ -259,6 +266,27 @@
                 </dependency>
             </dependencies>
         </profile>
+
+		<!-- Pass -Dopenblas.platform=windows-x86_64, linux-x86_64, linux-arm64,
+		     macosx-x86_64, or macosx-arm64 to produce a single-native release jar. -->
+		<profile>
+			<id>cpu-openblas-platform</id>
+			<properties>
+				<shade.classifier>openblas-${openblas.platform}-all</shade.classifier>
+			</properties>
+			<build>
+				<directory>${project.basedir}/target-openblas-${openblas.platform}</directory>
+			</build>
+			<dependencies>
+				<dependency>
+					<groupId>org.bytedeco</groupId>
+					<artifactId>openblas</artifactId>
+					<version>${openblas.version}</version>
+					<classifier>${openblas.platform}</classifier>
+					<scope>runtime</scope>
+				</dependency>
+			</dependencies>
+		</profile>
 
         <profile>
             <id>cpu-mkl-windows-x86_64</id>

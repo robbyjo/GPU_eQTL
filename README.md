@@ -23,6 +23,8 @@ The legacy INI format remains supported, and every analysis setting now also has
 
 Headered CSV genotype and expression matrices can also be processed in bounded-RAM blocks. The first run creates indexed FP64 cache files after validation, reordering, covariate residualization, and standardization. GPU projection broadcasts the small Q matrix once to each context and prepares independent input blocks concurrently across selected devices while writing cache rows in source order. Later runs with the same source metadata, sample order, covariate projection, and preprocessing mode reuse those prepared rows instead of reparsing or reprocessing the CSV. Each cache row has an integrity checksum. Indexed VCF/BCF regions are supported as described below; SNP interactions and forward selection remain on the roadmap.
 
+Cohort-aware ordinary eQTL analysis uses `--cohort-model cohorts.tsv --cohort-column Cohort`. It builds one fixed-effect block per cohort, optionally pre-whitens familial/repeated observations, and applies the identical transformation to genotype and expression before combining sample columns. The resulting effect remains a pooled per-effect-allele dosage effect: effect alleles must be harmonized, and expression units must be comparable or deliberately precision-scaled before input. Every run writes `<output>.cohorts.tsv`; see the cohort section below for the exact TSV contract and current limitations.
+
 Rare-variant weighted burden, SKAT, and SKAT-O are supported as FP64 command-line modes with `--analysis burden|skat|skat-o`. Native chromosome-local sliding windows use `--window-size BP` and optional `--window-stride BP` without a region file; strict variant-set TSV definitions and indexed-VCF/BCF custom regions remain available for custom memberships. Expression-matrix rows are the tested phenotypes, while every name in `--fixed-covariates` is an adjustment variable. Inclusive aligned-cohort MAF/MAC masks, explicit genotype missingness, overlapping sets, stable result/audit schemas, bounded set/trait tiles, and signature-bound checkpoint/restart are shared by all three modes. An omitted or zero `--set-block-size` uses heap-aware automatic sizing; a positive value remains an explicit reproducibility override. Sliding runs build or reuse the checksummed aligned FP64 raw cache plus a derived signature-bound row-offset sidecar, and read only each tile's member rows in source order. Burden production products are batched and checked against the scalar reference; SKAT uses batched FP64 residualization, score, and covariance products. SKAT uses deterministic Imhof inversion with a named moment-matched fallback, while SKAT-O reports a seeded correlated-null adjusted omnibus p-value rather than the minimum component p-value. See [docs/SET_TEST_FOUNDATION.md](docs/SET_TEST_FOUNDATION.md).
 
 ## Build and test
@@ -42,6 +44,8 @@ On Linux or macOS:
 ```
 
 The runnable jar is `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar`. It includes the Java dependencies, JCuda/JOCL bindings, and OpenBLAS natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. Users on those desktop platforms can copy the one jar and run it without installing BLAS. It does not bundle GPU drivers, CUDA, cuBLAS, NVRTC, or an OpenCL ICD. CUDA therefore still needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation; CUDA genotype-outer exact-pattern analysis additionally needs the matching NVRTC runtime compiler. OpenCL needs the vendor's ICD and compiler. On an unbundled platform, CPU `auto` falls back to the slower pure-Java engine.
+
+Reproducible platform packaging, checksums, license verification, and host smoke gates are documented in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); the current development summary is [docs/RELEASE_NOTES_2.0.0-SNAPSHOT.md](docs/RELEASE_NOTES_2.0.0-SNAPSHOT.md).
 
 Hardware-independent CPU tests always run. CUDA and OpenCL FP64/FP32 numerical tests skip cleanly when their respective runtime/device is unavailable. A platform-gated test also verifies that the matching bundled OpenBLAS native loads on each supported desktop target.
 
@@ -201,7 +205,7 @@ Blank fields and the tokens `NA`, `N/A`, `null`, `NaN`, and `.` are missing in d
 The defaults reflect the common case of scant genotype missingness and expression-side missingness:
 
 - Predictor missing values use row-mean imputation (`--predictor-missing mean`). The mean is computed over the samples actually used for the trait missingness pattern, rather than copied from the larger aligned cohort. For genotype dosage this is twice the pattern-specific EAF; it is also a defined, conservative policy for non-genotype continuous predictors.
-- Trait missing values use exact pattern-wise deletion (`--trait-missing pattern`). Trait rows with the same complete-sample mask share a covariate QR model and report their effective `N` and p-value `DF`. `--trait-pattern-scheduler auto` uses the established pattern-outer path for at most `--max-trait-patterns` masks and switches to the scalable genotype-outer path above that threshold. Genotype-outer reads each predictor block once, computes pattern-specific projection/variance and mean-or-zero predictor filling from FP64 sufficient statistics, and multiplies against one globally prepared, zero-padded trait cache. CUDA/OpenCL finalize replacement, residual sums of squares, filled sums of squares, called counts, and dosage sums on-device; the CPU path uses the same backend-neutral contract. Each successful genotype block commits a matching checksummed pattern-QC part and final assembly writes `<output>.pattern-variant-qc.tsv` with aggregate no-call, monomorphic, missing-genotype, and candidate MAF/MAC counts per pattern. Candidate frequency counts are audit-only for now: genotype-outer still requires FP64 and aligned-scope MAF/MAC, while explicit `pattern` scheduling remains the path for `--frequency-scope pattern`.
+- Trait missing values use exact pattern-wise deletion (`--trait-missing pattern`). Trait rows with the same complete-sample mask share a covariate QR model and report their effective `N` and p-value `DF`. `--trait-pattern-scheduler auto` uses the established pattern-outer path for at most `--max-trait-patterns` masks and switches to the scalable genotype-outer path above that threshold. Genotype-outer reads each predictor block once, computes pattern-specific projection/variance and mean-or-zero predictor filling from FP64 sufficient statistics, and multiplies against one globally prepared, zero-padded trait cache. CUDA/OpenCL finalize replacement, residual sums of squares, filled sums of squares, called counts, and dosage sums on-device; the CPU path uses the same backend-neutral contract. Each successful genotype block commits a matching checksummed pattern-QC part and final assembly writes `<output>.pattern-variant-qc.tsv` with aggregate no-call, monomorphic, missing-genotype, MAF, and MAC decisions per pattern. With `--frequency-scope pattern`, both schedulers now apply MAF/MAC independently inside every exact trait mask and progress counts only active comparisons. Genotype-outer remains FP64-only.
 - Samples missing any selected fixed covariate are removed once from all three aligned inputs (`--covariate-missing complete-samples`). Use `error` to require selected covariates to be complete.
 
 Both exact schedulers validate pattern-specific rank and residual DF. `--unestimable-trait-patterns error` is the default; genotype-outer writes `<output>.trait-patterns.tsv` before failing so every mask can be reviewed. Explicit `skip` excludes only audited unestimable trait rows and continues. `--max-trait-patterns` defaults to 256: in automatic mode it is the scheduler-switch threshold, while explicit pattern-outer mode treats it as a safety limit (`0` disables the threshold/limit). Pattern-outer retains its detailed repeated-preparation preflight and first-seen-pattern output order for compatibility.
@@ -211,6 +215,45 @@ Genotype-outer remains more expensive than complete-trait analysis because every
 Predictor and trait alternatives are `error`, `mean`, `zero`, and `exclude-row`. `exclude-row` removes an entire predictor or trait row containing any missing value. Trait `pattern` performs dynamic complete-case selection; predictor `pattern` is intentionally rejected because it would create a separate sample set for every predictor-trait combination.
 
 For sparse missing genotypes, `--predictor-missing local-pattern --predictor-flanks 1` enables a bounded-memory local proxy. It compares the sample's observed dosages at the requested number of variants on each side, finds called donors with the nearest flanking dosage pattern, and averages tied nearest donor dosages. It never averages the flanking SNP dosages themselves. `CHROM:POS...` row identifiers are validated for contiguous, nondecreasing genomic order and chromosome boundaries are respected. If location annotations are absent, the program explicitly warns that it is trusting input row order; if no comparable donor exists it warns and falls back to the row mean. This is inexpensive nearest-pattern imputation, not phasing, LD modeling, or reference-panel imputation, so important analyses should compare it with mean or a standard externally imputed genotype source.
+
+### Cohort-aware joint eQTL analysis
+
+The cohort model is a tab-separated file with one row per exact level of `--cohort-column`. Required columns are `COHORT` and `FIXED_COVARIATES`; optional columns are `FACTOR_COVARIATES`, `SUBJECT_COLUMN`, `REPEATED_POLICY`, `WITHIN_SUBJECT_CORRELATION`, and `COVARIANCE_FILE`. Covariate lists in this TSV are comma-separated. Common `--fixed-covariates` and `--factor-covariates`, when supplied, are added to every cohort's local model.
+
+```text
+COHORT FIXED_COVARIATES SUBJECT_COLUMN REPEATED_POLICY  WITHIN_SUBJECT_CORRELATION
+FHS    Age,Sex,PC1     family_id     independent
+CARDIA Age,Exam,Batch  participant   compound-symmetry 0.25
+WHI    Age,PC1,PC2                    independent
+```
+
+The actual file must use tabs. `independent` uses identity covariance. `compound-symmetry` requires a subject column and a correlation in `[0,1)`; equal subject IDs receive that within-subject covariance. `one-per-subject` documents an already aggregated analysis and rejects duplicate subject IDs rather than silently choosing or averaging rows. `COVARIANCE_FILE` names a CSV/TSV symmetric positive-definite matrix whose row/column IDs exactly match that cohort's aligned genotype sample IDs. A covariance file and compound-symmetry cannot both be specified.
+
+Each local design includes its own intercept. Designs are assembled block-diagonally and, when covariance is present, both the design and every genotype/expression row are transformed by the same Cholesky solve before FP64 QR projection. Stacking those transformed columns is algebraically the same as summing cohort-block cross-products; a deterministic test enforces that equivalence. Prepared-cache signatures include the cohort transformation and delegate residualizer, so incompatible cohort/covariance settings cannot reuse a cache.
+
+Current limitations are explicit: cohort mode is ordinary eQTL only, not burden/SKAT/SKAT-O; covariance whitening requires complete, mean-filled, zero-filled, or excluded trait rows because exact post-whitening trait masks are not yet defined; and heterogeneity/leave-one-cohort-out statistics are not yet emitted. Familial covariance must be supplied as an aligned matrix rather than inferred from the legacy pedigree option.
+
+### Cache inspection and recoverable pruning
+
+Cache lifecycle commands skip compute-backend initialization. Inspection computes a SHA-256 readability digest for recognized artifacts and reports cache type, path, bytes, modification time, integrity, and planned action:
+
+```powershell
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --cache-dir work\cache --inspect-cache --cache-report work\cache-report.tsv
+```
+
+Pruning is dry-run unless explicitly applied:
+
+```powershell
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --cache-dir work\cache --prune-cache --prune-cache-older-than-days 30
+
+java -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --cache-dir work\cache --prune-cache --prune-cache-older-than-days 30 `
+  --apply-cache-prune
+```
+
+Only known cache extensions are candidates. Unrelated files, unreadable/empty artifacts, and files under an active lock scope are retained. Apply mode moves candidates into a timestamped `<cache-dir>/.trash` tree while preserving relative paths; it does not permanently delete them.
 
 ### VCF.gz and BCF genotype input
 

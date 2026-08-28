@@ -148,8 +148,18 @@ final class QGenotypeOuterPatternQcCheckpoint {
         }
     }
 
+    long activeComparisons(int blockNumber, QTraitPatternModelSet models) throws IOException {
+        BlockCounts counts = readBlock(blockNumber);
+        long comparisons = 0;
+        for (QTraitPatternModelSet.Model model : models.models())
+            if (model.estimable())
+                comparisons = Math.addExact(comparisons,
+                    Math.multiplyExact(counts.includedVariants()[model.id], model.traitRows));
+        return comparisons;
+    }
+
     void assemble(Path outputPath, QTraitPatternModelSet models, double minimumMaf,
-        double minimumMac) throws IOException {
+        double minimumMac, String frequencyScope, boolean filtersApplied) throws IOException {
         BlockCounts totals = new BlockCounts(patternCount);
         for (int block = 0; block < totalBlocks; block++)
             add(totals, readBlock(block));
@@ -174,7 +184,7 @@ final class QGenotypeOuterPatternQcCheckpoint {
                     + "\t" + totals.belowMinimumMac()[id]
                     + "\t" + totals.noCallVariants()[id]
                     + "\t" + totals.missingGenotypes()[id]
-                    + "\taligned\t" + directory + "\t" + reusedAtStart);
+                    + "\t" + frequencyScope + "\t" + directory + "\t" + reusedAtStart);
                 writer.newLine();
             }
             complete = true;
@@ -183,8 +193,8 @@ final class QGenotypeOuterPatternQcCheckpoint {
             else Files.deleteIfExists(temporary);
         }
         System.out.println("Genotype-outer pattern variant QC: " + output
-            + " (candidate pattern MAF >= " + minimumMaf + ", MAC >= " + minimumMac
-            + " counts are audited but not applied)");
+            + " (pattern MAF >= " + minimumMaf + ", MAC >= " + minimumMac
+            + (filtersApplied ? " filters applied)" : " candidates audited; aligned filters retained)"));
     }
 
     void finishSuccess() throws IOException {

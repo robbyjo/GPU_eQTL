@@ -119,6 +119,32 @@ class QeQTLCommandLineTest {
 			result.config().getUnestimableTraitPolicy());
     }
 
+	@Test
+	void parsesCohortModelOptions(@TempDir Path directory) throws Exception {
+		QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+			"--genotype", directory.resolve("g.csv").toString(),
+			"--expression", directory.resolve("e.csv").toString(),
+			"--covariates", directory.resolve("c.csv").toString(),
+			"--cohort-model", directory.resolve("cohorts.tsv").toString(),
+			"--cohort-column", "Study", "--output", directory.resolve("o.csv").toString()});
+		assertTrue(result.config().getCohortModelFilename().endsWith("cohorts.tsv"));
+		assertEquals("Study", result.config().getCohortColumn());
+	}
+
+	@Test
+	void parsesCacheLifecycleOptions(@TempDir Path directory) throws Exception {
+		QeQTLCommandLine.Result result = QeQTLCommandLine.parse(new String[] {
+			"--cache-dir", directory.resolve("cache").toString(),
+			"--cache-report", directory.resolve("inventory.tsv").toString(),
+			"--inspect-cache", "--prune-cache", "--prune-cache-older-than-days", "30",
+			"--apply-cache-prune"});
+		assertTrue(result.config().getInspectCache());
+		assertTrue(result.config().getPruneCache());
+		assertTrue(result.config().getApplyCachePrune());
+		assertEquals(30, result.config().getCachePruneOlderThanDays());
+		assertTrue(result.config().getCacheReportFilename().endsWith("inventory.tsv"));
+	}
+
     @Test
     void preprocessOnlyAndMacDisableAreParsedWithoutAssociationOutput(@TempDir Path directory)
         throws Exception {

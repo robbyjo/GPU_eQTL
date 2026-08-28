@@ -183,6 +183,32 @@ class QTraitPatternAnalysisTest {
 		}
 	}
 
+	@Test
+	void genotypeOuterAppliesPatternSpecificMacAndMatchesPatternOuter(
+		@TempDir Path directory) throws Exception {
+		Path alignedOutput = directory.resolve("aligned.csv");
+		runVariantPatternAnalysis(directory.resolve("aligned"), alignedOutput,
+			"genotype", "mean", "aligned", 0);
+		Path patternOutput = directory.resolve("pattern-filtered.csv");
+		runVariantPatternAnalysis(directory.resolve("pattern-filtered"), patternOutput,
+			"pattern", "mean", "pattern", 2);
+		Path genotypeOutput = directory.resolve("genotype-filtered.csv");
+		runVariantPatternAnalysis(directory.resolve("genotype-filtered"), genotypeOutput,
+			"genotype", "mean", "pattern", 2);
+
+		Map<String, double[]> expected = numericRows(patternOutput);
+		Map<String, double[]> actual = numericRows(genotypeOutput);
+		assertEquals(expected.keySet(), actual.keySet());
+		for (String id : expected.keySet())
+			assertArrayEquals(expected.get(id), actual.get(id), 2e-12, id);
+		assertTrue(actual.size() < numericRows(alignedOutput).size());
+		assertEquals(qcRows(Path.of(patternOutput + ".pattern-variant-qc.tsv")),
+			qcRows(Path.of(genotypeOutput + ".pattern-variant-qc.tsv")));
+		assertTrue(Files.readAllLines(Path.of(genotypeOutput
+			+ ".pattern-variant-qc.tsv")).stream().skip(1)
+			.allMatch(row -> row.split("\t", -1)[10].equals("pattern")));
+	}
+
     private static void runAnalysis(Path root, Path output, boolean resume,
         boolean keepCheckpoints) throws Exception {
 		runAnalysis(root, output, resume, keepCheckpoints, null);
@@ -289,6 +315,12 @@ class QTraitPatternAnalysisTest {
 	private static void runVariantPatternAnalysis(Path root, Path output, String scheduler,
 		String predictorMissing)
 		throws Exception {
+		runVariantPatternAnalysis(root, output, scheduler, predictorMissing, "aligned", 0);
+	}
+
+	private static void runVariantPatternAnalysis(Path root, Path output, String scheduler,
+		String predictorMissing, String frequencyScope, double minimumMac)
+		throws Exception {
 		Files.createDirectories(root);
 		Path genotype = Path.of("test/resources/variant-reference/genotype.vcf")
 			.toAbsolutePath().normalize();
@@ -303,7 +335,8 @@ class QTraitPatternAnalysisTest {
 		values.put("predictor_missing", predictorMissing);
 		values.put("trait_missing", "pattern");
 		values.put("sample_alignment", "strict");
-		values.put("min_mac", "0");
+		values.put("min_mac", Double.toString(minimumMac));
+		values.put("frequency_scope", frequencyScope);
 		values.put("genotype_block_rows", "16");
 		values.put("expression_block_rows", "32");
 		values.put("trait_cache", "disk");

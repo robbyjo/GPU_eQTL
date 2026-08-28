@@ -33,6 +33,8 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--expression", "expression_file");
         VALUE_OPTIONS.put("--traits", "expression_file");
         VALUE_OPTIONS.put("--covariates", "covariate_file");
+		VALUE_OPTIONS.put("--cohort-model", "cohort_model");
+		VALUE_OPTIONS.put("--cohort-column", "cohort_column");
         VALUE_OPTIONS.put("--output", "output_file");
         VALUE_OPTIONS.put("--analysis", "analysis");
         VALUE_OPTIONS.put("--variant-sets", "variant_sets");
@@ -94,6 +96,8 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--trait-cache", "trait_cache");
         VALUE_OPTIONS.put("--expression-cache", "trait_cache");
         VALUE_OPTIONS.put("--cache-dir", "cache_dir");
+		VALUE_OPTIONS.put("--cache-report", "cache_report");
+		VALUE_OPTIONS.put("--prune-cache-older-than-days", "cache_prune_older_than_days");
         VALUE_OPTIONS.put("--checkpoint-dir", "checkpoint_dir");
 		VALUE_OPTIONS.put("--max-trait-patterns", "max_trait_patterns");
 		VALUE_OPTIONS.put("--trait-pattern-scheduler", "trait_pattern_scheduler");
@@ -102,8 +106,8 @@ public final class QeQTLCommandLine {
     }
 
     private static final List<String> PATH_OPTIONS = List.of(
-        "genotype_file", "expression_file", "covariate_file", "output_file", "family_file", "pedigree_file",
-        "cache_dir", "checkpoint_dir", "profile_output", "variant_qc_output",
+        "genotype_file", "expression_file", "covariate_file", "cohort_model", "output_file", "family_file", "pedigree_file",
+        "cache_dir", "cache_report", "checkpoint_dir", "profile_output", "variant_qc_output",
         "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output",
         "variant_sets", "set_audit_output");
 
@@ -199,6 +203,12 @@ public final class QeQTLCommandLine {
                 config.set("inspect_missingness", "true");
             } else if ("--rebuild-cache".equals(argument)) {
                 config.set("rebuild_cache", "true");
+			} else if ("--inspect-cache".equals(argument)) {
+				config.set("inspect_cache", "true");
+			} else if ("--prune-cache".equals(argument)) {
+				config.set("prune_cache", "true");
+			} else if ("--apply-cache-prune".equals(argument)) {
+				config.set("apply_cache_prune", "true");
             } else if ("--resume".equals(argument)) {
                 config.set("resume", "true");
             } else if ("--keep-checkpoints".equals(argument)) {
@@ -274,6 +284,8 @@ public final class QeQTLCommandLine {
               --frequency-scope {aligned|pattern}   MAF/MAC filtering scope (default: aligned)
               --preprocess-only                 Align/QC/cache VCF or BCF, then stop before association
               --covariates FILE                 Mixed numeric/categorical covariate table
+			  --cohort-model FILE                Per-cohort fixed effects/repeated-measure TSV
+			  --cohort-column NAME               Covariate-table column selecting cohort rows
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
@@ -289,6 +301,9 @@ public final class QeQTLCommandLine {
               --expression-block-rows N        Enable bounded-RAM expression analysis
               --trait-cache {auto|memory|disk} Prepared trait residency (default: auto)
               --cache-dir DIR  --rebuild-cache
+			  --inspect-cache [--cache-report FILE]  Inspect sizes and SHA-256 readability
+			  --prune-cache --prune-cache-older-than-days N [--apply-cache-prune]
+			                                      Dry-run by default; apply moves files to .trash
               --checkpoint-dir DIR  --resume  --keep-checkpoints
 			  --max-trait-patterns N          Safety limit for exact deletion (default: 256; 0 disables)
 			  --trait-pattern-scheduler {auto|pattern|genotype} (default: auto)

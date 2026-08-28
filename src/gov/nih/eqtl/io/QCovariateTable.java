@@ -122,6 +122,21 @@ public final class QCovariateTable {
         return columnNames.clone();
     }
 
+    public String[] columnValues(String name, boolean[] includedRows) {
+        requireColumn(name);
+        if (includedRows != null && includedRows.length != rows.length)
+            throw new IllegalArgumentException("Covariate row selection has the wrong length");
+        int column = columnIndices.get(name);
+        List<String> values = new ArrayList<>();
+        for (int row = 0; row < rows.length; row++)
+            if (includedRows == null || includedRows[row]) {
+                String value = rows[row][column].trim();
+                requirePresent(value, name, row);
+                values.add(value);
+            }
+        return values.toArray(String[]::new);
+    }
+
     public QSampleAlignment align(String[] genotypeIds, String[] expressionIds,
         String requestedGenotypeIdColumn, String requestedExpressionIdColumn) {
         return align(genotypeIds, expressionIds, requestedGenotypeIdColumn,

@@ -158,7 +158,9 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--predictor FILE` | Required predictor path | `genotype_file` | Generic predictor spelling; requires `--predictor-type`. |
 | `--expression FILE` | Required trait path | `expression_file` | Compatibility spelling for expression traits; defaults trait type to `expression`. |
 | `--traits FILE` | Required trait path | `expression_file` | Generic trait spelling; requires `--trait-type`. |
-| `--covariates FILE` | Optional path | `covariate_file` | Mixed numeric/categorical covariate table. At least one fixed covariate must be named when this file is supplied. |
+| `--covariates FILE` | Optional path | `covariate_file` | Mixed numeric/categorical covariate table. At least one common fixed covariate or a cohort model must be supplied with it. |
+| `--cohort-model FILE` | Optional TSV | `cohort_model` | Cohort-specific fixed-effect and repeated-observation definitions. Requires `--cohort-column` and `--covariates`; ordinary eQTL only in this release. |
+| `--cohort-column NAME` | Required with cohort model | `cohort_column` | Covariate-table column whose exact levels select cohort definitions. |
 | `--output FILE` | Required for association | `output_file` | Association CSV. Optional for validation, missingness inspection, and VCF/BCF preprocessing. |
 | `--analysis METHOD` | `eqtl` (default), `burden`, `skat`, `skat-o` | `analysis` | Selects ordinary variant-by-trait eQTL or an FP64 set test. Expression rows are the tested phenotypes; fixed covariates are adjustment variables. |
 | `--variant-sets FILE` | Optional TSV | `variant_sets` | Explicit set membership, exact REF/ALT/effect allele, and optional positive weight definitions. Required for custom CSV sets. |
@@ -191,7 +193,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--predictor-flanks N` | Integer at least 1; default `1` | `predictor_flanks` | Variants on each side used by genotype-only local-pattern imputation. |
 | `--trait-missing POLICY` | `pattern` (default), `mean`, `zero`, `error`, `exclude-row` | `trait_missing` | `pattern` groups exact complete-sample masks for dynamic deletion. Aliases include `dynamic`, `complete-case`, `exclude`, and `exclude-trait`. |
 | `--max-trait-patterns N` | `256` (default); `0` disables | `max_trait_patterns` | Automatic scheduler switch threshold. Explicit pattern-outer scheduling treats it as a safety limit and reports repeated predictor-preparation work. It never bypasses rank/DF checks. |
-| `--trait-pattern-scheduler MODE` | `auto` (default), `pattern`, `genotype` | `trait_pattern_scheduler` | `auto` uses pattern-outer at or below the threshold and scalable genotype-outer above it. Genotype-outer is FP64, aligned-frequency-scope only, and writes deterministic genotype-block/trait-block/variant/original-trait order. |
+| `--trait-pattern-scheduler MODE` | `auto` (default), `pattern`, `genotype` | `trait_pattern_scheduler` | `auto` uses pattern-outer at or below the threshold and scalable genotype-outer above it. Genotype-outer is FP64 and writes deterministic genotype-block/trait-block/variant/original-trait order; both schedulers support explicit pattern-scoped MAF/MAC. |
 | `--unestimable-trait-patterns POLICY` | `error` (default), `skip` | `unestimable_trait_patterns` | Genotype-outer writes `<output>.trait-patterns.tsv`; `error` then stops if any mask is rank/DF-unestimable, while explicit `skip` excludes those audited traits. |
 | `--covariate-missing POLICY` | `complete-samples` (default), `error` | `covariate_missing` | Removes samples missing selected fixed covariates across all aligned matrices, or fails. |
 | `--inspect-missingness` | Flag; off | `inspect_missingness = true` | Writes the missingness/alignment QC report and stops before backend initialization. Cannot be combined with `--preprocess-only`. |
@@ -251,6 +253,11 @@ These options affect VCF/BCF genotype input. CSV predictors do not receive varia
 | Command-line option | Values and default | Legacy INI key | Meaning |
 | --- | --- | --- | --- |
 | `--cache-dir DIR` | `.gpu-eqtl-cache` beside output/input | `cache_dir` | Persistent signed missingness scans plus raw and prepared matrix caches, keyed by source/parser/sample-order and scientific preprocessing signatures. |
+| `--inspect-cache` | Flag; off | `inspect_cache = true` | Inventories cache-local files without backend initialization and reports type, size, modification time, SHA-256 readability, and action. Requires `--cache-dir`. |
+| `--cache-report FILE` | `<cache-dir>/cache-inventory.tsv` | `cache_report` | Changes the cache inventory report path. |
+| `--prune-cache` | Flag; dry-run | `prune_cache = true` | Selects only recognized stale cache artifacts; never selects unrelated files. Requires an age threshold. |
+| `--prune-cache-older-than-days N` | Positive integer with prune | `cache_prune_older_than_days` | Stale cutoff based on file modification time. Active lock scopes are skipped. |
+| `--apply-cache-prune` | Flag; off | `apply_cache_prune = true` | Applies a prune plan by moving candidates under `<cache-dir>/.trash/TIMESTAMP`; it does not permanently delete them. |
 | `--rebuild-cache` | Flag; off | `rebuild_cache = true` | Replaces matching missingness/matrix caches instead of reusing them. It does not replace variant-QC checkpoint state. |
 | `--checkpoint-dir DIR` | `<output>.checkpoint` | `checkpoint_dir` | Bounded-RAM association result parts. Pattern-outer nests blocks under ordered pattern groups; genotype-outer commits blocks spanning all estimable traits. |
 | `--resume` | Flag; off | `resume = true` | Reuses completed signature-matching association blocks/groups and separately reuses matching signed missingness and prepared-trait caches. |

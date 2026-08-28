@@ -19,8 +19,9 @@ final class QAnalysisProgress implements AutoCloseable {
     static final long DEFAULT_REPORT_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(15);
 
     private final String label;
-    private final long totalComparisons;
+    private long totalComparisons;
     private final long initialComparisons;
+    private final boolean dynamicTotal;
     private final LongSupplier clock;
     private final Consumer<String> output;
     private final long reportIntervalNanos;
@@ -32,7 +33,19 @@ final class QAnalysisProgress implements AutoCloseable {
 
     QAnalysisProgress(String label, long totalComparisons, long initialComparisons) {
         this(label, totalComparisons, initialComparisons, System::nanoTime,
-            System.out::println, DEFAULT_REPORT_INTERVAL_NANOS);
+            System.out::println, DEFAULT_REPORT_INTERVAL_NANOS, false);
+        startReporter();
+    }
+
+    static QAnalysisProgress dynamic(String label, long completedComparisons) {
+        QAnalysisProgress progress = new QAnalysisProgress(label, completedComparisons,
+            completedComparisons, System::nanoTime, System.out::println,
+            DEFAULT_REPORT_INTERVAL_NANOS, true);
+        progress.startReporter();
+        return progress;
+    }
+
+    private void startReporter() {
         reporter = Executors.newSingleThreadScheduledExecutor(action -> {
             Thread thread = new Thread(action, "gpu-eqtl-association-progress");
             thread.setDaemon(true);
@@ -44,9 +57,16 @@ final class QAnalysisProgress implements AutoCloseable {
 
     QAnalysisProgress(String label, long totalComparisons, long initialComparisons,
         LongSupplier clock, Consumer<String> output, long reportIntervalNanos) {
+        this(label, totalComparisons, initialComparisons, clock, output,
+            reportIntervalNanos, false);
+    }
+
+    QAnalysisProgress(String label, long totalComparisons, long initialComparisons,
+        LongSupplier clock, Consumer<String> output, long reportIntervalNanos,
+        boolean dynamicTotal) {
         if (label == null || label.isBlank())
             throw new IllegalArgumentException("Progress label is required");
-        if (totalComparisons <= 0)
+        if (totalComparisons < 0 || (!dynamicTotal && totalComparisons == 0))
             throw new IllegalArgumentException("Total association comparisons must be positive");
         if (initialComparisons < 0 || initialComparisons > totalComparisons)
             throw new IllegalArgumentException("Initial association progress is out of range");
@@ -56,12 +76,23 @@ final class QAnalysisProgress implements AutoCloseable {
         this.totalComparisons = totalComparisons;
         this.initialComparisons = initialComparisons;
         this.completedComparisons = initialComparisons;
+        this.dynamicTotal = dynamicTotal;
         this.clock = clock;
         this.output = output;
         this.reportIntervalNanos = reportIntervalNanos;
         started = clock.getAsLong();
         lastReport = started;
-        output.accept(startMessage(label, totalComparisons, initialComparisons));
+        output.accept(dynamicTotal
+            ? dynamicStartMessage(label, initialComparisons)
+            : startMessage(label, totalComparisons, initialComparisons));
+    }
+
+    synchronized void registerComparisons(long count) {
+        if (!dynamicTotal)
+            throw new IllegalStateException("Cannot register work on fixed-total progress");
+        if (count < 0)
+            throw new IllegalArgumentException("Registered association comparisons cannot be negative");
+        totalComparisons = Math.addExact(totalComparisons, count);
     }
 
     synchronized void addComparisons(long count) {
@@ -71,8 +102,9 @@ final class QAnalysisProgress implements AutoCloseable {
             throw new IllegalStateException("Association progress exceeded its declared total");
         completedComparisons += count;
         long now = clock.getAsLong();
-        if (completedComparisons == totalComparisons || now - lastReport >= reportIntervalNanos)
-            report(now, completedComparisons == totalComparisons);
+        boolean complete = !dynamicTotal && completedComparisons == totalComparisons;
+        if (complete || now - lastReport >= reportIntervalNanos)
+            report(now, complete);
     }
 
     synchronized void heartbeat() {
@@ -97,8 +129,11 @@ final class QAnalysisProgress implements AutoCloseable {
     }
 
     private void report(long now, boolean complete) {
-        output.accept(progressMessage(label, completedComparisons, totalComparisons,
-            completedComparisons - initialComparisons, Math.max(0, now - started), complete));
+        output.accept(dynamicTotal && !complete
+            ? dynamicProgressMessage(label, completedComparisons, totalComparisons,
+                completedComparisons - initialComparisons, Math.max(0, now - started))
+            : progressMessage(label, completedComparisons, totalComparisons,
+                completedComparisons - initialComparisons, Math.max(0, now - started), complete));
         lastReport = now;
         finalReportWritten |= complete;
         if (complete)
@@ -121,9 +156,32 @@ final class QAnalysisProgress implements AutoCloseable {
         return message + "; progress approximately every 15 seconds.";
     }
 
+    static String dynamicStartMessage(String label, long initialComparisons) {
+        String message = label + " started; exact active comparison total will be finalized "
+            + "from pattern-specific variant QC";
+        if (initialComparisons > 0)
+            message += "; resumed " + String.format(Locale.ROOT, "%,d", initialComparisons)
+                + " completed active comparison(s)";
+        return message + "; progress approximately every 15 seconds.";
+    }
+
+    static String dynamicProgressMessage(String label, long completedComparisons,
+        long discoveredComparisons, long completedThisRun, long elapsedNanos) {
+        double elapsedSeconds = elapsedNanos / 1_000_000_000.0;
+        double rate = elapsedSeconds > 0 ? completedThisRun / elapsedSeconds : 0;
+        StringBuilder message = new StringBuilder(label).append(" progress: ")
+            .append(String.format(Locale.ROOT, "%,d completed / %,d discovered active comparisons",
+                completedComparisons, discoveredComparisons))
+            .append("; total still being determined; elapsed=").append(duration(elapsedSeconds));
+        if (rate > 0)
+            message.append("; rate=").append(String.format(Locale.ROOT, "%,.0f", rate)).append("/s");
+        return message.toString();
+    }
+
     static String progressMessage(String label, long completedComparisons, long totalComparisons,
         long completedThisRun, long elapsedNanos, boolean complete) {
-        double percent = 100.0 * completedComparisons / totalComparisons;
+        double percent = totalComparisons == 0 && complete ? 100.0
+            : 100.0 * completedComparisons / totalComparisons;
         double elapsedSeconds = elapsedNanos / 1_000_000_000.0;
         double rate = elapsedSeconds > 0 ? completedThisRun / elapsedSeconds : 0;
         StringBuilder message = new StringBuilder(label)
