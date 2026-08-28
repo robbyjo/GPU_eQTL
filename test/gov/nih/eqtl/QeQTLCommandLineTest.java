@@ -32,6 +32,15 @@ class QeQTLCommandLineTest {
         assertEquals(999, parsed.config().getSkatOSimulations());
         assertEquals(71, parsed.config().getSkatOSeed());
         assertEquals(12, parsed.config().getSetBlockSize());
+
+        QeQTLCommandLine.Result automatic = QeQTLCommandLine.parse(new String[] {
+            "--genotype", "genotype.csv", "--expression", "traits.csv",
+            "--output", "burden.csv", "--analysis", "burden",
+            "--variant-sets", "sets.tsv"});
+        assertEquals(0, automatic.config().getSetBlockSize());
+        assertThrows(IllegalArgumentException.class,
+            () -> new QeQTLAnalysisConfig(java.util.Map.of("set_block_size", "-1"))
+                .getSetBlockSize());
     }
 
     @Test

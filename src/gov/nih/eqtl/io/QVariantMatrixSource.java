@@ -642,7 +642,18 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             selectedField = selectField(cursor.header(), options.genotypeField());
             sourceHeader = cursor.header();
         }
-        variantIndex = resolveVariantIndex(this.path, options.variantIndex());
+        Path resolvedIndex = resolveVariantIndex(this.path, options.variantIndex());
+        boolean standardCsi = resolvedIndex != null
+            && resolvedIndex.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".csi");
+        boolean regionRequested = options.regions() != null || options.regionsFile() != null;
+        if (standardCsi && regionRequested)
+            throw new IOException("Standard CSI indexes are not supported for indexed region access: "
+                + resolvedIndex + ". Provide a tabix .tbi for BGZF VCF or an HTSJDK Tribble "
+                + ".idx for VCF/BCF; a full sequential scan will not be substituted.");
+        if (standardCsi)
+            System.err.println("WARNING: Ignoring unsupported CSI index for unrestricted sequential "
+                + "VCF/BCF access: " + resolvedIndex);
+        variantIndex = standardCsi ? null : resolvedIndex;
         indexSize = variantIndex == null ? -1 : Files.size(variantIndex);
         indexModifiedMillis = variantIndex == null ? -1
             : Files.getLastModifiedTime(variantIndex).toMillis();
@@ -658,7 +669,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
         regions = QGenomicRegions.load(options.regions(), options.regionsFile(),
             options.regionCoordinates(), availableContigs);
         if (regions != null && variantIndex == null)
-            throw new IOException("Region-limited VCF/BCF access requires a .tbi or .csi index; "
+            throw new IOException("Region-limited VCF/BCF access requires a supported .tbi or .idx index; "
                 + "provide --variant-index or place the index beside " + this.path);
         qcThreadCount = recommendQcThreads(options.qcThreads());
         qcCheckpointRecordBatchSize = qcCheckpointBatchSize();
@@ -1694,7 +1705,7 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
                 throw new IOException("Variant index does not exist: " + configured);
             return configured;
         }
-        for (String suffix : List.of(".csi", ".tbi", ".idx")) {
+        for (String suffix : List.of(".tbi", ".idx", ".csi")) {
             Path candidate = Path.of(variantPath.toString() + suffix).toAbsolutePath().normalize();
             if (Files.isRegularFile(candidate))
                 return candidate;

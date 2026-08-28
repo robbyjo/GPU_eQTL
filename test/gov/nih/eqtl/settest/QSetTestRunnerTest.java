@@ -74,6 +74,32 @@ class QSetTestRunnerTest {
     }
 
     @Test
+    void automaticSetBlocksUseHeapAndMembershipDensity(@TempDir Path directory)
+        throws Exception {
+        Path sets = directory.resolve("dense-sets.tsv");
+        StringBuilder rows = new StringBuilder(
+            "SET_ID\tVARIANT_ID\tREF\tALT\tEFFECT_ALLELE\tWEIGHT\n");
+        for (int set = 0; set < 64; set++)
+            for (int variant = 0; variant < 100; variant++)
+                rows.append("set").append(set).append('\t').append("1:")
+                    .append(1000 + set * 100 + variant).append(":A:G\tA\tG\tG\t1\n");
+        Files.writeString(sets, rows);
+        QVariantSetTable definitions = QVariantSetTable.load(sets);
+
+        QSetTestRunner.SetBlockRecommendation constrained =
+            QSetTestRunner.recommendSetBlockSize(definitions, 4746,
+                QSetTestMethod.BURDEN, 512L * 1024 * 1024);
+        assertTrue(constrained.blockSize() >= 1 && constrained.blockSize() < 64);
+        assertTrue(constrained.estimatedTileBytes() <= constrained.tileBudgetBytes()
+            || constrained.blockSize() == 1);
+
+        QSetTestRunner.SetBlockRecommendation roomy =
+            QSetTestRunner.recommendSetBlockSize(definitions, 4746,
+                QSetTestMethod.BURDEN, 8L * 1024 * 1024 * 1024);
+        assertEquals(64, roomy.blockSize());
+    }
+
+    @Test
     void productionSkatAndSkatOUseTheSameBoundedSchema(@TempDir Path directory)
         throws Exception {
         Path variants = directory.resolve("variants.csv");

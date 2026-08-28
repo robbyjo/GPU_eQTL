@@ -35,6 +35,10 @@ import gov.nih.eqtl.settest.QBurdenReference.Variant;
 
 /** Bounded deterministic production runner shared by command-line set tests. */
 public final class QSetTestRunner {
+    private static final int MAXIMUM_AUTOMATIC_SET_BLOCK_SIZE = 256;
+    private static final long MINIMUM_AUTOMATIC_BUDGET = 64L * 1024 * 1024;
+    private static final long AUTOMATIC_FIXED_RESERVE = 256L * 1024 * 1024;
+
     public record Options(QSetTestMethod method, Path definitions, Path output, Path auditOutput,
         Path checkpointDirectory, int traitBlockRows, QSetTestPolicy policy,
         boolean resume, boolean keepCheckpoints, String thresholdType, double threshold,
@@ -42,7 +46,7 @@ public final class QSetTestRunner {
         public Options {
             if (method == null || !method.isSetTest() || output == null
                 || auditOutput == null || checkpointDirectory == null || traitBlockRows <= 0
-                || setBlockSize <= 0 || policy == null || thresholdType == null)
+                || setBlockSize < 0 || policy == null || thresholdType == null)
                 throw new IllegalArgumentException("Incomplete set-test runner options");
             skatORhoGrid = skatORhoGrid == null ? null : skatORhoGrid.clone();
             if (method == QSetTestMethod.SKAT_O
@@ -54,6 +58,9 @@ public final class QSetTestRunner {
             return skatORhoGrid == null ? null : skatORhoGrid.clone();
         }
     }
+
+    record SetBlockRecommendation(int blockSize, long heapLimitBytes,
+        long tileBudgetBytes, long estimatedTileBytes) { }
 
     private static void validateRhoGrid(double[] values) {
         if (values[0] != 0 || values[values.length - 1] != 1)
@@ -80,27 +87,39 @@ public final class QSetTestRunner {
         QMatrixRowSource traits, int[] traitColumns, double[][] covariateDesign,
         QVariantSetTable definitions, Options options) throws Exception {
         if (definitions == null) throw new IllegalArgumentException("Variant-set definitions are required");
+        int effectiveSetBlockSize = options.setBlockSize();
+        if (effectiveSetBlockSize == 0) {
+            SetBlockRecommendation recommendation = recommendSetBlockSize(definitions,
+                variantColumns.length, options.method(),
+                Runtime.getRuntime().maxMemory());
+            effectiveSetBlockSize = recommendation.blockSize();
+            System.out.println("Automatic set block size = " + effectiveSetBlockSize
+                + "; JVM heap limit=" + recommendation.heapLimitBytes()
+                + " bytes; set-tile budget=" + recommendation.tileBudgetBytes()
+                + " bytes; worst estimated tile=" + recommendation.estimatedTileBytes()
+                + " bytes");
+        }
         long traitRows = traits.metadata().rowCount();
         int traitBlocks = Math.toIntExact((traitRows + options.traitBlockRows() - 1)
             / options.traitBlockRows());
-        int setBlocks = (definitions.sets().size() + options.setBlockSize() - 1)
-            / options.setBlockSize();
+        int setBlocks = (definitions.sets().size() + effectiveSetBlockSize - 1)
+            / effectiveSetBlockSize;
         int totalBlocks = Math.multiplyExact(setBlocks, traitBlocks);
         System.out.println("Set-test schedule: sets=" + definitions.sets().size()
-            + ", set_blocks=" + setBlocks + ", set_block_size=" + options.setBlockSize()
+            + ", set_blocks=" + setBlocks + ", set_block_size=" + effectiveSetBlockSize
             + ", traits=" + traitRows + ", trait_blocks=" + traitBlocks
             + ", trait_block_rows=" + options.traitBlockRows());
         long observedHeapPeak = usedHeapBytes();
         String signature = signature(variants, variantColumns, traits, traitColumns,
-            covariateDesign, definitions, options);
+            covariateDesign, definitions, options, effectiveSetBlockSize);
         QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(
             options.checkpointDirectory(), signature, totalBlocks,
             options.resume(), options.keepCheckpoints());
         List<SetAudit> audits = new ArrayList<>();
         for (int setBlock = 0; setBlock < setBlocks; setBlock++) {
-            int setFrom = setBlock * options.setBlockSize();
+            int setFrom = setBlock * effectiveSetBlockSize;
             QVariantSetTable setTile = definitions.subset(setFrom,
-                Math.min(definitions.sets().size(), setFrom + options.setBlockSize()));
+                Math.min(definitions.sets().size(), setFrom + effectiveSetBlockSize));
             List<Variant> selectedVariants = loadSelectedVariants(variants, variantColumns,
                 setTile, options.traitBlockRows());
             observedHeapPeak = Math.max(observedHeapPeak, usedHeapBytes());
@@ -152,6 +171,72 @@ public final class QSetTestRunner {
         }
         System.out.println("Set-test observed JVM heap peak at tile boundaries: "
             + observedHeapPeak + " bytes");
+    }
+
+    static SetBlockRecommendation recommendSetBlockSize(QVariantSetTable definitions,
+        int sampleCount, QSetTestMethod method, long heapLimitBytes) {
+        if (definitions == null || definitions.sets().isEmpty() || sampleCount < 1
+            || method == null || !method.isSetTest() || heapLimitBytes < 1)
+            throw new IllegalArgumentException("Invalid automatic set-block tuning inputs");
+        long halfHeap = heapLimitBytes / 2;
+        long desired = Math.max(MINIMUM_AUTOMATIC_BUDGET,
+            Math.max(0, halfHeap - AUTOMATIC_FIXED_RESERVE));
+        long budget = Math.max(1, Math.min(halfHeap, desired));
+        int candidate = Math.min(MAXIMUM_AUTOMATIC_SET_BLOCK_SIZE,
+            definitions.sets().size());
+        long estimate;
+        while (true) {
+            estimate = worstTileBytes(definitions, candidate, sampleCount, method);
+            if (estimate <= budget || candidate == 1)
+                return new SetBlockRecommendation(candidate, heapLimitBytes, budget, estimate);
+            double ratio = budget / (double) estimate;
+            int reduced = Math.max(1, (int) Math.floor(candidate * ratio * 0.9));
+            candidate = reduced < candidate ? reduced : candidate - 1;
+        }
+    }
+
+    private static long worstTileBytes(QVariantSetTable definitions, int blockSize,
+        int sampleCount, QSetTestMethod method) {
+        long worst = 0;
+        for (int from = 0; from < definitions.sets().size(); from += blockSize) {
+            int to = Math.min(definitions.sets().size(), from + blockSize);
+            Set<String> variants = new HashSet<>();
+            int largestSet = 0;
+            for (int set = from; set < to; set++) {
+                List<QVariantSetTable.Entry> entries = definitions.sets().get(set).entries();
+                largestSet = Math.max(largestSet, entries.size());
+                for (QVariantSetTable.Entry entry : entries)
+                    variants.add(entry.variantId());
+            }
+            long rowBytes = saturatedAdd(saturatedMultiply(sampleCount, Double.BYTES), 176);
+            long selectedRows = saturatedMultiply(variants.size(), rowBytes);
+            long methodWorkspace;
+            if (method == QSetTestMethod.BURDEN) {
+                methodWorkspace = saturatedMultiply(to - from,
+                    saturatedMultiply(sampleCount, 2L * Double.BYTES));
+            } else {
+                long dosageWorkspace = saturatedMultiply(largestSet,
+                    saturatedMultiply(sampleCount, 2L * Double.BYTES));
+                long covarianceWorkspace = saturatedMultiply(largestSet,
+                    saturatedMultiply(largestSet, 3L * Double.BYTES));
+                methodWorkspace = saturatedAdd(dosageWorkspace, covarianceWorkspace);
+            }
+            long rawEstimate = saturatedAdd(selectedRows, methodWorkspace);
+            long safetyAdjusted = saturatedAdd(rawEstimate, rawEstimate / 4);
+            worst = Math.max(worst, safetyAdjusted);
+        }
+        return worst;
+    }
+
+    private static long saturatedMultiply(long left, long right) {
+        if (left == 0 || right == 0) return 0;
+        if (left > Long.MAX_VALUE / right) return Long.MAX_VALUE;
+        return left * right;
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        if (left > Long.MAX_VALUE - right) return Long.MAX_VALUE;
+        return left + right;
     }
 
     private static List<SetAudit> regenerateAudit(QMatrixRowSource traits, int[] traitColumns,
@@ -302,7 +387,7 @@ public final class QSetTestRunner {
 
     private static String signature(QMatrixRowSource variants, int[] variantColumns,
         QMatrixRowSource traits, int[] traitColumns, double[][] design,
-        QVariantSetTable definitions, Options options) {
+        QVariantSetTable definitions, Options options, int effectiveSetBlockSize) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             update(digest, "gpu-eqtl-set-runner-v1");
@@ -311,7 +396,7 @@ public final class QSetTestRunner {
             update(digest, options.policy().toString()); update(digest, options.thresholdType());
             update(digest, Long.toString(Double.doubleToLongBits(options.threshold())));
             update(digest, Integer.toString(options.traitBlockRows()));
-            update(digest, Integer.toString(options.setBlockSize()));
+            update(digest, Integer.toString(effectiveSetBlockSize));
             if (options.skatORhoGrid() != null)
                 for (double rho : options.skatORhoGrid())
                     update(digest, Long.toString(Double.doubleToLongBits(rho)));

@@ -96,6 +96,8 @@ public final class GpuPatternStatisticsSupport {
                 compact[target + GpuPatternStatisticsResult.RESIDUAL_SUM_SQUARES]
                     = sumSquares - projection;
                 compact[target + GpuPatternStatisticsResult.FILLED_SUM_SQUARES] = sumSquares;
+                compact[target + GpuPatternStatisticsResult.CALLED_COUNT] = called;
+                compact[target + GpuPatternStatisticsResult.DOSAGE_SUM] = sum;
             }
         }
     }

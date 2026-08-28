@@ -32,6 +32,7 @@ final class QGenotypeOuterPatternJob implements Runnable {
     private final QPreparedMatrix traits;
     private final QTraitPatternModelSet models;
     private final QAnalysisCheckpoint checkpoint;
+    private final QGenotypeOuterPatternQcCheckpoint qcCheckpoint;
     private final int blockNumber;
     private final GpuContextPool contextPool;
     private final int genotypeCapacity;
@@ -40,18 +41,23 @@ final class QGenotypeOuterPatternJob implements Runnable {
     private final int degreesOfFreedomOffset;
     private final QeQTLProfiler profiler;
     private final QAnalysisProgress progress;
+    private final double minimumMaf;
+    private final double minimumMac;
 
     record QMatrixBlock(long rowOffset, String[] rowIds, double[][] values) { }
 
     QGenotypeOuterPatternJob(QMatrixBlock genotype, QPreparedMatrix traits,
         QTraitPatternModelSet models, QAnalysisCheckpoint checkpoint, int blockNumber,
+        QGenotypeOuterPatternQcCheckpoint qcCheckpoint,
         GpuContextPool contextPool, int genotypeCapacity, int traitCapacity,
         QMissingValuePolicy predictorMissingPolicy, int degreesOfFreedomOffset,
-        QeQTLProfiler profiler, QAnalysisProgress progress) {
+        QeQTLProfiler profiler, QAnalysisProgress progress, double minimumMaf,
+        double minimumMac) {
         this.genotype = genotype;
         this.traits = traits;
         this.models = models;
         this.checkpoint = checkpoint;
+        this.qcCheckpoint = qcCheckpoint;
         this.blockNumber = blockNumber;
         this.contextPool = contextPool;
         this.genotypeCapacity = genotypeCapacity;
@@ -60,6 +66,8 @@ final class QGenotypeOuterPatternJob implements Runnable {
         this.degreesOfFreedomOffset = degreesOfFreedomOffset;
         this.profiler = profiler;
         this.progress = progress;
+        this.minimumMaf = minimumMaf;
+        this.minimumMac = minimumMac;
     }
 
     @Override
@@ -117,19 +125,23 @@ final class QGenotypeOuterPatternJob implements Runnable {
                 calculateAndWriteAssociations(context, traitInputs, paddedSamples,
                     activeVariants, doubledCapacity, traitBlock, patternStatistics, writer);
             }
+            qcCheckpoint.writeBlock(blockNumber, patternStatistics.qcCounts());
         } finally {
             contextPool.releaseContext(context);
         }
     }
 
     private record PatternVariantStatistics(double[][] standardDeviations,
-        double[][] replacements) { }
+        double[][] replacements,
+        QGenotypeOuterPatternQcCheckpoint.BlockCounts qcCounts) { }
 
 	private PatternVariantStatistics calculatePatternStatistics(GpuContext context,
 		double[] aggregateInputs, int paddedSamples, int activeVariants, int tripledCapacity) {
 		QTraitPatternModelSet.Model[] allModels = models.models();
 		double[][] standardDeviations = new double[allModels.length][];
 		double[][] replacements = new double[allModels.length][];
+		QGenotypeOuterPatternQcCheckpoint.BlockCounts qcCounts =
+			new QGenotypeOuterPatternQcCheckpoint.BlockCounts(allModels.length);
 		int rowsPerPattern = models.designColumns() + 1;
 		long bytesPerPattern = (long) rowsPerPattern * tripledCapacity * Double.BYTES;
 		int patternsPerBatch = (int) Math.max(1,
@@ -145,9 +157,41 @@ final class QGenotypeOuterPatternJob implements Runnable {
 			double[] sd = new double[activeVariants];
 			double[] replacementValues = new double[activeVariants];
 			for (int variant = 0; variant < activeVariants; variant++) {
+				double calledValue = compact.value(pattern, variant,
+					GpuPatternStatisticsResult.CALLED_COUNT);
+				long called = Math.round(calledValue);
+				if (called < 0 || called > model.observed.length
+					|| Math.abs(calledValue - called) > 1e-8)
+					throw new IllegalStateException("Invalid called genotype count " + calledValue
+						+ " for pattern " + model.id + ", variant " + variant);
+				double dosageSum = compact.value(pattern, variant,
+					GpuPatternStatisticsResult.DOSAGE_SUM);
+				long missing = model.observed.length - called;
+				qcCounts.inputVariants()[model.id]++;
+				qcCounts.missingGenotypes()[model.id] = Math.addExact(
+					qcCounts.missingGenotypes()[model.id], missing);
 				double replacement = compact.value(pattern, variant,
 					GpuPatternStatisticsResult.REPLACEMENT);
 				replacementValues[variant] = replacement;
+				if (called == 0) {
+					qcCounts.noCallVariants()[model.id]++;
+				} else {
+					double filledSum = dosageSum + missing * replacement;
+					double centered = compact.value(pattern, variant,
+						GpuPatternStatisticsResult.FILLED_SUM_SQUARES)
+						- filledSum * filledSum / model.observed.length;
+					boolean monomorphic = !(centered > 1e-12) || !Double.isFinite(centered);
+					if (monomorphic) qcCounts.monomorphicVariants()[model.id]++;
+					double alleleNumber = 2.0 * called;
+					double eaf = dosageSum / alleleNumber;
+					double maf = Math.min(eaf, 1.0 - eaf);
+					double mac = Math.min(dosageSum, alleleNumber - dosageSum);
+					if (maf + 1e-12 < minimumMaf)
+						qcCounts.belowMinimumMaf()[model.id]++;
+					if (mac + 1e-12 < minimumMac)
+						qcCounts.belowMinimumMac()[model.id]++;
+					if (!monomorphic) qcCounts.includedVariants()[model.id]++;
+				}
 				double residual = QPatternSufficientStatistics.validateResidualSumSquares(
 					compact.value(pattern, variant,
 						GpuPatternStatisticsResult.FILLED_SUM_SQUARES),
@@ -160,7 +204,7 @@ final class QGenotypeOuterPatternJob implements Runnable {
             standardDeviations[model.id] = sd;
             replacements[model.id] = replacementValues;
 		}
-		return new PatternVariantStatistics(standardDeviations, replacements);
+		return new PatternVariantStatistics(standardDeviations, replacements, qcCounts);
 	}
 
     private void calculateAndWriteAssociations(GpuContext context, double[] traitInputs,

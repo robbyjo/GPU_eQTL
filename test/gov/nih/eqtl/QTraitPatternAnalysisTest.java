@@ -129,8 +129,12 @@ class QTraitPatternAnalysisTest {
 		System.clearProperty(GENOTYPE_FAIL_PROPERTY);
 		assertTrue(!Files.exists(resumedOutput));
 		assertTrue(Files.isRegularFile(resumedRoot.resolve("checkpoint").resolve("block-00000000.part")));
+		assertTrue(Files.isRegularFile(resumedRoot.resolve("checkpoint.pattern-qc")
+			.resolve("block-00000000.qc")));
 		runAnalysis(resumedRoot, resumedOutput, true, true, null, "genotype");
 		assertArrayEquals(Files.readAllBytes(genotypeOutput), Files.readAllBytes(resumedOutput));
+		assertEquals(qcRows(Path.of(genotypeOutput + ".pattern-variant-qc.tsv")),
+			qcRows(Path.of(resumedOutput + ".pattern-variant-qc.tsv")));
 	}
 
 	@Test
@@ -174,6 +178,8 @@ class QTraitPatternAnalysisTest {
 			for (String id : expected.keySet())
 				assertArrayEquals(expected.get(id), actual.get(id), 2e-12,
 					policy + ": " + id);
+			assertEquals(qcRows(Path.of(patternOutput + ".pattern-variant-qc.tsv")),
+				qcRows(Path.of(genotypeOutput + ".pattern-variant-qc.tsv")), policy);
 		}
 	}
 
@@ -271,6 +277,13 @@ class QTraitPatternAnalysisTest {
 			result.put(fields[0] + "/" + fields[1], numeric);
 		}
 		return result;
+	}
+
+	private static List<String> qcRows(Path output) throws Exception {
+		return Files.readAllLines(output).stream().skip(1).map(row -> {
+			String[] fields = row.split("\t", -1);
+			return String.join("\t", java.util.Arrays.copyOf(fields, 11));
+		}).toList();
 	}
 
 	private static void runVariantPatternAnalysis(Path root, Path output, String scheduler,

@@ -582,8 +582,8 @@ final class JoclGpuContext implements GpuContext {
 			+ "    value /= upper[(pattern * rank + row) * rank + row];\n"
 			+ "    q[row] = value; projection += value * value;\n"
 			+ "  }\n"
-			+ "  int target = ((first_pattern + pattern) * variants + variant) * 3;\n"
-			+ "  compact[target] = replacement; compact[target + 1] = sum_squares - projection; compact[target + 2] = sum_squares;\n"
+			+ "  int target = ((first_pattern + pattern) * variants + variant) * 5;\n"
+			+ "  compact[target] = replacement; compact[target + 1] = sum_squares - projection; compact[target + 2] = sum_squares; compact[target + 3] = called; compact[target + 4] = products[mask + 1];\n"
 			+ "}\n";
 		int[] status = new int[1];
 		patternProgram = clCreateProgramWithSource(context, 1, new String[] {source}, null, status);

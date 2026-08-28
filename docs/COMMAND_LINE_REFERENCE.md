@@ -169,7 +169,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--set-min-mac V`, `--set-max-mac V` | `0`, unbounded | `set_min_mac`, `set_max_mac` | Inclusive aligned-cohort set-member MAC mask. |
 | `--set-absent-variant POLICY` | `error` (default), `skip` | `set_absent_variant` | Handling for explicit definitions absent from the aligned source. |
 | `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
-| `--set-block-size N` | `256` | `set_block_size` | Resident set tile size for bounded execution. Broad/high-density windows can make one tile span many unique variants; lower this value when heap headroom is limited. |
+| `--set-block-size N` | `0` automatic | `set_block_size` | Resident set tile size for bounded execution. Omitted/zero selects a heap-aware value from aligned sample count, method workspaces, and the actual set-membership density; a positive value remains an explicit override. |
 | `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
 | `--skat-o-simulations N` | `10000` | `skat_o_simulations` | Correlated parametric-null replicate count. |
 | `--skat-o-seed N` | `20260827` | `skat_o_seed` | Deterministic SKAT-O simulation seed. |
@@ -221,7 +221,7 @@ These options affect VCF/BCF genotype input. CSV predictors do not receive varia
 | `--variant-qc-output FILE` | `<output>.variants.tsv`; genotype-based name without output | `variant_qc_output` | Variant IDs/alleles, aligned counts, EAF/MAF/MAC, HWE, classifications, filters, and set membership. |
 | `--variant-qc-threads N` | `0` automatic; `1` sequential | `variant_qc_threads` | Parallel low-allocation VCF FORMAT/GT/DS/FT QC workers. Automatic mode leaves one logical processor free and is capped at 8 based on the observed throughput plateau; `1` uses the HTSJDK reference path, while BCF genotype expansion remains reader-thread-bound. |
 | `--variant-qc-checkpoint DIR` | `<variant-QC-output>.checkpoint` | `variant_qc_checkpoint` | Durable, signature-scoped QC state. Reuse resumes or avoids the aligned QC scan. |
-| `--variant-index FILE` | Neighboring index auto-detected | `variant_index` | Explicit tabix `.tbi` or HTSJDK Tribble `.idx`. Standard CSI is not currently supported. |
+| `--variant-index FILE` | Neighboring index auto-detected | `variant_index` | Explicit tabix `.tbi` or HTSJDK Tribble `.idx`. A standard `.csi` is recognized but not decoded; region requests fail clearly rather than falling back to a sequential scan. |
 | `--region [SET=]CHROM:START-END` | Repeatable; none | `regions` | Indexed one-based inclusive interval, optionally assigned to a set. Repeated INI regions are semicolon-separated. |
 | `--regions-file FILE` | Optional TSV | `regions_file` | `CHROM START END` or `SET_ID CHROM START END`, optionally with a header. |
 | `--region-coordinates MODE` | `one-based` (default), `bed` | `region_coordinates` | Interpretation for region-file coordinates. Inline `--region` remains one-based inclusive. |

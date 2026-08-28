@@ -1387,9 +1387,9 @@ public class QeQTLAnalysis implements IJobOwner
 				traitRowsPerBlock, alignment.sampleCount(), predictorRowsPerBlock,
 				config.getTraitCacheMode());
 			try {
-				runGenotypeOuterBlocks(predictorSource, predictorColumns, preparedTraits,
+				 runGenotypeOuterBlocks(predictorSource, predictorColumns, preparedTraits,
 					models, output, predictorRowsPerBlock, traitRowsPerBlock, dfOffset,
-					predictorMissing);
+					predictorMissing, config.getMinimumMaf(), config.getMinimumMac());
 			} finally {
 				closeMemoryPreparedMatrix(preparedTraits);
 			}
@@ -1399,7 +1399,7 @@ public class QeQTLAnalysis implements IJobOwner
 	private static void runGenotypeOuterBlocks(QMatrixRowSource predictorSource,
 		int[] predictorColumns, QPreparedMatrix traits, QTraitPatternModelSet models,
 		Path output, int predictorRowsPerBlock, int traitRowsPerBlock, int dfOffset,
-		QMissingValuePolicy predictorMissing)
+		QMissingValuePolicy predictorMissing, double minimumMaf, double minimumMac)
 		throws Exception {
 		int totalBlocks = (int) ((predictorSource.metadata().rowCount()
 			+ predictorRowsPerBlock - 1) / predictorRowsPerBlock);
@@ -1411,9 +1411,16 @@ public class QeQTLAnalysis implements IJobOwner
 			predictorMissing);
 		QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(checkpointDirectory,
 			signature, totalBlocks, config.getResume(), config.getKeepCheckpoints());
+		Path patternQcDirectory = Path.of(checkpointDirectory.toString() + ".pattern-qc");
+		String patternQcSignature = signature + ":pattern-qc-v1:"
+			+ Double.toHexString(minimumMaf) + ":" + Double.toHexString(minimumMac);
+		QGenotypeOuterPatternQcCheckpoint patternQc =
+			QGenotypeOuterPatternQcCheckpoint.open(patternQcDirectory, patternQcSignature,
+				totalBlocks, models.models().length, config.getResume(),
+				config.getKeepCheckpoints());
 		long completedComparisons = 0;
 		for (int block = 0; block < totalBlocks; block++)
-			if (checkpoint.isComplete(block)) {
+			if (checkpoint.isComplete(block) && patternQc.isComplete(block)) {
 				long rows = Math.min(predictorRowsPerBlock,
 					predictorSource.metadata().rowCount() - (long) block * predictorRowsPerBlock);
 				completedComparisons += rows * traits.rowCount();
@@ -1441,12 +1448,13 @@ public class QeQTLAnalysis implements IJobOwner
 					QMatrixRowSource.Block raw = reader.readBlock(predictorRowsPerBlock);
 					if (raw == null || raw.rowOffset() != (long) block * predictorRowsPerBlock)
 						throw new IOException("Predictor source ended or reordered during genotype-outer analysis");
-					if (checkpoint.isComplete(block)) continue;
+					if (checkpoint.isComplete(block) && patternQc.isComplete(block)) continue;
 					QGenotypeOuterPatternJob.QMatrixBlock submitted =
 						new QGenotypeOuterPatternJob.QMatrixBlock(raw.rowOffset(), raw.rowIds(), raw.values());
 					pending.addLast(threadPool.submit(new QGenotypeOuterPatternJob(submitted,
-						traits, models, checkpoint, block, contextPool, predictorRowsPerBlock,
-						traitRowsPerBlock, predictorMissing, dfOffset, profiler, progress)));
+						traits, models, checkpoint, block, patternQc, contextPool,
+						predictorRowsPerBlock, traitRowsPerBlock, predictorMissing, dfOffset,
+						profiler, progress, minimumMaf, minimumMac)));
 					if (pending.size() >= numThreads) pending.removeFirst().get();
 				}
 				if (reader.readBlock(1) != null)
@@ -1460,7 +1468,10 @@ public class QeQTLAnalysis implements IJobOwner
 			maybeFailBeforeGenotypeOuterAssembly();
 			String outputHeader = rsqOnly ? "Rs_ID,ProbesetID,RSq,Dir,N,DF"
 				: "Rs_ID,ProbesetID,RSq,Fx,T,log10P,N,DF";
+			patternQc.assemble(Path.of(output.toString() + ".pattern-variant-qc.tsv"),
+				models, minimumMaf, minimumMac);
 			checkpoint.assemble(output, outputHeader);
+			patternQc.finishSuccess();
 		} catch (Exception e) {
 			if (threadPool != null) {
 				threadPool.shutdownNow();

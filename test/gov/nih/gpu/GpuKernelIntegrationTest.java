@@ -425,6 +425,10 @@ class GpuKernelIntegrationTest {
 						GpuPatternStatisticsResult.FILLED_SUM_SQUARES), 2e-10);
 					assertEquals(residualSquares, actual.value(pattern, variant,
 						GpuPatternStatisticsResult.RESIDUAL_SUM_SQUARES), 2e-10);
+					assertEquals(called, actual.value(pattern, variant,
+						GpuPatternStatisticsResult.CALLED_COUNT), 2e-12);
+					assertEquals(mean * called, actual.value(pattern, variant,
+						GpuPatternStatisticsResult.DOSAGE_SUM), 2e-12);
 				}
 			}
 			boolean hostOnly = "cpu".equalsIgnoreCase(context.getDevice().getBackendName());

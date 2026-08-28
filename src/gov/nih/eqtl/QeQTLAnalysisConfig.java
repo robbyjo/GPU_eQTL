@@ -124,7 +124,12 @@ public class QeQTLAnalysisConfig {
 	public int getSetBlockSize()
 	{
 		String value = mIni.get("set_block_size");
-		return value == null ? 256 : Integer.parseInt(value);
+		if (value == null)
+			return 0;
+		int parsed = Integer.parseInt(value);
+		if (parsed < 0)
+			throw new IllegalArgumentException("set_block_size must not be negative");
+		return parsed;
 	}
 
 	public int getWindowSize()

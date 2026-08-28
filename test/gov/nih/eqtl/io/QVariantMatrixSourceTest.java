@@ -112,6 +112,23 @@ class QVariantMatrixSourceTest {
     }
 
     @Test
+    void standardCsiRegionIndexFailsClearlyWithoutSequentialFallback() throws Exception {
+        Path csi = temporaryDirectory.resolve("genotype.vcf.csi");
+        Files.write(csi, new byte[] {1, 2, 3});
+        QVariantMatrixSource.Options options = new QVariantMatrixSource.Options(
+            QVariantMatrixSource.Format.VCF, QVariantMatrixSource.GenotypeField.AUTO,
+            QVariantMatrixSource.MissingPolicy.MEAN,
+            QVariantMatrixSource.MultiallelicPolicy.EXCLUDE, 0, 0, null, 1, null,
+            csi, "1:100-200", null, QGenomicRegions.Coordinates.ONE_BASED,
+            QVariantMatrixSource.FrequencyScope.ALIGNED);
+
+        IOException error = assertThrows(IOException.class,
+            () -> new QVariantMatrixSource(fixturePath(), options));
+        assertTrue(error.getMessage().contains("Standard CSI indexes are not supported"));
+        assertTrue(error.getMessage().contains("full sequential scan will not be substituted"));
+    }
+
+    @Test
     void missingDosageIsFatalByDefault() throws Exception {
         Path gzipped = gzipFixture();
         IOException error = assertThrows(IOException.class, () -> new QVariantMatrixSource(gzipped,
