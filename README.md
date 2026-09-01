@@ -2,6 +2,8 @@
 
 GPU-accelerated Java software for eQTL and related QTL analyses, with a portable CPU fallback. This codebase originated in 2011–2013 and is being modernized incrementally. FP64 remains the default scientific mode; FP32 is available as an explicit performance/compatibility choice.
 
+**[Explore the project website](https://robbyjo.github.io/GPU_eQTL/)** for an illustrated workflow, interactive analysis examples, and links into the full documentation.
+
 ## Current status
 
 The application targets Java 17 and has selectable compute backends behind a vendor-neutral API:

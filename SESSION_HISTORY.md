@@ -1319,3 +1319,58 @@ Append-only record of material modernization work. Times use ISO-8601 with the l
 - Cohort mode currently estimates one pooled per-effect-allele association after block-specific nuisance adjustment/whitening. Inputs must harmonize effect alleles and expression units or externally document precision scaling. Variant-absent cohorts, heterogeneity/leave-one-cohort-out output, exact trait masks after nonidentity whitening, and relatedness-aware burden/SKAT/SKAT-O remain future work.
 - Cache inspection hashes recognized artifacts and can therefore be I/O-intensive for multi-gigabyte caches. Applied pruning is recoverable but `.trash` still consumes disk until an operator deliberately removes it outside the application.
 - The Windows classifier passed; Linux x64/ARM64 and macOS x64/ARM64 jars must run the verification script on their actual hosts before publication. AMD FP64 OpenCL and Intel Iris Xe FP32 remain hardware-validation gaps. The next statistical step is cohort availability/heterogeneity diagnostics followed by reuse of verified cohort covariance null state in set tests.
+
+## 2026-08-31T16:41:02.3237422-04:00 — Tufts test-run launch and sample-ID diagnosis
+
+### Baseline and goal
+
+- Baseline commit: `45ae3c9a1339f3ea0df57685e2463803f0c18b04` on `master`; the tracked worktree was clean at the start.
+- Goal: diagnose the failed Slurm test run and validate the student-provided test inputs under `D:\Research\topmed\eqtm-tuft` without modifying those inputs or running association computation.
+
+### Findings and decisions
+
+- The submitted Bash script used PowerShell backticks for continuation. Bash therefore ended the `java` command at the JAR path, treated every following option as a separate command, and eventually reported an unmatched backtick. The relative `target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar` also did not exist under the Slurm submission working directory. The Bash correction is an absolute verified JAR path plus backslash continuations with no characters after each backslash.
+- The fixed-covariate value also contained a space after `NK,`; with correct Bash continuation this would split the comma list into two arguments. It must be one comma-separated argument (or one quoted argument).
+- Both 388-sample matrices used shared matrix sample IDs such as `83596` in their headers, while the covariate table exposed only `framid` values such as `57`. Each matrix's first apparent data row, named `framid`, was an identical, unique one-to-one mapping from the header IDs to all 388 covariate `framid` values. That row is mapping metadata, not a predictor or trait, and must not be analyzed.
+- Tested the non-lossy bridge design: retain the original matrix header IDs; remove the `framid` mapping row from both matrices; add its matrix ID as a `matrix_sample_id` column to the matching covariate row; and pass both `--genotype-id-column matrix_sample_id` and `--expression-id-column matrix_sample_id`. Ignored diagnostic copies and caches were created only under `target/eqtm-tuft-validation`; the supplied files were unchanged. No production source changed; this append-only record is the sole tracked change.
+- Four samples (`framid` 2504, 3290, 5105, and 7185) lack all six selected cell-fraction covariates (`CD8T`, `CD4T`, `NK`, `Bcell`, `Mono`, and `Gran`). The default `complete-samples` policy excluded them, leaving 384 aligned samples. This exclusion requires domain confirmation but is not a validation failure.
+
+### Verification
+
+- Original corrected-shell validation command: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --genotype D:\Research\topmed\eqtm-tuft\gene_test.csv --expression D:\Research\topmed\eqtm-tuft\dnam_test.csv --covariates D:\Research\topmed\eqtm-tuft\covariate_test.csv --output target\eqtm-tuft-validation.csv --fixed-covariates AGE8,SEX,CD8T,CD4T,NK,Bcell,Mono,Gran --factor-covariates SEX --threshold pval 1e-4 --precision fp64 --residualization auto --validate-only --backend cpu` — exited 1 before backend initialization with `No covariate column matches genotype sample IDs`, confirming the hidden input-alignment problem.
+- Streaming CSV inspection found 388 covariate rows and 388 samples in each matrix; no duplicate covariate or mapped `framid` IDs; zero set differences between each mapping row and the covariate `framid` set; and identical predictor/trait header IDs and mapping rows.
+- Bridged validation command: `java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar --genotype target\eqtm-tuft-validation\gene_test.csv --expression target\eqtm-tuft-validation\dnam_test.csv --covariates target\eqtm-tuft-validation\covariate_test.csv --genotype-id-column matrix_sample_id --expression-id-column matrix_sample_id --output target\eqtm-tuft-validation\results_test.csv --fixed-covariates AGE8,SEX,CD8T,CD4T,NK,Bcell,Mono,Gran --factor-covariates SEX --threshold pval 1e-4 --precision fp64 --residualization auto --validate-only --backend cpu` — exited 0. It validated 5,000 predictors, 5,000 traits, 384 aligned samples, the nine-column full-rank design `(Intercept), AGE8, SEX[2], CD8T, CD4T, NK, Bcell, Mono, Gran`, regression DF 9, and error DF 374. Missingness scan totals were predictor 234, trait 636, and selected covariates 24.
+- This was `--validate-only`; compute-backend initialization and association were deliberately skipped, so no GPU, CUDA runtime, or driver was exercised.
+
+### Compatibility, limitations, and next step
+
+- The bridge preserves both identifier namespaces and allows the application to audit/reorder samples. Replacing matrix headers directly with `framid` can also align the files but should only be done with a separately retained mapping audit.
+- The corrected layout has passed metadata, identifier, missingness, covariate rank, and residual-DF checks, but not a complete A100 association run. Next: confirm the four complete-sample exclusions, run `--validate-only` on the cluster using the packaged JAR and final transformed files, then submit the same command without `--validate-only` and inspect both Slurm stdout and stderr.
+
+## 2026-09-01T19:35:17.1175207-04:00 — Responsive project website and color schemes
+
+### Baseline and goal
+
+- Baseline commit: `45ae3c9a1339f3ea0df57685e2463803f0c18b04` (`Complete cohort, cache, and release operations`) on `master`. The pre-existing uncommitted August 31 Tufts validation entry in this file was preserved unchanged.
+- Goal: create a succinct, GitHub Pages-ready project website that illustrates the supported workflow and analysis modes, defaults to the operating-system color preference, allows explicit light/dark/system selection, then commit and push the complete worktree to both configured repositories.
+
+### Decisions and files changed
+
+- Added `docs/index.html`, `docs/site.css`, `docs/site.js`, and `docs/.nojekyll` as a dependency-light static site suitable for GitHub Pages publication from the `docs` directory. The page presents the FP64-first scientific contract, CSV/VCF/BCF inputs, CUDA/OpenCL/CPU backends, ordinary eQTL plus burden/SKAT/SKAT-O, the alignment/QC/residualization/compute/output pipeline, and links into the complete repository documentation.
+- Added an interactive analysis selector with copyable PowerShell commands using the actual CLI spellings. Sliding-window examples use `--window-size` and `--window-stride`; expression rows remain the phenotypes and selected fixed covariates remain adjustment variables.
+- Added responsive navigation, accessible labels and skip navigation, reduced-motion handling, unique fragment targets, keyboard-usable native controls, and progressive enhancement. Theme selection offers `System`, `Light`, and `Dark`; `System` is the default, follows live OS preference changes, and explicit choices persist in local storage. An early head script resolves the theme before the stylesheet to avoid a mismatched initial render.
+- Added a prominent website link near the top of `README.md`. No production Java, statistical formula, cache/checkpoint format, test fixture, or analysis behavior changed.
+
+### Verification
+
+- Bundled Node syntax check: `C:\Users\User\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check docs/site.js` — passed.
+- PowerShell static audit over `docs/index.html` — passed with seven unique IDs, six valid fragment links, all local assets present, and theme selector/persistence wiring found. CLI-source review confirmed the website's `--analysis`, `--window-size`, `--window-stride`, `--skat-o-simulations`, `--validate-only`, and `--printbackendinfo` spellings.
+- Temporary local HTTP smoke using bundled Python `-m http.server 8765 --directory docs` — `index.html`, `site.css`, and `site.js` each returned HTTP 200 with nonempty expected content; the temporary server was stopped after verification.
+- Initial sandboxed `.\mvnw.cmd -q test` could not resolve the declared Maven Antrun plugin because Maven Central network access was denied. The authorized rerun completed successfully: 31 suites, 131 tests, zero failures, zero errors, and five intentional runtime/platform/optional-fixture skips.
+- `git diff --check` reported no whitespace errors; only informational LF-to-CRLF working-copy warnings.
+
+### Compatibility, limitations, and next step
+
+- The site requires no build step and remains usable with system fonts if Google Fonts is unavailable. Copy-to-clipboard depends on a secure browser context; the button falls back to a `Select text` status when clipboard access is unavailable. The page contains no participant data or derived scientific results.
+- The installed browser-testing skill could not perform screenshot-level visual QA because its required in-app JavaScript control tool was not exposed in this session. Responsive and theme behavior were therefore verified structurally and through the local HTTP smoke; final live-browser review remains advisable after Pages deployment.
+- GitHub Pages still needs the repository's Pages source configured for `master` `/docs` if it is not already enabled. After the push, verify `https://robbyjo.github.io/GPU_eQTL/` in system, light, and dark modes and confirm the repository setting or deployment status.

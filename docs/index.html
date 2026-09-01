@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GPU eQTL is a precision-first Java toolkit for scalable eQTL, burden, SKAT, and SKAT-O analysis on CUDA, OpenCL, or CPU backends.">
+  <meta name="theme-color" content="#071a1c">
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="GPU eQTL">
+  <meta property="og:description" content="Scalable, precision-preserving eQTL and rare-variant association analysis.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://robbyjo.github.io/GPU_eQTL/">
+  <title>GPU eQTL — Precision-first association analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      const stored = localStorage.getItem("gpu-eqtl-theme") || "system";
+      const resolved = stored === "system"
+        ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : stored;
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.dataset.themeMode = stored;
+    })();
+  </script>
+  <link rel="stylesheet" href="site.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" data-header>
+    <a class="brand" href="#top" aria-label="GPU eQTL home">
+      <svg class="brand-mark" viewBox="0 0 42 42" role="img" aria-label="GPU eQTL mark">
+        <path d="M7 12h9l5 9 5-9h9M7 30h9l5-9 5 9h9"/>
+        <circle cx="7" cy="12" r="2.5"/><circle cx="35" cy="12" r="2.5"/>
+        <circle cx="7" cy="30" r="2.5"/><circle cx="35" cy="30" r="2.5"/>
+      </svg>
+      <span>GPU <strong>eQTL</strong></span>
+    </a>
+    <button class="menu-button" type="button" aria-expanded="false" aria-controls="site-nav" data-menu-button>
+      <span></span><span></span><span></span><span class="sr-only">Open navigation</span>
+    </button>
+    <nav id="site-nav" class="site-nav" aria-label="Primary navigation" data-menu>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#try-it">Try it</a>
+      <a href="#principles">Principles</a>
+      <label class="theme-control">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>
+        <span class="sr-only">Color scheme</span>
+        <select data-theme-select aria-label="Color scheme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <a class="nav-github" href="https://github.com/robbyjo/GPU_eQTL">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-glow hero-glow-one"></div>
+      <div class="hero-glow hero-glow-two"></div>
+      <div class="hero-grid page-width">
+        <div class="hero-copy reveal">
+          <p class="eyebrow"><span class="status-dot"></span> Java 17 · FP64 first · GPU optional</p>
+          <h1>Association analysis at cohort scale, with the <em>scientific contract intact.</em></h1>
+          <p class="hero-lede">GPU eQTL aligns samples, audits missingness and variant QC, adjusts fixed effects, and accelerates ordinary eQTL and rare-variant set tests across CUDA, OpenCL, and CPU backends.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#try-it">See it in action <span aria-hidden="true">↓</span></a>
+            <a class="button button-secondary" href="https://github.com/robbyjo/GPU_eQTL">View source <span aria-hidden="true">↗</span></a>
+          </div>
+          <ul class="hero-facts" aria-label="Project facts">
+            <li><strong>CSV · VCF · BCF</strong><span>validated inputs</span></li>
+            <li><strong>eQTL · Burden · SKAT</strong><span>one command-line tool</span></li>
+            <li><strong>Cache · Checkpoint</strong><span>restartable workflows</span></li>
+          </ul>
+        </div>
+
+        <div class="terminal-card reveal reveal-delay" aria-label="Example GPU eQTL terminal output">
+          <div class="terminal-bar">
+            <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span>gpu-eqtl · backend check</span>
+            <span class="terminal-tag">FP64</span>
+          </div>
+          <div class="terminal-body">
+            <p><span class="prompt">$</span> java -jar gpu-eqtl-all.jar <span class="accent">--printbackendinfo</span></p>
+            <div class="terminal-output">
+              <p><span class="muted">backend</span> <span class="success">auto → cuda</span></p>
+              <p><span class="muted">device</span> NVIDIA GPU · FP64 eligible</p>
+              <p><span class="muted">fallback</span> OpenBLAS → pure Java</p>
+            </div>
+            <div class="terminal-divider"></div>
+            <p><span class="prompt">$</span> gpu-eqtl <span class="accent">--analysis eqtl</span> ...</p>
+            <div class="progress-line"><span style="width: 86%"></span></div>
+            <p class="terminal-complete"><span class="success">✓</span> 66,177 comparisons · checkpoint complete</p>
+            <div class="result-preview" aria-label="Example result row">
+              <span>variant</span><span>phenotype</span><span>effect</span><span>log10P</span>
+              <strong>22:20M:A:G</strong><strong>ENSG…</strong><strong>0.184</strong><strong>-6.42</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="signal-strip" aria-label="Core guarantees">
+      <div class="page-width signal-grid">
+        <p><span>01</span> Deterministic sample alignment</p>
+        <p><span>02</span> Exact degrees of freedom</p>
+        <p><span>03</span> Checksummed scientific state</p>
+        <p><span>04</span> Portable CPU reproduction</p>
+      </div>
+    </section>
+
+    <section class="section page-width" id="capabilities">
+      <div class="section-heading reveal">
+        <p class="eyebrow">One analysis engine</p>
+        <h2>Choose the question.<br><span>The pipeline stays rigorous.</span></h2>
+        <p>Every mode shares explicit sample alignment, covariate handling, frequency filtering, bounded scheduling, progress reporting, and restartable output assembly.</p>
+      </div>
+
+      <div class="capability-grid">
+        <article class="capability-card capability-featured reveal">
+          <div class="card-number">01</div>
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><path d="M8 34c7-18 12-18 17-5s10 11 15-15"/><circle cx="8" cy="34" r="3"/><circle cx="25" cy="29" r="3"/><circle cx="40" cy="14" r="3"/></svg>
+          </div>
+          <h3>Ordinary eQTL</h3>
+          <p>Test every retained predictor against every expression trait with covariate adjustment, exact missingness masks, and optional cohort-aware whitening.</p>
+          <span class="card-label">variant × phenotype</span>
+        </article>
+        <article class="capability-card reveal">
+          <div class="card-number">02</div>
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><path d="M9 34h30M13 29l7-10 7 7 8-14"/><path d="M13 34v-5m7 5V19m7 15v-8m8 8V12"/></svg>
+          </div>
+          <h3>Weighted burden</h3>
+          <p>Collapse declared-effect dosages within explicit sets or native sliding windows, then test the weighted burden against expression traits.</p>
+          <span class="card-label">set × phenotype</span>
+        </article>
+        <article class="capability-card reveal">
+          <div class="card-number">03</div>
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><circle cx="15" cy="17" r="6"/><circle cx="32" cy="15" r="4"/><circle cx="29" cy="32" r="8"/><path d="M19 20l5 7m3-11l-6 1"/></svg>
+          </div>
+          <h3>SKAT</h3>
+          <p>Evaluate weighted score variance using deterministic FP64 covariance products and an audited p-value method for each variant set.</p>
+          <span class="card-label">variance component</span>
+        </article>
+        <article class="capability-card reveal">
+          <div class="card-number">04</div>
+          <div class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><path d="M10 37l9-23 8 17 11-20"/><path d="M9 38h30"/><circle cx="19" cy="14" r="2.5"/><circle cx="27" cy="31" r="2.5"/><circle cx="38" cy="11" r="2.5"/></svg>
+          </div>
+          <h3>SKAT-O</h3>
+          <p>Combine burden and SKAT components across rho values with a seeded correlated-null simulation and adjusted omnibus p-value.</p>
+          <span class="card-label">adaptive omnibus</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section workflow-section" id="workflow">
+      <div class="page-width">
+        <div class="section-heading compact reveal">
+          <p class="eyebrow">A visible, auditable pipeline</p>
+          <h2>From source files to signed results.</h2>
+          <p>The tool validates the scientific state before it opens a compute backend—and preserves that state so large jobs can resume safely.</p>
+        </div>
+
+        <div class="pipeline" role="img" aria-label="Data flow from matrices and variants through alignment, quality control, fixed-effect adjustment, accelerated computation, and audited results">
+          <div class="pipeline-node reveal">
+            <span class="pipeline-index">01</span>
+            <strong>Inputs</strong>
+            <small>CSV · VCF.gz · BCF</small>
+          </div>
+          <span class="pipeline-arrow" aria-hidden="true">→</span>
+          <div class="pipeline-node reveal">
+            <span class="pipeline-index">02</span>
+            <strong>Align + audit</strong>
+            <small>IDs · MAF/MAC · missingness</small>
+          </div>
+          <span class="pipeline-arrow" aria-hidden="true">→</span>
+          <div class="pipeline-node reveal">
+            <span class="pipeline-index">03</span>
+            <strong>Adjust</strong>
+            <small>QR · rank · residual DF</small>
+          </div>
+          <span class="pipeline-arrow" aria-hidden="true">→</span>
+          <div class="pipeline-node pipeline-node-accent reveal">
+            <span class="pipeline-index">04</span>
+            <strong>Compute</strong>
+            <small>CUDA · OpenCL · CPU</small>
+          </div>
+          <span class="pipeline-arrow" aria-hidden="true">→</span>
+          <div class="pipeline-node reveal">
+            <span class="pipeline-index">05</span>
+            <strong>Results</strong>
+            <small>CSV · QC · checkpoints</small>
+          </div>
+        </div>
+
+        <div class="workflow-steps">
+          <article class="step reveal">
+            <span>1</span>
+            <h3>Build once</h3>
+            <p>The checked-in Maven wrapper creates one runnable Java 17 jar with portable CPU libraries.</p>
+            <code>./mvnw clean package</code>
+          </article>
+          <article class="step reveal">
+            <span>2</span>
+            <h3>Inspect hardware</h3>
+            <p>See every eligible backend and the exact precision and runtime capabilities before a run.</p>
+            <code>--printbackendinfo</code>
+          </article>
+          <article class="step reveal">
+            <span>3</span>
+            <h3>Validate inputs</h3>
+            <p>Resolve IDs, covariates, missingness, rank, and residual degrees of freedom without association.</p>
+            <code>--validate-only</code>
+          </article>
+          <article class="step reveal">
+            <span>4</span>
+            <h3>Run and resume</h3>
+            <p>Automatic block sizing bounds memory; atomic checkpoint parts make interrupted analyses restartable.</p>
+            <code>--resume</code>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section page-width try-section" id="try-it">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Illustrated command builder</p>
+        <h2>Pick an analysis.<br><span>Start with a reviewable command.</span></h2>
+        <p>These examples use expression rows as phenotypes and fixed covariates only as adjustment variables. Replace the placeholder files and ID columns with your cohort’s audited inputs.</p>
+      </div>
+
+      <div class="command-builder reveal">
+        <div class="analysis-tabs" role="tablist" aria-label="Choose an analysis">
+          <button type="button" role="tab" aria-selected="true" data-analysis="eqtl">eQTL</button>
+          <button type="button" role="tab" aria-selected="false" data-analysis="burden">Burden</button>
+          <button type="button" role="tab" aria-selected="false" data-analysis="skat">SKAT</button>
+          <button type="button" role="tab" aria-selected="false" data-analysis="skat-o">SKAT-O</button>
+        </div>
+        <div class="builder-layout">
+          <div class="builder-copy">
+            <p class="builder-kicker" data-analysis-kicker>Single-variant association</p>
+            <h3 data-analysis-title>Test every variant against every expression trait.</h3>
+            <p data-analysis-description>Use FP64 by default, let the backend and tile sizes resolve automatically, and report only associations crossing the requested threshold.</p>
+            <dl class="builder-details">
+              <div><dt>Unit</dt><dd data-analysis-unit>variant × phenotype</dd></div>
+              <div><dt>Required set input</dt><dd data-analysis-input>none</dd></div>
+              <div><dt>Result</dt><dd data-analysis-result>effect, t, log10 p</dd></div>
+            </dl>
+          </div>
+          <div class="code-window">
+            <div class="code-toolbar">
+              <span>PowerShell</span>
+              <button class="copy-button" type="button" data-copy-button aria-label="Copy command">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <pre><code data-command>java -Xmx12g --enable-native-access=ALL-UNNAMED `
+  -jar target\gpu-eqtl-2.0.0-SNAPSHOT-all.jar `
+  --genotype cohort.vcf.gz --genotype-format vcf `
+  --expression expression.csv --covariates covariates.csv `
+  --genotype-id-column participant_id `
+  --expression-id-column sample_id `
+  --fixed-covariates Age,Sex,PC1,PC2 `
+  --analysis eqtl --precision fp64 `
+  --threshold pval 1e-4 --output results.csv</code></pre>
+          </div>
+        </div>
+        <p class="builder-note"><strong>Before computation:</strong> add <code>--validate-only</code> to check metadata, alignment, covariate rank, missingness policies, and residual degrees of freedom without initializing association work.</p>
+      </div>
+    </section>
+
+    <section class="section foundation-section" id="principles">
+      <div class="page-width foundation-grid">
+        <div class="foundation-copy reveal">
+          <p class="eyebrow">Precision over shortcuts</p>
+          <h2>Acceleration is an implementation detail. Correctness is the product.</h2>
+          <p>GPU eQTL keeps fixed-effect rank decisions, sample order, thresholds, degrees of freedom, and output identifiers explicit and testable across backends.</p>
+          <a class="text-link" href="https://github.com/robbyjo/GPU_eQTL/blob/master/README.md#precision-automatic-sizing-and-multiple-gpus">Read the precision contract <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="principle-list">
+          <article class="principle reveal">
+            <span>FP64</span>
+            <div><h3>Double precision by default</h3><p>FP32 is always an explicit approximate mode. CPU and accelerated paths are compared against deterministic scalar references.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>ID</span>
+            <div><h3>Alignment fails loudly</h3><p>Missing, duplicate, reordered, or mismatched sample IDs are audited; silent intersections are not accepted.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>DF</span>
+            <div><h3>Missingness changes the model</h3><p>Exact trait masks recompute covariate rank, effective N, threshold, and residual degrees of freedom.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>SHA</span>
+            <div><h3>Reusable state is signed</h3><p>Caches and checkpoints bind inputs, alignment, preprocessing, precision, and analysis settings before reuse.</p></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section page-width compatibility-section">
+      <div class="section-heading compact reveal">
+        <p class="eyebrow">Run where the data lives</p>
+        <h2>One interface, multiple compute paths.</h2>
+      </div>
+      <div class="compatibility-grid">
+        <article class="compatibility-card reveal">
+          <span class="compatibility-mark nvidia">N</span>
+          <div><h3>CUDA</h3><p>NVIDIA GPUs through JCuda and cuBLAS, including FP64 exact-pattern finalization.</p></div>
+        </article>
+        <article class="compatibility-card reveal">
+          <span class="compatibility-mark opencl">O</span>
+          <div><h3>OpenCL</h3><p>NVIDIA, AMD, or Intel GPUs exposed by a usable vendor OpenCL driver.</p></div>
+        </article>
+        <article class="compatibility-card reveal">
+          <span class="compatibility-mark cpu">C</span>
+          <div><h3>CPU</h3><p>Bundled OpenBLAS, optional oneMKL builds, or a portable pure-Java fallback.</p></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section docs-section">
+      <div class="page-width docs-inner reveal">
+        <div>
+          <p class="eyebrow">Go deeper</p>
+          <h2>Everything needed to audit a run.</h2>
+        </div>
+        <div class="docs-links">
+          <a href="https://github.com/robbyjo/GPU_eQTL#readme"><span>Start here</span><strong>README</strong><b aria-hidden="true">↗</b></a>
+          <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/COMMAND_LINE_REFERENCE.md"><span>Every option</span><strong>CLI reference</strong><b aria-hidden="true">↗</b></a>
+          <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/SET_TEST_FOUNDATION.md"><span>Statistical contract</span><strong>Set tests</strong><b aria-hidden="true">↗</b></a>
+          <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/RELEASE_CHECKLIST.md"><span>Reproducible builds</span><strong>Release checks</strong><b aria-hidden="true">↗</b></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="page-width footer-inner">
+      <a class="brand footer-brand" href="#top">
+        <svg class="brand-mark" viewBox="0 0 42 42" aria-hidden="true"><path d="M7 12h9l5 9 5-9h9M7 30h9l5-9 5 9h9"/><circle cx="7" cy="12" r="2.5"/><circle cx="35" cy="12" r="2.5"/><circle cx="7" cy="30" r="2.5"/><circle cx="35" cy="30" r="2.5"/></svg>
+        <span>GPU <strong>eQTL</strong></span>
+      </a>
+      <p>Scalable, precision-preserving eQTL and rare-variant association analysis.</p>
+      <div class="footer-links">
+        <a href="https://github.com/robbyjo/GPU_eQTL">GitHub</a>
+        <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/LICENSE">GPLv3</a>
+        <a href="https://github.com/robbyjo/GPU_eQTL/issues">Issues</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
