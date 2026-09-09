@@ -61,7 +61,37 @@ The production burden path prepares every resident set burden once and batches i
 
 SKAT residualizes every declared-effect dosage row against the fixed-effect Q matrix without genotype standardization. Positive definition weights multiply kernel columns. The statistic is the weighted score quadratic form divided by the FP64 null residual variance; covariance eigenvalues come from the weighted projected-genotype Gram matrix. The null variance uses `N - rank(X)` degrees of freedom.
 
-Quadratic-form survival probabilities use deterministic Imhof numerical inversion with fixed tolerance, block, and iteration limits. A single positive eigenvalue and equal positive eigenvalues use their exact scaled chi-square distributions. Failure of the bounded Imhof convergence test is reported as `satterthwaite-fallback` in the output; it is never silent.
+Quadratic-form survival probabilities use exact scaled chi-square distributions
+for single/equal spectra, nonoscillatory angular quadrature for rank two, and a
+positive gamma series for higher rank. The latter bounds omitted probability
+mass to at most 1e-12 of the computed tail, with a 131,072-term work limit.
+Unresolvable spectra or quadrature nonconvergence stop execution; no
+moment-matched fallback is substituted. The bound concerns series truncation,
+not interval-arithmetic floating-point rounding. Subnormal/underflow tails
+remain limited by FP64 and the existing minimum-positive-probability floor.
+
+The [September 2026 audit](AUDIT_2026-09-09.md) found 16 fallback cases in a
+30-case independent Davies grid, with maximum absolute p-value error 0.0526
+among fallbacks. That finding concerns the previous implementation. The new
+calculation resolves all 30 cases without a fallback and agrees with independent
+R CompQuadForm Davies references within 1.22e-8 absolute error (R requested
+absolute accuracy 1e-7). Rank-two tails down to about 2.54e-219 are also checked
+against independent 80-digit angular quadrature. This remains a bounded
+validation grid, not a guarantee that every spectrum is computationally practical.
+
+The discrepancy was local to GPU eQTL's approximation. Historical R SKAT
+versions also had documented small-tail convergence/approximation issues, as
+described by [Wu, Guan and Pankow (2016)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/),
+but these tests do not attribute the GPU eQTL discrepancy to an R SKAT bug.
+
+Kernel geometry is now reused across traits within each set/trait tile. Gram
+matrices exploit symmetry, eigenvalues are scaled before decomposition, and
+common rescaling no longer discards small valid kernels through an absolute
+cutoff. SKAT-O reuses positive-series coefficients within each quantile
+inversion (about 2 MiB for one bounded per-thread spectrum cache) and
+computes each Gaussian base score once across rho values. An exactly cancelling
+burden component has p=1 and does not discard estimable SKAT components. The
+set-runner signature is version 3; old result checkpoints must be rebuilt.
 
 SKAT-O defaults to rho `0,0.25,0.5,0.75,1`. Each component combines `(1-rho)` times the SKAT kernel with `rho` times the weighted burden kernel. The same seeded Gaussian vector drives all rho components in each parametric-null replicate, preserving their correlation. The adjusted p-value is `(extreme + 1)/(simulations + 1)` and the output includes the minimum component p-value only as an audit field; it is not reported as the omnibus result. Defaults are 10,000 simulations and seed 20260827, both configurable.
 

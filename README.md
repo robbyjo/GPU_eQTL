@@ -1,5 +1,14 @@
 # GPU eQTL
 
+The [September 2026 numerical and performance audit](docs/AUDIT_2026-09-09.md)
+records independent R comparisons, fixes, and matched benchmarks. The subsequent
+[fitted mixed-model implementation](docs/MIXED_MODELS.md) selectively adopts
+JLinAlg for REML and pedigree construction: `--mixed-model score` provides
+GENESIS-style null reuse, and `--mixed-model reml` refits each association.
+SKAT now uses error-checked positive-mixture tails instead of the old
+Satterthwaite fallback; unresolved spectra stop with an explicit error.
+See the [implementation and verification follow-up](docs/REML_SKAT_FOLLOWUP_2026-09-09.md).
+
 GPU-accelerated Java software for eQTL and related QTL analyses, with a portable CPU fallback. This codebase originated in 2011–2013 and is being modernized incrementally. FP64 remains the default scientific mode; FP32 is available as an explicit performance/compatibility choice.
 
 **[Explore the project website](https://robbyjo.github.io/GPU_eQTL/)** for an illustrated workflow, interactive analysis examples, and links into the full documentation.
@@ -27,7 +36,7 @@ Headered CSV genotype and expression matrices can also be processed in bounded-R
 
 Cohort-aware ordinary eQTL analysis uses `--cohort-model cohorts.tsv --cohort-column Cohort`. It builds one fixed-effect block per cohort, optionally pre-whitens familial/repeated observations, and applies the identical transformation to genotype and expression before combining sample columns. The resulting effect remains a pooled per-effect-allele dosage effect: effect alleles must be harmonized, and expression units must be comparable or deliberately precision-scaled before input. Every run writes `<output>.cohorts.tsv`; see the cohort section below for the exact TSV contract and current limitations.
 
-Rare-variant weighted burden, SKAT, and SKAT-O are supported as FP64 command-line modes with `--analysis burden|skat|skat-o`. Native chromosome-local sliding windows use `--window-size BP` and optional `--window-stride BP` without a region file; strict variant-set TSV definitions and indexed-VCF/BCF custom regions remain available for custom memberships. Expression-matrix rows are the tested phenotypes, while every name in `--fixed-covariates` is an adjustment variable. Inclusive aligned-cohort MAF/MAC masks, explicit genotype missingness, overlapping sets, stable result/audit schemas, bounded set/trait tiles, and signature-bound checkpoint/restart are shared by all three modes. An omitted or zero `--set-block-size` uses heap-aware automatic sizing; a positive value remains an explicit reproducibility override. Sliding runs build or reuse the checksummed aligned FP64 raw cache plus a derived signature-bound row-offset sidecar, and read only each tile's member rows in source order. Burden production products are batched and checked against the scalar reference; SKAT uses batched FP64 residualization, score, and covariance products. SKAT uses deterministic Imhof inversion with a named moment-matched fallback, while SKAT-O reports a seeded correlated-null adjusted omnibus p-value rather than the minimum component p-value. See [docs/SET_TEST_FOUNDATION.md](docs/SET_TEST_FOUNDATION.md).
+Rare-variant weighted burden, SKAT, and SKAT-O are supported as FP64 command-line modes with `--analysis burden|skat|skat-o`. Native chromosome-local sliding windows use `--window-size BP` and optional `--window-stride BP` without a region file; strict variant-set TSV definitions and indexed-VCF/BCF custom regions remain available for custom memberships. Expression-matrix rows are the tested phenotypes, while every name in `--fixed-covariates` is an adjustment variable. Inclusive aligned-cohort MAF/MAC masks, explicit genotype missingness, overlapping sets, stable result/audit schemas, bounded set/trait tiles, and signature-bound checkpoint/restart are shared by all three modes. An omitted or zero `--set-block-size` uses heap-aware automatic sizing; a positive value remains an explicit reproducibility override. Sliding runs build or reuse the checksummed aligned FP64 raw cache plus a derived signature-bound row-offset sidecar, and read only each tile's member rows in source order. Burden production products are batched and checked against the scalar reference; SKAT uses batched FP64 residualization, score, and covariance products. SKAT uses exact special cases, rank-two angular quadrature, and a positive gamma series with a checked remainder bound, while SKAT-O reports a seeded correlated-null adjusted omnibus p-value rather than the minimum component p-value. See [docs/SET_TEST_FOUNDATION.md](docs/SET_TEST_FOUNDATION.md).
 
 ## Build and test
 
@@ -77,7 +86,7 @@ Use an Eclipse installation with Maven Integration for Eclipse (m2e) and a Java 
 
 If the project was already open before the Maven metadata was added, select the project and run **Maven → Update Project…** (`Alt+F5`), enable **Force Update of Snapshots/Releases**, and then run **Project → Clean…**. Eclipse should show **Maven Dependencies** in the project tree and use the `JavaSE-17` execution environment.
 
-The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, OpenBLAS/oneMKL JavaCPP bindings, JDistlib, Commons Compress, and JUnit are supplied by Maven. The oneMKL native runtime is present only in an explicitly selected evaluation profile.
+The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, OpenBLAS/oneMKL JavaCPP bindings, legacy JDistlib, Commons Compress, and JUnit are supplied by Maven. The Maven build also incorporates SHA-256-pinned JLinAlg 0.3.0 and modern JDistlib 0.10.2 Java namespaces; see [dependency details](docs/MIXED_MODELS.md#dependency-packaging-and-verification). The oneMKL native runtime is present only in an explicitly selected evaluation profile.
 
 ## Inspect and select compute backends
 
@@ -233,7 +242,7 @@ The actual file must use tabs. `independent` uses identity covariance. `compound
 
 Each local design includes its own intercept. Designs are assembled block-diagonally and, when covariance is present, both the design and every genotype/expression row are transformed by the same Cholesky solve before FP64 QR projection. Stacking those transformed columns is algebraically the same as summing cohort-block cross-products; a deterministic test enforces that equivalence. Prepared-cache signatures include the cohort transformation and delegate residualizer, so incompatible cohort/covariance settings cannot reuse a cache.
 
-Current limitations are explicit: cohort mode is ordinary eQTL only, not burden/SKAT/SKAT-O; covariance whitening requires complete, mean-filled, zero-filled, or excluded trait rows because exact post-whitening trait masks are not yet defined; and heterogeneity/leave-one-cohort-out statistics are not yet emitted. Familial covariance must be supplied as an aligned matrix rather than inferred from the legacy pedigree option.
+Current limitations are explicit: cohort mode is ordinary eQTL only, not burden/SKAT/SKAT-O; covariance whitening requires complete, mean-filled, zero-filled, or excluded trait rows because exact post-whitening trait masks are not yet defined; and heterogeneity/leave-one-cohort-out statistics are not yet emitted. This supplied-covariance cohort mode remains GLS. Separate [fitted mixed-model modes](docs/MIXED_MODELS.md) estimate random/pedigree variance components from the trait.
 
 ### Cache inspection and recoverable pruning
 

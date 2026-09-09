@@ -1,0 +1,5 @@
+QUADRATIC_AUDIT exact=12 converged=18 fallback=0 max_absolute_error=1.2137032934234071E-8 fallback_max_absolute_error=0.0
+MIXED_PROJECTION_PASS cpu amd64 host CPU (32 logical processors)
+MIXED_PROJECTION_PASS cuda NVIDIA GeForce RTX 4090
+MIXED_PROJECTION_PASS opencl NVIDIA GeForce RTX 4090
+MIXED_R_REFERENCE six fits; max absolute statistic/log-likelihood error=3.4753732003345306E-8

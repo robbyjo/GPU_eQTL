@@ -1,0 +1,16 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.lwjgl.system.MemoryUtil (file:/E:/Projects/GPU_eQTL/target/dependency-audit/jdistlib-all-0.10.2.jar)
+WARNING: Please consider reporting this to the maintainers of class org.lwjgl.system.MemoryUtil
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+Sep 09, 2026 1:22:07 AM jdistlib.accelerator.ComputeBackends report
+INFO: JDistlib compute: policy=cuda, backend=cuda, device=NVIDIA GeForce RTX 4090 (sm_89)
+CANDIDATE_BACKEND jdistlib.accelerator.ComputeDeviceInfo@78c03f1f
+CANDIDATE_GEMM CUDA rows=128 width=2048 median_ms=20.434500 max_reference_error=1.39e-17
+CANDIDATE_GEMM CUDA rows=512 width=1024 median_ms=5.205100 max_reference_error=5.20e-18
+CANDIDATE_GEMM CUDA rows=2048 width=512 median_ms=4.498500 max_reference_error=4.12e-18
+Sep 09, 2026 1:22:12 AM jdistlib.accelerator.ComputeBackends report
+INFO: JDistlib compute: policy=opencl, backend=opencl, device=NVIDIA GeForce RTX 4090
+CANDIDATE_BACKEND jdistlib.accelerator.ComputeDeviceInfo@13a5fe33
+CANDIDATE_GEMM OPENCL rows=128 width=2048 median_ms=24.800600 max_reference_error=1.39e-17
+CANDIDATE_GEMM OPENCL rows=512 width=1024 median_ms=8.157900 max_reference_error=5.20e-18
+CANDIDATE_GEMM OPENCL rows=2048 width=512 median_ms=8.686700 max_reference_error=4.12e-18

@@ -1,0 +1,37 @@
+MIXED_R_REFERENCE six fits; max absolute statistic/log-likelihood error=3.4753732003345306E-8
+Scanning matrix metadata and identifiers...
+Declared matrix types: predictor=genotype, trait=expression
+Missing-value policies: predictor=mean, trait=pattern, covariates=complete-samples
+Loading and validating covariate data...
+Inspecting matrix missingness...
+Saved predictor missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\g.csv.eba9ff82c920520dd18e.qmiss
+Saved trait missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\y.csv.21acdde4c6ad695803c2.qmiss
+Missingness QC output: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\out.csv.missingness.tsv
+Missing values: predictor=0, trait=0, selected covariates=0
+Covariate model columns: (Intercept), x
+Checkpoint directory: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\out.csv.mixed-checkpoint
+Gaussian mixed model: REML null + exact score variance (GENESIS-style); traits=1; predictor tile=1
+REML null y: variances=[1.2568177682874124, 0.11509480287031085, 0.6273141167868947]; logLik=-80.94679372592537; iterations=11
+Mixed-model progress 1/1 traits; 2 current-run comparisons in 0.0238807 seconds
+Scanning matrix metadata and identifiers...
+Declared matrix types: predictor=genotype, trait=expression
+Missing-value policies: predictor=mean, trait=pattern, covariates=complete-samples
+Loading and validating covariate data...
+Inspecting matrix missingness...
+Reusing predictor missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\g.csv.eba9ff82c920520dd18e.qmiss
+Reusing trait missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\y.csv.21acdde4c6ad695803c2.qmiss
+Missingness QC output: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\out.csv.missingness.tsv
+Missing values: predictor=0, trait=0, selected covariates=0
+Covariate model columns: (Intercept), x
+Resuming checkpoint: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\out.csv.mixed-checkpoint
+Gaussian mixed model: REML null + exact score variance (GENESIS-style); traits=1; predictor tile=1
+Scanning matrix metadata and identifiers...
+Declared matrix types: predictor=genotype, trait=expression
+Missing-value policies: predictor=mean, trait=pattern, covariates=complete-samples
+Loading and validating covariate data...
+Inspecting matrix missingness...
+Saved predictor missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\g.csv.ae004eb963453879825e.qmiss
+Reusing trait missingness scan: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\.gpu-eqtl-cache\missingness\y.csv.21acdde4c6ad695803c2.qmiss
+Missingness QC output: C:\Users\robbyjo\AppData\Local\Temp\junit-7360105092443572735\out.csv.missingness.tsv
+Missing values: predictor=0, trait=0, selected covariates=0
+Covariate model columns: (Intercept), x

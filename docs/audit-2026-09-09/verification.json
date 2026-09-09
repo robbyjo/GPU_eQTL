@@ -1,0 +1,24 @@
+{
+  "baseline": "218b7b17d718c9c8bff3e3611d05d1e1c277775b",
+  "timestamp": "2026-09-09T01:35:30.0764101-04:00",
+  "ordinary_suite": {
+    "errors": 0,
+    "skipped": 5,
+    "failures": 0,
+    "passed": 138,
+    "tests": 143
+  },
+  "mkl_profile_selected_suite": {
+    "errors": 0,
+    "skipped": 0,
+    "failures": 0,
+    "passed": 24,
+    "tests": 24
+  },
+  "package": "target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar",
+  "sha256": "727a44d8c042bd07ee72a273ccff5204e6524cfffdda382e9bb1462be6ec040d",
+  "packaged_backend_smoke": "CUDA with staged runtime; NVIDIA OpenCL fallback without staged runtime",
+  "unsupported_pedigree_smoke": "nonzero exit and explicit unsupported-model error",
+  "licenses": "GPL, LICENSE_EXCEPTION, three Intel notices present",
+  "publication": "local changes only"
+}

@@ -25,13 +25,6 @@ import java.util.List;
 public final class CudaGpuBackend implements GpuBackend {
 	private static final String BINDING_VERSION = "12.6.0";
 
-	static {
-		JCuda.setExceptionsEnabled(true);
-		JCublas2.setExceptionsEnabled(true);
-		JCudaDriver.setExceptionsEnabled(true);
-		JNvrtc.setExceptionsEnabled(true);
-	}
-
 	@Override
 	public String getName() {
 		return "cuda";
@@ -45,6 +38,11 @@ public final class CudaGpuBackend implements GpuBackend {
 	@Override
 	public List<GpuDevice> discoverGpuDevices() {
 		try {
+			// Native initialization must be inside the discovery failure boundary.
+			JCuda.setExceptionsEnabled(true);
+			JCublas2.setExceptionsEnabled(true);
+			JCudaDriver.setExceptionsEnabled(true);
+			JNvrtc.setExceptionsEnabled(true);
 			JCuda.initialize();
 			JCublas2.initialize();
 			int[] count = new int[1];

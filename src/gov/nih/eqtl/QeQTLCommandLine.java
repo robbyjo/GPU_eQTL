@@ -53,6 +53,10 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--skat-o-seed", "skat_o_seed");
         VALUE_OPTIONS.put("--family", "family_file");
         VALUE_OPTIONS.put("--pedigree", "pedigree_file");
+        VALUE_OPTIONS.put("--mixed-model", "mixed_model");
+        VALUE_OPTIONS.put("--pedigree-id-column", "pedigree_id_column");
+        VALUE_OPTIONS.put("--reml-df", "reml_df");
+        VALUE_OPTIONS.put("--reml-max-iterations", "reml_max_iterations");
         VALUE_OPTIONS.put("--genotype-format", "genotype_format");
         VALUE_OPTIONS.put("--expression-format", "expression_format");
         VALUE_OPTIONS.put("--genotype-model", "genotype_model");
@@ -231,6 +235,8 @@ public final class QeQTLCommandLine {
 			throw new IllegalArgumentException("--predictor requires --predictor-type; use --genotype for the compatibility default");
 		if (genericTraits && config.get("trait_type") == null)
 			throw new IllegalArgumentException("--traits requires --trait-type; use --expression for the compatibility default");
+        if (!help && !printGpuInfo && !config.getInspectCache() && !config.getPruneCache())
+            config.requireSupportedAnalysisModel();
         return new Result(config, help, printGpuInfo, debug, gpuBackend);
     }
 
@@ -287,6 +293,12 @@ public final class QeQTLCommandLine {
 			  --cohort-model FILE                Per-cohort fixed effects/repeated-measure TSV
 			  --cohort-column NAME               Covariate-table column selecting cohort rows
               --fixed-covariates LIST          Names separated by commas (or quote a space-separated list)
+              --mixed-model {score|genesis|reml|none}  score defaults when random/pedigree terms are supplied
+              --random-covariates LIST         Random-intercept grouping columns from --covariates
+              --pedigree FILE                  Headered ID/SIRE/DAM TSV; 0 or . means unknown parent
+              --pedigree-id-column NAME        Observation-to-individual mapping for repeated measurements
+              --reml-df {residual|satterthwaite|kenward-roger}  Per-predictor REML Wald inference
+              --reml-max-iterations N          Maximum iterations per fit (default: 200)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
               --expression-id-column NAME      Covariate column containing expression sample IDs

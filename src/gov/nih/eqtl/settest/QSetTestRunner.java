@@ -390,7 +390,7 @@ public final class QSetTestRunner {
         QVariantSetTable definitions, Options options, int effectiveSetBlockSize) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            update(digest, "gpu-eqtl-set-runner-v1");
+            update(digest, "gpu-eqtl-set-runner-v3-positive-gamma-tail");
             update(digest, sourceSignature(variants)); update(digest, sourceSignature(traits));
             update(digest, definitions.signature()); update(digest, options.method().optionName());
             update(digest, options.policy().toString()); update(digest, options.thresholdType());

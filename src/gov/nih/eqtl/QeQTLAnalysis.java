@@ -752,6 +752,7 @@ public class QeQTLAnalysis implements IJobOwner
 		String[] factorCovariates, String thresholdType, double threshold, int dfOffset,
 		boolean isAdditive, int configuredBlockSize, int numDevices, String genotypeFormat) throws Exception
 	{
+		config.requireSupportedAnalysisModel();
 		long metadataStarted = profiler.start();
 		System.out.println("Scanning matrix metadata and identifiers...");
 		QDataType predictorType = config.getPredictorDataType();
@@ -880,6 +881,13 @@ public class QeQTLAnalysis implements IJobOwner
 			canonicalSampleIds = reorder(sourceGenotypeSampleIds, fullAlignment.genotypeColumnOrder());
 			String[] missingnessTerms = cohortDefinitions == null ? fixedCovariates
 				: cohortDefinitions.missingnessTerms(cohortColumn, fixedCovariates);
+			if (!config.getMixedModel().equals("none")) {
+				java.util.LinkedHashSet<String> terms = new java.util.LinkedHashSet<>();
+				if (missingnessTerms != null) java.util.Collections.addAll(terms, missingnessTerms);
+				if (config.getRandomCovariates() != null) java.util.Collections.addAll(terms, config.getRandomCovariates());
+				if (config.get("pedigree_id_column") != null) terms.add(config.get("pedigree_id_column"));
+				missingnessTerms = terms.toArray(String[]::new);
+			}
 			covariateMissingness = covariates.inspectMissingness(missingnessTerms);
 			retainedCovariateRows = covariateMissingness.completeRows();
 			if (covariateMissing.equals("error")) {
@@ -1050,6 +1058,19 @@ public class QeQTLAnalysis implements IJobOwner
 			covariateRank = decomposition.getRank();
 			covariateQ = decomposition.getQ().getArray();
 			covariateModel = modelValues;
+		}
+		if (!config.getMixedModel().equals("none") && !preprocessOnly) {
+			if (dynamicTraitPatterns)
+				throw new IllegalArgumentException("Fitted mixed models currently require complete, explicitly filled, or excluded traits; exact trait-pattern REML is not supported");
+			QMixedModel mixed = QMixedModel.create(config, covariateModel, covariates,
+				retainedCovariateRows, canonicalSampleIds);
+			if (config.getValidateOnly()) {
+				System.out.println("Mixed-model alignment, pedigree, design rank and DF validated; no REML fit or association was run.");
+				return;
+			}
+			QMixedModelRunner.run(config, mixed, genotypeSource, alignment.genotypeColumnOrder(),
+				expressionSource, alignment.expressionColumnOrder(), mContexts);
+			return;
 		}
 		QSetTestMethod setTestMethod = config.getAnalysisMethod();
 		if (setTestMethod.isSetTest()) {
@@ -2145,9 +2166,12 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 
 		int numDevices;
-		if (config.getValidateOnly() || config.getInspectMissingness() || config.getPreprocessOnly()) {
+		if (config.getValidateOnly() || config.getInspectMissingness() || config.getPreprocessOnly()
+			|| config.getMixedModel().equals("reml")) {
 			numDevices = 1;
-			System.out.println("Validation/preprocessing mode: compute-backend initialization is skipped.");
+			System.out.println(config.getMixedModel().equals("reml")
+				? "Per-predictor REML uses CPU fitting; compute-backend initialization is skipped."
+				: "Validation/preprocessing mode: compute-backend initialization is skipped.");
 		} else {
 			System.out.println("Initializing compute backend...");
 			initGPUs();
@@ -2183,13 +2207,11 @@ public class QeQTLAnalysis implements IJobOwner
 		if (covarFilename != null) {
 			System.out.println("Covariate file: " + covarFilename);
 			boolean cohortAware = config.getCohortModelFilename() != null;
-			if (covarFixed == null && covarRandom == null && !cohortAware) {
+			if (covarFixed == null && covarRandom == null && !cohortAware && config.getMixedModel().equals("none")) {
 				System.err.println("ERROR: Fixed or random covariates are not mentioned, but the covariate file is specified.");
 				System.exit(kExitCodeErrorWrongCovarSpec);
-			} else if (covarRandom != null) {
-				System.err.println("WARNING: Random covariates are currently ignored.");
 			}
-			if (covarFixed == null && !cohortAware) {
+			if (covarFixed == null && !cohortAware && config.getMixedModel().equals("none")) {
 				System.err.println("ERROR: At present, you will need to specify at least one fixed covariate with a specified covariate file.");
 				System.exit(kExitCodeErrorWrongCovarSpec);
 			}
@@ -2260,8 +2282,8 @@ public class QeQTLAnalysis implements IJobOwner
 			System.exit(kExitCodeNormal);
 			return;
 		}
-		if (config.getValidateOnly()) {
-			System.err.println("ERROR: --validate-only requires VCF/BCF or headered CSV genotype input and CSV expression input.");
+		if (config.getValidateOnly() || !config.getMixedModel().equals("none")) {
+			System.err.println("ERROR: Validation and fitted mixed models require VCF/BCF or headered CSV genotype input and CSV expression input.");
 			System.exit(kExitCodeErrorInvalidParam);
 			return;
 		}

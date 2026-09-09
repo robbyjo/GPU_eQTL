@@ -1,0 +1,21 @@
+T_TAIL_R cases=54 old_max_abs=1.4901161193847656E-8 new_max_abs=1.4901161193847656E-8
+T_TAIL between_versions_max_abs=1.1641532182693481E-10 relative_log_error=3.0608562965689833E-15
+DEPENDENCY old-jdistlib-t-100000 median_ms=11.951330 min_ms=11.591560 max_ms=12.245810
+DEPENDENCY new-jdistlib-t-100000 median_ms=18.596120 min_ms=13.405290 max_ms=23.764400
+QR coefficient_max_abs=9.71445146547012E-17
+DEPENDENCY current-qr-factor-solve-512x8 median_ms=0.105910 min_ms=0.098240 max_ms=0.114390
+DEPENDENCY candidate-qr-factor-solve-512x8 median_ms=0.124750 min_ms=0.088460 max_ms=0.162920
+DEPENDENCY jlinalg-full-ols-fit-512x8 median_ms=0.194350 min_ms=0.123990 max_ms=0.283820
+DEPENDENCY current-cholesky-factor-solve-128 median_ms=0.134210 min_ms=0.127140 max_ms=0.381970
+DEPENDENCY candidate-cholesky-factor-solve-128 median_ms=0.122680 min_ms=0.121280 max_ms=0.124830
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=1.101 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=5.505 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=11.01 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=22.02 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=55.05 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_UNRESOLVED 0.01;1;10 q=110.1 positive gamma series did not meet relative remainder tolerance in 8192 terms
+JLIN_MIXTURE_R success=24 failures=6 max_abs=1.2137032934234071E-8
+JLIN_REML converged=true coefficients=[1.4336047676755785, 0.8056892402310121] variances=[1.5193989906593883, 0.1028207326129827]
+JLIN_REML_R max_abs_coefficient_or_variance=2.776254698355629E-9
+DEPENDENCY jlinalg-reml-n40-g10 median_ms=1.359240 min_ms=0.965500 max_ms=1.869150
+checksum=-6.681974324430315E8

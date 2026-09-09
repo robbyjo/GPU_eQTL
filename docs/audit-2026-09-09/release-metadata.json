@@ -1,0 +1,56 @@
+[
+  {
+    "repo": "JDistlib",
+    "tag": "v0.10.2",
+    "published": "2026-09-08T19:18:50Z",
+    "assets": [
+      {
+        "name": "jdistlib-all-0.10.2.jar",
+        "browser_download_url": "https://github.com/robbyjo/JDistlib/releases/download/v0.10.2/jdistlib-all-0.10.2.jar",
+        "digest": "sha256:8b50aaa11d2cbd512525e0d74f8e609f40db9f4fc179ccb7a885a82257e0ac81"
+      },
+      {
+        "name": "jdistlib-all.jar",
+        "browser_download_url": "https://github.com/robbyjo/JDistlib/releases/download/v0.10.2/jdistlib-all.jar",
+        "digest": "sha256:8b50aaa11d2cbd512525e0d74f8e609f40db9f4fc179ccb7a885a82257e0ac81"
+      },
+      {
+        "name": "SHA256SUMS",
+        "browser_download_url": "https://github.com/robbyjo/JDistlib/releases/download/v0.10.2/SHA256SUMS",
+        "digest": "sha256:716582350606f3d2ba0684d14855871e2661573203afff424b819f47a848889b"
+      }
+    ]
+  },
+  {
+    "repo": "JLinAlg",
+    "tag": "v0.3.0",
+    "published": "2026-09-08T17:09:57Z",
+    "assets": [
+      {
+        "name": "JLinAlg-0.3.0-javadoc.jar",
+        "browser_download_url": "https://github.com/robbyjo/JLinAlg/releases/download/v0.3.0/JLinAlg-0.3.0-javadoc.jar",
+        "digest": "sha256:6371f7ade86b9089f2955a626076963c9cb15ef2c184f48fa257af12a815c276"
+      },
+      {
+        "name": "JLinAlg-0.3.0-library.jar",
+        "browser_download_url": "https://github.com/robbyjo/JLinAlg/releases/download/v0.3.0/JLinAlg-0.3.0-library.jar",
+        "digest": "sha256:93e027c49cc79d87f36322f9bc7a960f851732e210c55dcc4a4655d113098b8f"
+      },
+      {
+        "name": "JLinAlg-0.3.0-sources.jar",
+        "browser_download_url": "https://github.com/robbyjo/JLinAlg/releases/download/v0.3.0/JLinAlg-0.3.0-sources.jar",
+        "digest": "sha256:71ede28914983d85cb209f6fcd46f6c60f36252cf5aad4ceee9ec6d307bb2ea2"
+      },
+      {
+        "name": "jlinalg-0.3.0.jar",
+        "browser_download_url": "https://github.com/robbyjo/JLinAlg/releases/download/v0.3.0/jlinalg-0.3.0.jar",
+        "digest": "sha256:2f9dff7f68d3184b04109c91b7804140dc0c61bb8888c7b7e2e26ee6a5ac7e1b"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "browser_download_url": "https://github.com/robbyjo/JLinAlg/releases/download/v0.3.0/SHA256SUMS.txt",
+        "digest": "sha256:f7cb664ed7560815885f0c2f467ec5ff1d429257e6f339e8c07c2b7c2931025f"
+      }
+    ]
+  }
+]

@@ -9,6 +9,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class QSkatReferenceTest {
+    @Test
+    void cancellingBurdenDoesNotDiscardTheSkatComponents() {
+        var result = QSkatReference.calculateOmnibus(new double[][]{{1,-1,0,0},{-1,1,0,0}},
+            new double[]{1,1}, TRAIT, 3, new double[]{0,.5,1}, 99, 716);
+        assertEquals(1, result.components().get(2).result().pValue());
+        assertTrue(result.minimumComponentP() < 1);
+        assertTrue(result.adjustedP() >= .01);
+    }
+
+    @Test
+    void preparedKernelsMatchIndependentRepeatedCallsAndOwnTheirInputs() {
+        double[][] rows = java.util.Arrays.stream(VARIANTS).map(double[]::clone).toArray(double[][]::new);
+        double[] weights = {1,2}, grid = {0,.5,1};
+        var prepared = QSkatReference.prepare(rows, weights);
+        var omnibus = QSkatReference.prepareOmnibus(rows, weights, grid);
+        var reference = QSkatReference.calculate(rows, weights, TRAIT, 3);
+        var referenceO = QSkatReference.calculateOmnibus(rows, weights, TRAIT, 3, grid, 99, 819);
+        rows[0][0]=99; weights[0]=99; grid[0]=.8;
+        assertEquals(reference.statistic(), prepared.calculate(TRAIT,3).statistic(),1e-12);
+        assertEquals(reference.pValue(), prepared.calculate(TRAIT,3).pValue(),1e-12);
+        assertEquals(referenceO.adjustedP(), omnibus.calculate(TRAIT,3,99,819).adjustedP());
+        assertEquals(referenceO.minimumComponentP(), omnibus.calculate(TRAIT,3,99,819).minimumComponentP());
+    }
     private static final double[][] VARIANTS = {
         {1, -1, 0, 0},
         {0, 0, 1, -1}
@@ -54,10 +77,10 @@ class QSkatReferenceTest {
     }
 
     @Test
-    void namedSatterthwaiteFallbackIsFiniteWhenImhofBudgetIsExhausted() {
+    void positiveSeriesReplacesTheMomentMatchedFallback() {
         QSkatReference.MixturePValue fallback = QSkatReference.mixturePValue(
-            3.25, new double[] {0.5, 2.0, 7.0}, 0);
-        assertEquals("satterthwaite-fallback", fallback.method());
+            3.25, new double[] {0.5, 2.0, 7.0});
+        assertEquals("positive-gamma-series", fallback.method());
         assertTrue(fallback.pValue() > 0 && fallback.pValue() <= 1);
         assertTrue(Double.isFinite(fallback.degreesOfFreedom()));
         assertTrue(Double.isFinite(fallback.scale()));

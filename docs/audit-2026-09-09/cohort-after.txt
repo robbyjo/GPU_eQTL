@@ -1,0 +1,3 @@
+AUDIT compound-symmetry-prepare-512 median_ms=1.900300 min_ms=1.467500 max_ms=2.233400
+AUDIT compound-symmetry-project-16x512 median_ms=0.117700 min_ms=0.114000 max_ms=0.459500
+checksum=10522.5276075697

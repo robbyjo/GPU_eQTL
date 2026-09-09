@@ -1,0 +1,26 @@
+GPU eQTL selectively incorporates Java classes from:
+
+JLinAlg 0.3.0, Copyright (C) 2026 JLinAlg contributors, GPL-2.0-or-later.
+Source: https://github.com/robbyjo/JLinAlg/tree/v0.3.0
+Release: https://github.com/robbyjo/JLinAlg/releases/tag/v0.3.0
+
+JDistlib 0.10.2, Roby Joehanes and the original R statistical-routine authors,
+GPL-2.0-or-later. See the upstream source headers for original author attribution.
+Source: https://github.com/robbyjo/JDistlib/tree/v0.10.2
+Release: https://github.com/robbyjo/JDistlib/releases/tag/v0.10.2
+The posterior-derived algorithm attribution is reproduced separately in
+JDistlib-posterior-attribution.txt.
+
+GPU eQTL distributes these GPL-2.0-or-later components under GPL version 3,
+as permitted by the upstream later-version option. Their GPL v2 license texts
+are preserved alongside the application GPL v3 license.
+
+QQuadraticFormDistribution.java adapts JLinAlg's positive-mixture implementation.
+Its source header retains upstream attribution. Local changes cache coefficients,
+extend the term budget, and fail early for unresolvable spectra. The upstream
+namespace remains unmodified; this adapter is in gov.nih.eqtl.settest.
+
+The release SHA-256 pins and exact incorporated namespaces are in pom.xml.
+Native-provider service registrations and vendor runtimes from the upstream
+all-jar are not incorporated. GPU eQTL's existing backend dependencies and
+their separate license notices remain applicable.

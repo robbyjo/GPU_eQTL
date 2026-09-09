@@ -1,0 +1,3 @@
+MIXED_BENCH mode=shared-null-score n=48 predictors=32 null_fit_included=true median_ms=5.284400
+MIXED_BENCH mode=per-predictor-reml n=48 predictors=32 null_fit_included=true median_ms=100.844300
+checksum=-127.29188316092174

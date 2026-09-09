@@ -1,4 +1,5 @@
 /bin
 /target/
+/.dependencies/
 /target-mkl-*/
 /target-openblas-*/

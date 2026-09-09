@@ -35,6 +35,9 @@ public final class QeQTLPreprocessor {
 		default int estimatedHostBytesPerValue() { return 0; }
 
 		default String cacheSignatureTag() { return "cpu-fp64-v1"; }
+
+        /** Whitened GLS residuals are orthogonal to L^-1 X, not to the ordinary intercept. */
+        default boolean preserveResidualOrigin() { return false; }
 	}
 
     private QeQTLPreprocessor() { }
@@ -71,12 +74,21 @@ public final class QeQTLPreprocessor {
 
         double[] standardDeviations = new double[values.length];
         for (int row = 0; row < values.length; row++) {
-            standardDeviations[row] = calcStdDevAndStandardize(values[row]);
+            standardDeviations[row] = residualizer != null && residualizer.preserveResidualOrigin()
+                ? scaleResidual(values[row]) : calcStdDevAndStandardize(values[row]);
             if (!(standardDeviations[row] > 0) || !Double.isFinite(standardDeviations[row]))
                 throw new IllegalArgumentException(matrixName + " row '" + block.rowIds()[row]
                     + "' has zero or invalid variance after covariate adjustment");
         }
         return new PreparedBlock(block.rowOffset(), block.rowIds(), values, standardDeviations);
+    }
+
+    private static double scaleResidual(double[] values) {
+        double norm = 0;
+        for (double value : values) norm = Math.hypot(norm, value);
+        double scale = norm / Math.sqrt(values.length - 1.0);
+        for (int i = 0; i < values.length; i++) values[i] /= scale;
+        return scale;
     }
 
     public static double correlation(double[] standardizedX, double[] standardizedY) {

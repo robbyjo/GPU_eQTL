@@ -9,16 +9,9 @@ import java.util.Random;
 import gov.nih.jama.EigenvalueDecomposition;
 import gov.nih.jama.Matrix;
 import net.sourceforge.jdistlib.ChiSquare;
-import gov.nih.utils.matrix.EMultiplicationMode;
-import gov.nih.utils.matrix.QMatrixUtils;
 
 /** Deterministic FP64 continuous-trait SKAT and simulation-adjusted SKAT-O reference. */
 public final class QSkatReference {
-    private static final double IMHOF_ABSOLUTE_TOLERANCE = 1e-9;
-    private static final int IMHOF_INTERVALS_PER_BLOCK = 128;
-    private static final int IMHOF_MAX_BLOCKS = 512;
-    private static final int IMHOF_QUIET_BLOCKS = 6;
-
     public record MixturePValue(double pValue, String method, double degreesOfFreedom,
         double scale) { }
     public record Result(double statistic, double pValue, double log10P,
@@ -33,6 +26,33 @@ public final class QSkatReference {
     }
 
     private QSkatReference() { }
+
+    /** Immutable kernel geometry reused across traits sharing a complete-case null design. */
+    public static final class PreparedKernel {
+        private final double[][] weighted;
+        private final double[] spectrum;
+        private PreparedKernel(double[][] variants, double[] weights) {
+            validate(variants, weights, new double[variants[0].length], 1);
+            weighted = weighted(variants, weights);
+            spectrum = eigenvalues(gram(weighted));
+        }
+        public Result calculate(double[] trait, int df) {
+            if (trait == null || trait.length != weighted[0].length || df <= 0)
+                throw new IllegalArgumentException("Invalid SKAT trait dimensions or DF");
+            for (double value : trait) if (!Double.isFinite(value))
+                throw new IllegalArgumentException("Non-finite SKAT trait");
+            double variance = dot(trait, trait) / df;
+            if (!(variance > 0) || !Double.isFinite(variance))
+                throw new IllegalArgumentException("SKAT null residual variance is invalid");
+            return calculateFactor(weighted, spectrum, trait, variance);
+        }
+    }
+
+    public static PreparedKernel prepare(double[][] variants, double[] weights) {
+        if (variants == null || variants.length == 0 || variants[0] == null)
+            throw new IllegalArgumentException("SKAT variants are required");
+        return new PreparedKernel(variants, weights);
+    }
 
     /** Rows are already covariate-residualized variants; weights multiply kernel columns. */
     public static Result calculate(double[][] residualVariants, double[] weights,
@@ -56,176 +76,101 @@ public final class QSkatReference {
     public static OmnibusResult calculateOmnibus(double[][] residualVariants, double[] weights,
         double[] residualTrait, int nullResidualDf, double[] rhoGrid, int simulations, long seed) {
         validate(residualVariants, weights, residualTrait, nullResidualDf);
-        if (rhoGrid == null || rhoGrid.length == 0 || simulations < 1)
-            throw new IllegalArgumentException("SKAT-O requires a rho grid and positive simulation count");
-        double[][] base = weighted(residualVariants, weights);
-        double[] burden = new double[residualTrait.length];
-        for (double[] variant : base)
-            for (int sample = 0; sample < burden.length; sample++) burden[sample] += variant[sample];
-        double sigmaSquared = dot(residualTrait, residualTrait) / nullResidualDf;
-        List<FactorState> factors = new ArrayList<>();
-        List<Component> components = new ArrayList<>();
-        double minimum = 1;
-        for (double rho : rhoGrid) {
-            if (!Double.isFinite(rho) || rho < 0 || rho > 1)
-                throw new IllegalArgumentException("SKAT-O rho values must be within [0,1]");
-            double[][] factor = factor(base, burden, rho);
-            double[] eigenvalues = eigenvalues(gram(factor));
-            factors.add(new FactorState(factor, eigenvalues));
-            Result result = calculateFactor(factor, eigenvalues, residualTrait, sigmaSquared);
-            components.add(new Component(rho, result));
-            minimum = Math.min(minimum, result.pValue());
-        }
-        double[] criticalStatistics = new double[factors.size()];
-        for (int component = 0; component < factors.size(); component++)
-            criticalStatistics[component] = criticalStatistic(
-                factors.get(component).eigenvalues(), minimum);
-        Random random = new Random(seed);
-        int atLeastAsExtreme = 0;
-        double[] gaussian = new double[residualTrait.length];
-        for (int simulation = 0; simulation < simulations; simulation++) {
-            for (int sample = 0; sample < gaussian.length; sample++) gaussian[sample] = random.nextGaussian();
-            boolean atLeastAsExtremeSimulation = false;
-            for (int component = 0; component < factors.size(); component++) {
-                FactorState state = factors.get(component);
-                double q = 0;
-                for (double[] column : state.factor()) {
-                    double score = dot(column, gaussian);
-                    q += score * score;
-                }
-                if (q >= criticalStatistics[component]) {
-                    atLeastAsExtremeSimulation = true;
-                    break;
-                }
+        return prepareOmnibus(residualVariants, weights, rhoGrid)
+            .calculate(residualTrait, nullResidualDf, simulations, seed);
+    }
+
+    public static PreparedOmnibus prepareOmnibus(double[][] variants, double[] weights, double[] rhoGrid) {
+        if (variants == null || variants.length == 0 || variants[0] == null)
+            throw new IllegalArgumentException("SKAT variants are required");
+        validate(variants, weights, new double[variants[0].length], 1);
+        return new PreparedOmnibus(variants, weights, rhoGrid);
+    }
+
+    public static final class PreparedOmnibus {
+        private final List<FactorState> factors = new ArrayList<>();
+        private final double[] rhoGrid;
+        private final double[][] base;
+        private final double[] burden;
+        private PreparedOmnibus(double[][] variants, double[] weights, double[] rhoGrid) {
+            if (rhoGrid == null || rhoGrid.length == 0)
+                throw new IllegalArgumentException("SKAT-O requires a rho grid");
+            this.rhoGrid = rhoGrid.clone();
+            base = weighted(variants, weights);
+            burden = new double[variants[0].length];
+            for (double[] variant : base)
+                for (int sample = 0; sample < burden.length; sample++) burden[sample] += variant[sample];
+            for (double rho : rhoGrid) {
+                if (!Double.isFinite(rho) || rho < 0 || rho > 1)
+                    throw new IllegalArgumentException("SKAT-O rho values must be within [0,1]");
+                double[][] factor = factor(base, burden, rho);
+                factors.add(new FactorState(factor, rho == 1 && dot(burden, burden) == 0
+                    ? new double[0] : eigenvalues(gram(factor))));
             }
-            if (atLeastAsExtremeSimulation) atLeastAsExtreme++;
         }
-        double adjusted = (atLeastAsExtreme + 1.0) / (simulations + 1.0);
-        return new OmnibusResult(components, minimum, adjusted, simulations, seed,
-            "correlated-parametric-null");
+
+        public OmnibusResult calculate(double[] residualTrait, int nullResidualDf, int simulations, long seed) {
+            if (residualTrait == null || residualTrait.length != burden.length || nullResidualDf <= 0 || simulations < 1)
+                throw new IllegalArgumentException("Invalid SKAT-O trait dimensions, DF, or simulations");
+            for (double value : residualTrait) if (!Double.isFinite(value))
+                throw new IllegalArgumentException("Non-finite SKAT-O trait");
+            double sigmaSquared = dot(residualTrait, residualTrait) / nullResidualDf;
+            if (!(sigmaSquared > 0) || !Double.isFinite(sigmaSquared))
+                throw new IllegalArgumentException("SKAT null residual variance is invalid");
+            List<Component> components = new ArrayList<>();
+            double minimum = 1;
+            for (int component = 0; component < rhoGrid.length; component++) {
+                FactorState state = factors.get(component);
+                Result result = calculateFactor(state.factor(), state.eigenvalues(), residualTrait, sigmaSquared);
+                components.add(new Component(rhoGrid[component], result));
+                minimum = Math.min(minimum, result.pValue());
+            }
+            double[] criticalStatistics = new double[factors.size()];
+            for (int component = 0; component < factors.size(); component++)
+                criticalStatistics[component] = criticalStatistic(
+                    factors.get(component).eigenvalues(), minimum);
+            Random random = new Random(seed);
+            int atLeastAsExtreme = 0;
+            double[] gaussian = new double[residualTrait.length];
+            for (int simulation = 0; simulation < simulations; simulation++) {
+                for (int sample = 0; sample < gaussian.length; sample++) gaussian[sample] = random.nextGaussian();
+                double independentQ = scoreStatistic(base, gaussian);
+                double burdenScore = dot(burden, gaussian);
+                boolean atLeastAsExtremeSimulation = false;
+                for (int component = 0; component < factors.size(); component++) {
+                    double rho = rhoGrid[component];
+                    double q = (1 - rho) * independentQ + rho * burdenScore * burdenScore;
+                    if (q >= criticalStatistics[component]) {
+                        atLeastAsExtremeSimulation = true;
+                        break;
+                    }
+                }
+                if (atLeastAsExtremeSimulation) atLeastAsExtreme++;
+            }
+            double adjusted = (atLeastAsExtreme + 1.0) / (simulations + 1.0);
+            return new OmnibusResult(components, minimum, adjusted, simulations, seed,
+                "correlated-parametric-null");
+        }
     }
 
     public static MixturePValue mixturePValue(double statistic, double[] eigenvalues) {
-        return mixturePValue(statistic, eigenvalues, IMHOF_MAX_BLOCKS);
-    }
-
-    static MixturePValue mixturePValue(double statistic, double[] eigenvalues,
-        int imhofMaximumBlocks) {
-        if (!Double.isFinite(statistic) || statistic < 0 || eigenvalues == null)
-            throw new IllegalArgumentException("Invalid quadratic-form inputs");
-        if (imhofMaximumBlocks < 0)
-            throw new IllegalArgumentException("Imhof maximum blocks must be non-negative");
-        double first = 0, second = 0;
-        int positive = 0;
-        double firstPositive = Double.NaN;
-        boolean equalPositive = true;
-        for (double value : eigenvalues) if (value > 1e-12 && Double.isFinite(value)) {
-            if (positive == 0) firstPositive = value;
-            else if (Math.abs(value - firstPositive) > 1e-12 * Math.max(value, firstPositive))
-                equalPositive = false;
-            positive++;
-            first += value; second += value * value;
-        }
-        if (!(first > 0) || !(second > 0))
-            throw new IllegalArgumentException("Quadratic-form kernel has no positive eigenvalue");
-        double df = first * first / second;
-        double scale = second / first;
-        if (positive == 1) {
-            double p = ChiSquare.cumulative(statistic / scale, 1, false, false);
-            return new MixturePValue(clampProbability(p), "exact-scaled-chi-square", 1, scale);
-        }
-        if (equalPositive) {
-            double p = ChiSquare.cumulative(statistic / firstPositive,
-                positive, false, false);
-            return new MixturePValue(clampProbability(p),
-                "exact-equal-eigenvalue-chi-square", positive, firstPositive);
-        }
-        Double imhof = imhofSurvival(statistic, eigenvalues, imhofMaximumBlocks);
-        if (imhof != null)
-            return new MixturePValue(clampProbability(imhof), "imhof-converged", df, scale);
-        double p = ChiSquare.cumulative(statistic / scale, df, false, false);
-        return new MixturePValue(clampProbability(p), "satterthwaite-fallback", df, scale);
+        var tail = QQuadraticFormDistribution.survival(statistic, eigenvalues);
+        return new MixturePValue(tail.pValue(), tail.method(), tail.degreesOfFreedom(), tail.scale());
     }
 
     private static Result calculateFactor(double[][] factor, double[] eigenvalues,
         double[] trait, double variance) {
+        if (eigenvalues.length == 0)
+            return new Result(0, 1, 0, eigenvalues, "degenerate-zero-kernel");
         double q = 0;
         for (double[] column : factor) { double score = dot(column, trait); q += score * score / variance; }
         MixturePValue p = mixturePValue(q, eigenvalues);
         return new Result(q, p.pValue(), Math.log10(p.pValue()), eigenvalues, p.method());
     }
 
-    /** Imhof inversion in fixed deterministic blocks; null means the convergence test failed. */
-    private static Double imhofSurvival(double statistic, double[] eigenvalues,
-        int maximumBlocks) {
-        double maximum = Arrays.stream(eigenvalues).max().orElse(0);
-        if (!(maximum > 0)) return null;
-        double blockWidth = 1.0 / maximum;
-        double integral = 0;
-        int quiet = 0;
-        for (int block = 0; block < maximumBlocks; block++) {
-            double start = block * blockWidth;
-            double contribution = simpson(start, start + blockWidth,
-                IMHOF_INTERVALS_PER_BLOCK, statistic, eigenvalues);
-            if (!Double.isFinite(contribution)) return null;
-            integral += contribution;
-            if (Math.abs(contribution) < IMHOF_ABSOLUTE_TOLERANCE) quiet++;
-            else quiet = 0;
-            if (quiet >= IMHOF_QUIET_BLOCKS) {
-                double survival = 0.5 + integral / Math.PI;
-                return survival >= -1e-7 && survival <= 1 + 1e-7 ? survival : null;
-            }
-        }
-        return null;
-    }
-
-    private static double simpson(double start, double end, int intervals,
-        double statistic, double[] eigenvalues) {
-        double step = (end - start) / intervals;
-        double total = imhofIntegrand(start, statistic, eigenvalues)
-            + imhofIntegrand(end, statistic, eigenvalues);
-        for (int i = 1; i < intervals; i++)
-            total += (i % 2 == 0 ? 2 : 4)
-                * imhofIntegrand(start + i * step, statistic, eigenvalues);
-        return total * step / 3;
-    }
-
-    private static double imhofIntegrand(double t, double statistic,
-        double[] eigenvalues) {
-        if (t == 0) {
-            double sum = 0;
-            for (double eigenvalue : eigenvalues)
-                if (eigenvalue > 1e-12 && Double.isFinite(eigenvalue)) sum += eigenvalue;
-            return sum - statistic;
-        }
-        double angle = -statistic * t;
-        double logMagnitudeDenominator = 0;
-        for (double eigenvalue : eigenvalues) {
-            if (!(eigenvalue > 1e-12) || !Double.isFinite(eigenvalue)) continue;
-            double twice = 2 * eigenvalue * t;
-            angle += 0.5 * Math.atan(twice);
-            logMagnitudeDenominator += 0.25 * Math.log1p(twice * twice);
-        }
-        return Math.sin(angle) * Math.exp(-logMagnitudeDenominator) / t;
-    }
-
-    private static double clampProbability(double p) {
-        return Math.max(Double.MIN_VALUE, Math.min(1, p));
-    }
-
-    private static double criticalStatistic(double[] eigenvalues, double survivalProbability) {
-        if (survivalProbability >= 1) return 0;
-        double high = Arrays.stream(eigenvalues).sum();
-        for (int expansion = 0; expansion < 128
-            && mixturePValue(high, eigenvalues).pValue() > survivalProbability; expansion++)
-            high *= 2;
-        double low = 0;
-        for (int iteration = 0; iteration < 64; iteration++) {
-            double middle = (low + high) * 0.5;
-            if (mixturePValue(middle, eigenvalues).pValue() > survivalProbability) low = middle;
-            else high = middle;
-        }
-        return high;
+    private static double criticalStatistic(double[] eigenvalues, double probability) {
+        if (eigenvalues.length == 0) return Double.POSITIVE_INFINITY;
+        return QQuadraticFormDistribution.critical(eigenvalues, probability);
     }
 
     private static double[][] factor(double[][] base, double[] burden, double rho) {
@@ -243,21 +188,35 @@ public final class QSkatReference {
         double[] result = values.clone(); for (int i = 0; i < result.length; i++) result[i] *= scale; return result;
     }
     private static double[][] gram(double[][] rows) {
-        return QMatrixUtils.parallelMatrixMultiplication(rows, QMatrixUtils.transpose(rows),
-            null, 1, rows.length, rows.length, EMultiplicationMode.XY);
+        double[][] result = new double[rows.length][rows.length];
+        for (int i = 0; i < rows.length; i++)
+            for (int j = 0; j <= i; j++) result[i][j] = result[j][i] = dot(rows[i], rows[j]);
+        return result;
     }
     private static double scoreStatistic(double[][] rows, double[] trait) {
-        double[][] column = new double[trait.length][1];
-        for (int sample = 0; sample < trait.length; sample++) column[sample][0] = trait[sample];
-        double[][] scores = QMatrixUtils.parallelMatrixMultiplication(rows, column, null, 1,
-            rows.length, 1, EMultiplicationMode.XY);
         double statistic = 0;
-        for (double[] score : scores) statistic += score[0] * score[0];
+        for (double[] row : rows) { double score = dot(row, trait); statistic += score * score; }
         return statistic;
     }
     private static double[] eigenvalues(double[][] matrix) {
-        EigenvalueDecomposition decomposition = new EigenvalueDecomposition(new Matrix(matrix));
-        return Arrays.stream(decomposition.getRealEigenvalues()).filter(value -> value > 1e-12).sorted().toArray();
+        double maximum = 0;
+        for (double[] row : matrix) for (double value : row) {
+            if (!Double.isFinite(value)) throw new IllegalArgumentException("Non-finite SKAT kernel");
+            maximum = Math.max(maximum, Math.abs(value));
+        }
+        if (!(maximum > 0)) throw new IllegalArgumentException("Zero SKAT kernel");
+        double[][] normalized = new double[matrix.length][matrix.length];
+        for (int i = 0; i < matrix.length; i++)
+            for (int j = 0; j < matrix.length; j++) normalized[i][j] = matrix[i][j] / maximum;
+        EigenvalueDecomposition decomposition = new EigenvalueDecomposition(new Matrix(normalized));
+        double[] spectrum = decomposition.getRealEigenvalues();
+        double largest = Arrays.stream(spectrum).max().orElse(0);
+        double tolerance = largest * Math.ulp(1.0) * matrix.length * 16;
+        for (double value : spectrum) if (value < -tolerance)
+            throw new IllegalArgumentException("SKAT kernel is not positive semidefinite");
+        final double multiplier = maximum;
+        return Arrays.stream(spectrum).filter(value -> value > tolerance)
+            .map(value -> value * multiplier).sorted().toArray();
     }
     private static double dot(double[] left, double[] right) {
         double value = 0; for (int i = 0; i < left.length; i++) value += left[i] * right[i]; return value;

@@ -27,7 +27,10 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
 
 import net.sourceforge.jdistlib.rng.RandomEngine;
 import gov.nih.parallel.QSynchronizedCounter;
@@ -491,54 +494,40 @@ public class QMatrixUtils
 	public static final double[][] parallelMatrixMultiplication(double[][] X, double[][] Y, double[][] Z, double cons,
 		int rows, int cols, EMultiplicationMode mode)
 	{
-		System.out.println("Rows: " + rows + "; Cols: "+ cols);
-		long
-			numElements = ((long) rows) * ((long) cols),
-			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
-		System.out.println("numElements: " + numElements + "; numThreads: " + numThreads);
-		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
-		QSynchronizedCounter counter = new QSynchronizedCounter(0, rows);
-		double[][] result = new double[rows][cols];
-		assert (X[0].length == Y.length);
-
-		if (cons == 1)
-			for (int i = 0; i < numThreads; i++)
-				threadPool.execute(new QMultiplicationJob(X, Y, Z, result, counter, mode));
-		else
-			for (int i = 0; i < numThreads; i++)
-				threadPool.execute(new QMultiplicationJob(X, Y, Z, result, cons, counter, mode));
-	
-		threadPool.shutdown();
-		try {
-			threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
-		} catch (InterruptedException exx) {}
-		return result;
+        return parallelMatrixMultiplication(X, Y, Z, cons, new double[rows][cols], mode);
 	}
 
 	public static final double[][] parallelMatrixMultiplication(double[][] X, double[][] Y, double[][] Z, double cons,
 		double[][] result, EMultiplicationMode mode)
 	{
-		long
-			rows = result.length,
-			cols = result[0].length,
-			numElements = rows * cols,
-			numThreads = QSystemUtils.kNumCPUCores > numElements ? numElements : QSystemUtils.kNumCPUCores;
-		ExecutorService threadPool = Executors.newFixedThreadPool(numThreads <= 1 ? QSystemUtils.kNumCPUCores : (int) (numThreads + 1));
-		QSynchronizedCounter counter = new QSynchronizedCounter(0, (int) rows);
-		assert (X[0].length == Y.length);
-
-		if (cons == 1)
-			for (int i = 0; i < numThreads; i++)
-				threadPool.execute(new QMultiplicationJob(X, Y, Z, result, counter, mode));
-		else
-			for (int i = 0; i < numThreads; i++)
-				threadPool.execute(new QMultiplicationJob(X, Y, Z, result, cons, counter, mode));
-
-		threadPool.shutdown();
-		try {
-			threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
-		} catch (InterruptedException exx) {}
-		return result;
+        int rows = result.length;
+        if (rows == 0) return result;
+        // Work is assigned by row, never by cell. Small products should not create
+        // an operating-system thread per core (particularly inside set/trait loops).
+        double inner = mode == EMultiplicationMode.XMinusXYYt ? 2.0 * Y[0].length
+            : Math.max(X[0].length, Y.length);
+        double work = (double) rows * result[0].length * inner;
+        int threads = work < 1_000_000 ? 1 : Math.max(1, Math.min(rows, QSystemUtils.kNumCPUCores));
+        QSynchronizedCounter counter = new QSynchronizedCounter(0, rows);
+        if (threads == 1) {
+            new QMultiplicationJob(X, Y, Z, result, cons, counter, mode).run();
+            return result;
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++)
+                futures.add(pool.submit(new QMultiplicationJob(X, Y, Z, result, cons, counter, mode)));
+            for (Future<?> future : futures) future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Matrix multiplication interrupted", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Matrix multiplication failed", e.getCause());
+        } finally {
+            pool.shutdownNow();
+        }
+        return result;
 	}
 
 	/**

@@ -1,0 +1,40 @@
+GPU eQTL analysis software version 2.0. By: Roby Joehanes
+Matrix-product precision = fp64
+Fixed-effect residualization mode = auto
+Initializing compute backend...
+Compute backend: cuda
+Compute runtime: JCuda 12.6.0 using the system CUDA Runtime and cuBLAS
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::loadLibrary has been called by jcuda.LibUtils in an unnamed module (file:/E:/Projects/GPU_eQTL/target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Found 2 suitable compute devices:
+NVIDIA GeForce RTX 4090 [NVIDIA Corporation, CUDA Runtime 12.6 (compute capability 8.9), VRAM=23.99 GiB]
+NVIDIA GeForce RTX 4090 [NVIDIA Corporation, CUDA Runtime 12.6 (compute capability 8.9), VRAM=22.49 GiB]
+All the selected compute devices appear to be identical.
+Genotype file: E:\Projects\GPU_eQTL\target\mixed-smoke\g.csv
+Expression file: E:\Projects\GPU_eQTL\target\mixed-smoke\y.csv
+Covariate file: E:\Projects\GPU_eQTL\test\resources\mixed-reference\data.csv
+Fixed covariates: x
+Pedigree file: E:\Projects\GPU_eQTL\test\resources\mixed-reference\pedigree.tsv
+Output file: E:\Projects\GPU_eQTL\target\mixed-smoke\score.csv
+Threshold type: none
+Threshold: NaN
+Linear model = Additive
+Available memory (MB) = 30678.49
+Scanning matrix metadata and identifiers...
+Declared matrix types: predictor=continuous, trait=expression
+Missing-value policies: predictor=mean, trait=pattern, covariates=complete-samples
+Loading and validating covariate data...
+Inspecting matrix missingness...
+Saved predictor missingness scan: E:\Projects\GPU_eQTL\target\mixed-smoke\.gpu-eqtl-cache\missingness\g.csv.5b4a3d9258bb3c992787.qmiss
+Saved trait missingness scan: E:\Projects\GPU_eQTL\target\mixed-smoke\.gpu-eqtl-cache\missingness\y.csv.e4cb6e07a25381c1a73a.qmiss
+Missingness QC output: E:\Projects\GPU_eQTL\target\mixed-smoke\score.csv.missingness.tsv
+Missing values: predictor=0, trait=0, selected covariates=0
+Covariate model columns: (Intercept), x
+Checkpoint directory: E:\Projects\GPU_eQTL\target\mixed-smoke\score.csv.mixed-checkpoint
+Gaussian mixed model: REML null + exact score variance (GENESIS-style); traits=1; predictor tile=256
+REML null y: variances=[1.2568177682874124, 0.11509480287031085, 0.6273141167868947]; logLik=-80.94679372592537; iterations=11
+Mixed-model progress 1/1 traits; 1 current-run comparisons in 0.0639853 seconds
+Overall time (in seconds) = 8.579

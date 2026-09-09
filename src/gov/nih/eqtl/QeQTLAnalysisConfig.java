@@ -43,6 +43,52 @@ public class QeQTLAnalysisConfig {
 	public QeQTLAnalysisConfig(Map<String, String> ini)
 	{	mIni = new LinkedHashMap<String, String>(ini); }
 
+    /** Do not silently run a different statistical model than the one requested. */
+    public void requireSupportedAnalysisModel() {
+        String mode = getMixedModel();
+        if (!java.util.Set.of("none", "score", "reml").contains(mode))
+            throw new IllegalArgumentException("--mixed-model must be none, score (GENESIS-style), or reml");
+        boolean terms = getRandomCovariates() != null || getPedigreeFilename() != null;
+        if (mode.equals("none") && terms)
+            throw new IllegalArgumentException("Random/pedigree effects require --mixed-model score or reml");
+        if (!mode.equals("none")) {
+            if (!terms) throw new IllegalArgumentException("Mixed models require --pedigree or --random-covariates");
+            if (getRandomCovariates() != null && getCovariateFilename() == null)
+                throw new IllegalArgumentException("Random-intercept grouping columns require --covariates");
+            if (getCohortModelFilename() != null)
+                throw new IllegalArgumentException("Fitted mixed models cannot be combined with supplied --cohort-model GLS");
+            if (getAnalysisMethod().isSetTest())
+                throw new IllegalArgumentException("Fitted mixed-model set tests are not supported; use single-variant analysis");
+            if (getGpuPrecision() != GpuPrecision.FP64)
+                throw new IllegalArgumentException("Fitted mixed models require FP64");
+            if (getDFOffset() != 0 || getThresholdType().equals("rsq") || getRSqOutput() || getSimplifyOutput())
+                throw new IllegalArgumentException("Mixed models use explicit score/Wald output; df-offset, rsq, and simplified output are not supported");
+            if (getThresholdType().equals("pval") && !(getThresholdValue() > 0 && getThresholdValue() <= 1))
+                throw new IllegalArgumentException("Mixed-model p-value threshold must be in (0,1]");
+            if (!getGenotypeModel().equals("additive"))
+                throw new IllegalArgumentException("Mixed models require the additive predictor model");
+            getRemlMaximumIterations();
+            if (!java.util.Set.of("residual", "satterthwaite", "kenward-roger").contains(getRemlDf()))
+                throw new IllegalArgumentException("Invalid --reml-df");
+            if (mode.equals("score") && mIni.containsKey("reml_df"))
+                throw new IllegalArgumentException("--reml-df applies only to --mixed-model reml; score tests use chi-square(1)");
+        }
+        if (mIni.containsKey("pedigree_id_column") && (getPedigreeFilename() == null || getCovariateFilename() == null))
+            throw new IllegalArgumentException("--pedigree-id-column requires --pedigree and --covariates");
+    }
+
+    public String getMixedModel() {
+        String value = mIni.get("mixed_model");
+        if (value == null) return getPedigreeFilename() != null || getRandomCovariates() != null ? "score" : "none";
+        return value.toLowerCase(Locale.ROOT).equals("genesis") ? "score" : value.toLowerCase(Locale.ROOT);
+    }
+    public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
+    public int getRemlMaximumIterations() {
+        int value = Integer.parseInt(mIni.getOrDefault("reml_max_iterations", "200"));
+        if (value < 1) throw new IllegalArgumentException("--reml-max-iterations must be positive");
+        return value;
+    }
+
 	private static final String expandPath(String filename, String path)
 	{
 		if (filename == null)

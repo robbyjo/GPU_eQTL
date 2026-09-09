@@ -38,6 +38,9 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 ## Scientific verification
 
+- Fitted Gaussian mixed modes use JLinAlg only for CPU REML/pedigree construction. `score`/`genesis` reuses one REML null per trait with full score variance and chi-square(1) inference; `reml` refits each predictor and reports the selected Wald DF policy. Keep their schemas, dependency/device-bound trait checkpoints, explicit convergence failures, and scalar/GPU projection references separate from ordinary fixed-effect caches. See `docs/MIXED_MODELS.md` for supported combinations and dense-memory limits.
+- SKAT quadratic-form tails must not silently substitute moment matching. Preserve exact special cases, rank-two relative-tail quadrature, the positive-series remainder check and work limit, scale invariance, and inversion of the same distribution for SKAT-O. Unresolved spectra must stop explicitly. Changing the tail law requires a set-checkpoint signature version change.
+
 - Hardware-independent unit tests must run without a physical GPU. Hardware tests must skip cleanly when no suitable runtime/device is installed.
 - Accelerated numerical tests must compare against a scalar CPU calculation with an explicit tolerance. Keep tests exercising the real production CUDA/OpenCL operations, native oneMKL/OpenBLAS, and the portable Java fallback.
 - Rare-variant set tests must declare variant membership, REF/ALT, effect allele, weight, aligned-cohort MAF/MAC masks, and missing/degenerate-set policies. Do not infer strand flips or allele swaps. Preserve deterministic overlapping-set and within-set order, reuse only signature-compatible null state, and anchor optimized burden/SKAT/SKAT-O statistics to the scalar FP64 CPU reference before acceleration.

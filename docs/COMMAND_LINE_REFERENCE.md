@@ -180,7 +180,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--predictor-type TYPE` | `genotype` for compatibility spelling | `predictor_type` | `genotype`, `expression`, `methylation`, `proteomics`, or `continuous`. Aliases accepted for some types include `protein`, `proteomic`, `dna-methylation`, and `dnm`. |
 | `--trait-type TYPE` | `expression` for compatibility spelling | `trait_type` | Same values as predictor type. Required with `--traits`. |
 | `--family FILE` | Optional; none | `family_file` | PLINK family file used only by the legacy TPED loader. |
-| `--pedigree FILE` | Optional; none | `pedigree_file` | Legacy placeholder: existence is checked and the path is reported, but no mixed/familial model currently consumes it. |
+| `--pedigree FILE` | Optional | `pedigree_file` | ID/SIRE/DAM TSV; adds fitted numerator-relationship covariance. Defaults to mixed score mode. See [mixed models](MIXED_MODELS.md). |
 | `--no-genotype-header` | Flag; header is expected by default | `genotype_file_header = false` | Selects the legacy headerless delimited loader. It is not valid for the modern headered CSV alignment/streaming path. |
 
 ### Matrix model, missing values, and sample alignment
@@ -200,7 +200,11 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--missingness-qc-output FILE` | `<output>.missingness.tsv`; predictor-based name when no output | `missingness_qc_output` | Changes the missingness/alignment QC path. |
 | `--fixed-covariates LIST` | Comma-separated; none | `covariate_fixed` | Covariates to include. Quote a whitespace-separated CLI list; INI lists are whitespace-separated. An intercept is added automatically. |
 | `--factor-covariates LIST` | Comma-separated; none | `covariate_factor` | Forces named numeric-looking covariates to categorical factors. Text covariates are categorical automatically; the lexicographically first level is the reference. |
-| `--random-covariates LIST` | Comma-separated; none | `covariate_random` | Accepted for compatibility but currently warns and is ignored; it does not fit random effects. |
+| `--random-covariates LIST` | Optional grouping columns | `covariate_random` | Fit independent random-intercept variance components; may accompany pedigree covariance. |
+| `--mixed-model MODE` | `score`/`genesis`, `reml`, `none` | `mixed_model` | Null REML plus score tests, per-predictor REML refits, or ordinary analysis. Defaults to score when random/pedigree terms exist; otherwise none. |
+| `--pedigree-id-column NAME` | Optional | `pedigree_id_column` | Covariate observation-to-pedigree-individual mapping for repeated measurements. |
+| `--reml-df METHOD` | `residual` (default), `satterthwaite`, `kenward-roger` | `reml_df` | Wald denominator DF/inference for per-predictor REML only. Score tests use chi-square(1). |
+| `--reml-max-iterations N` | Positive integer; 200 | `reml_max_iterations` | Maximum optimizer iterations per fit; nonconvergence is fatal. |
 | `--genotype-id-column NAME` | None; exact-set inference when possible | `genotype_id_column` | Covariate column containing genotype/predictor sample IDs. |
 | `--expression-id-column NAME` | None; exact-set inference when possible | `expression_id_column` | Covariate column containing expression/trait sample IDs. |
 | `--sample-alignment POLICY` | `strict` (default), `covariate-subset` | `sample_alignment` | `strict` requires equal normalized sample sets. `covariate-subset` uses covariate rows as the canonical subset; it never takes a silent intersection. |

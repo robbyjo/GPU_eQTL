@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-09-09T10:21:16.5187650-04:00",
+  "baseline": "218b7b17d718c9c8bff3e3611d05d1e1c277775b",
+  "default_suite": {
+    "passed": 150,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "tests": 155
+  },
+  "mkl_selected_suite": {
+    "passed": 33,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tests": 33
+  },
+  "commands": [
+    ".\\mvnw.cmd -q clean package",
+    ".\\mvnw.cmd -q package",
+    ".\\mvnw.cmd -q -Pcpu-mkl-windows-x86_64 -Dtest=CpuBackendTest,GpuKernelIntegrationTest,QMixedModelGpuTest,QMixedModelTest test",
+    ".\\mvnw.cmd -q initialize (cold download; then intentional checksum rejection)",
+    ".\\mvnw.cmd -q -DskipTests package (final display-message/resource packaging)"
+  ],
+  "package": "target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar",
+  "sha256": "b3476255a4e5a05ae46948c2d061f76eeb587899d113f8fca432ffffb9316e5e",
+  "independent_mixed_reference_max_abs_error": 3.4753732003345306E-08,
+  "independent_quadratic_reference_max_abs_error": 1.2137032934234071E-08,
+  "mixture_fallbacks": 0,
+  "packaged_cli": "score via CUDA and CPU REML refit matched combined-covariance references",
+  "dependency_checks": "cold fetch passed; modified JLinAlg rejected before extraction; restored verified jar",
+  "licensing": "Application GPL, oneMKL exception/Intel notices, JLinAlg/JDistlib GPL and posterior attribution present"
+}

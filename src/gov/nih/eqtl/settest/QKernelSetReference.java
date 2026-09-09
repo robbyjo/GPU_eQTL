@@ -114,12 +114,16 @@ public final class QKernelSetReference {
         List<Result> setResults = new ArrayList<>();
         PreparedBlock traits = nullModel.traits();
         try {
+            QSkatReference.PreparedKernel prepared = options.method() == QSetTestMethod.SKAT
+                ? QSkatReference.prepare(residualVariants, numericWeights) : null;
+            QSkatReference.PreparedOmnibus preparedOmnibus = options.method() == QSetTestMethod.SKAT_O
+                ? QSkatReference.prepareOmnibus(residualVariants, numericWeights, options.rhoGrid()) : null;
             for (int trait = 0; trait < traits.values().length; trait++) {
                 double[] residualTrait = unstandardize(traits.values()[trait],
                     traits.standardDeviations()[trait]);
                 if (options.method() == QSetTestMethod.SKAT) {
-                    QSkatReference.Result result = QSkatReference.calculate(residualVariants,
-                        numericWeights, residualTrait, nullModel.nullResidualDegreesOfFreedom());
+                    QSkatReference.Result result = prepared.calculate(
+                        residualTrait, nullModel.nullResidualDegreesOfFreedom());
                     setResults.add(new Result(set.id(), traits.rowIds()[trait], includedIds.size(),
                         nullModel.sampleCount(), nullModel.nullResidualDegreesOfFreedom(),
                         result.statistic(), result.pValue(), result.log10P(), result.pValueMethod(),
@@ -127,9 +131,8 @@ public final class QKernelSetReference {
                 } else {
                     long traitSeed = options.seed() ^ stableHash(set.id())
                         ^ Long.rotateLeft(stableHash(traits.rowIds()[trait]), 23);
-                    QSkatReference.OmnibusResult result = QSkatReference.calculateOmnibus(
-                        residualVariants, numericWeights, residualTrait,
-                        nullModel.nullResidualDegreesOfFreedom(), options.rhoGrid(),
+                    QSkatReference.OmnibusResult result = preparedOmnibus.calculate(
+                        residualTrait, nullModel.nullResidualDegreesOfFreedom(),
                         options.simulations(), traitSeed);
                     setResults.add(new Result(set.id(), traits.rowIds()[trait], includedIds.size(),
                         nullModel.sampleCount(), nullModel.nullResidualDegreesOfFreedom(),

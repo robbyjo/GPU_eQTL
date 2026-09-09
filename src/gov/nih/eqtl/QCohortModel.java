@@ -33,7 +33,7 @@ import gov.nih.utils.matrix.QMatrixUtils;
 
 /** Cohort-specific fixed effects and optional within-cohort covariance whitening. */
 final class QCohortModel {
-    private static final String FORMAT = "gpu-eqtl-cohort-model-v1";
+    private static final String FORMAT = "gpu-eqtl-cohort-model-v2";
 
     record Definition(String cohort, String[] fixedCovariates, String[] factorCovariates,
         String subjectColumn, String repeatedPolicy, double withinSubjectCorrelation,
@@ -121,7 +121,10 @@ final class QCohortModel {
     }
 
     private record CohortBlock(String name, int[] samples, double[][] lower,
-        int designColumns, String repeatedPolicy, Path covarianceFile) { }
+        int[][] subjectGroups, double correlation,
+        int designColumns, String repeatedPolicy, Path covarianceFile) {
+        boolean whitened() { return lower != null || subjectGroups != null; }
+    }
 
     private final double[][] design;
     private final String[] columnNames;
@@ -167,14 +170,16 @@ final class QCohortModel {
             if (definition.repeatedPolicy().equals("one-per-subject")) requireUniqueSubjects(
                 definition.cohort(), subjects);
             double[][] covariance = null;
+            int[][] subjectGroups = null;
             if (definition.covarianceFile() != null)
                 covariance = readCovariance(definition.covarianceFile(), select(canonicalSampleIds, samples));
             else if (definition.repeatedPolicy().equals("compound-symmetry"))
-                covariance = compoundSymmetry(subjects, definition.withinSubjectCorrelation());
+                subjectGroups = subjectGroups(subjects);
             double[][] lower = covariance == null ? null : cholesky(definition.cohort(), covariance);
             localModels.add(model);
             localSamples.add(samples);
             cohortBlocks.add(new CohortBlock(definition.cohort(), samples, lower,
+                subjectGroups, definition.withinSubjectCorrelation(),
                 model.columnNames().length, definition.repeatedPolicy(), definition.covarianceFile()));
             totalColumns = Math.addExact(totalColumns, model.columnNames().length);
         }
@@ -215,7 +220,7 @@ final class QCohortModel {
 
     boolean hasWhitening() {
         for (CohortBlock block : blocks)
-            if (block.lower() != null) return true;
+            if (block.whitened()) return true;
         return false;
     }
 
@@ -232,12 +237,13 @@ final class QCohortModel {
             }
 
             @Override public int concurrency() { return delegate == null ? 1 : delegate.concurrency(); }
+            @Override public boolean preserveResidualOrigin() { return hasWhitening(); }
             @Override public int estimatedHostBytesPerValue() {
                 return Math.addExact(Double.BYTES,
                     delegate == null ? 0 : delegate.estimatedHostBytesPerValue());
             }
             @Override public String cacheSignatureTag() {
-                return "cohort-whitened-fp64-v1;" + signature + ";delegate="
+                return "cohort-whitened-fp64-v2;" + signature + ";delegate="
                     + (delegate == null ? "cpu-fp64-v1" : delegate.cacheSignatureTag());
             }
         };
@@ -255,7 +261,7 @@ final class QCohortModel {
                 writer.write(Integer.toString(block.designColumns())); writer.write('\t');
                 writer.write(block.repeatedPolicy()); writer.write('\t');
                 writer.write(block.covarianceFile() == null
-                    ? (block.lower() == null ? "identity" : "compound-symmetry")
+                    ? (block.whitened() ? "compound-symmetry" : "identity")
                     : block.covarianceFile().toString());
                 writer.write('\t'); writer.write(signature); writer.newLine();
             }
@@ -298,6 +304,23 @@ final class QCohortModel {
 
     private static void transformVector(double[] values, CohortBlock[] blocks) {
         for (CohortBlock block : blocks) {
+            if (block.subjectGroups() != null) {
+                // Exact symmetric inverse square root of (1-rho)I + rho 11'.
+                // Independent subjects need O(n) work/storage rather than a dense
+                // cohort covariance, O(n^3) Cholesky, and O(n^2) per-row solves.
+                double contrastScale = 1 / Math.sqrt(1 - block.correlation());
+                for (int[] group : block.subjectGroups()) {
+                    double mean = 0;
+                    for (int local : group) mean += values[block.samples()[local]];
+                    mean /= group.length;
+                    double meanScale = 1 / Math.sqrt(1 + (group.length - 1) * block.correlation());
+                    for (int local : group) {
+                        int sample = block.samples()[local];
+                        values[sample] = contrastScale * (values[sample] - mean) + meanScale * mean;
+                    }
+                }
+                continue;
+            }
             if (block.lower() == null) continue;
             int[] samples = block.samples();
             double[][] lower = block.lower();
@@ -319,14 +342,13 @@ final class QCohortModel {
         return decomposition.getL().getArray();
     }
 
-    private static double[][] compoundSymmetry(String[] subjects, double correlation) {
+    private static int[][] subjectGroups(String[] subjects) {
         if (subjects == null) throw new IllegalArgumentException("Subject IDs are required");
-        double[][] covariance = new double[subjects.length][subjects.length];
+        Map<String, List<Integer>> groups = new LinkedHashMap<>();
         for (int row = 0; row < subjects.length; row++)
-            for (int column = 0; column < subjects.length; column++)
-                covariance[row][column] = row == column ? 1
-                    : subjects[row].equals(subjects[column]) ? correlation : 0;
-        return covariance;
+            groups.computeIfAbsent(subjects[row], ignored -> new ArrayList<>()).add(row);
+        return groups.values().stream().map(group -> group.stream().mapToInt(Integer::intValue).toArray())
+            .toArray(int[][]::new);
     }
 
     private static void requireUniqueSubjects(String cohort, String[] subjects) {
@@ -394,6 +416,13 @@ final class QCohortModel {
                 for (double value : row) update(digest, Double.toHexString(value));
             for (CohortBlock block : blocks) {
                 update(digest, block.name()); update(digest, block.repeatedPolicy());
+                if (block.subjectGroups() != null) {
+                    update(digest, Double.toHexString(block.correlation()));
+                    for (int[] group : block.subjectGroups()) {
+                        update(digest, "subject");
+                        for (int sample : group) update(digest, Integer.toString(sample));
+                    }
+                }
                 if (block.lower() != null)
                     for (double[] row : block.lower())
                         for (double value : row) update(digest, Double.toHexString(value));

@@ -1,0 +1,8 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.bytedeco.javacpp.Loader in an unnamed module (file:/C:/Users/robbyjo/.m2/repository/org/bytedeco/javacpp/1.5.14/javacpp-1.5.14.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+MIXED_PROJECTION_PASS cpu amd64 host CPU (32 logical processors)
+MIXED_PROJECTION_PASS cuda NVIDIA GeForce RTX 4090
+MIXED_PROJECTION_PASS opencl NVIDIA GeForce RTX 4090

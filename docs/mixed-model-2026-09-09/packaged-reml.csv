@@ -1,0 +1,2 @@
+SNP,Probe,N,DF,Effect,SE,Statistic,log10P,Test,Status,VarianceComponents,REMLLogLik,Iterations,Singular
+"g","y",48,45.0,0.13818251035114124,0.21307716211179897,0.6485092488637453,-0.28403721313659835,reml-wald-residual,ok,"additive-genetic=1.2640881486457294;group:group=0.10134641405750187;residual=0.6482939886440836",-81.36749383932073,9,false

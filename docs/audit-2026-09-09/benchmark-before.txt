@@ -1,0 +1,8 @@
+AUDIT fixed-preparation-16x512-p3 median_ms=2.148700 min_ms=1.433000 max_ms=2.366600
+AUDIT burden-score-product-16x512x16 median_ms=1.411600 min_ms=1.148600 max_ms=2.602000
+AUDIT skat-16x512 median_ms=3.274800 min_ms=2.785200 max_ms=4.882800
+AUDIT skat-o-16x512-rho3-b99 median_ms=104.759300 min_ms=102.599900 max_ms=108.344300
+AUDIT burden-production-16variants-8traits-n512 median_ms=2.694400 min_ms=1.830000 max_ms=2.855200
+AUDIT skat-production-16variants-8traits-n512 median_ms=21.431400 min_ms=18.984700 max_ms=23.335400
+AUDIT skat-o-production-16variants-8traits-n512 median_ms=1186.862400 min_ms=1030.146100 max_ms=2077.582100
+checksum=5120.606534123168
