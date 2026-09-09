@@ -72,12 +72,12 @@ otherwise. Grouping terms may accompany a pedigree. Redundant or confounded
 variance components fail the fitter's identifiability checks.
 
 ```sh
-java -Xmx8g -jar target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.0-all.jar \
   --genotype genotypes.csv --expression traits.csv --output score.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model score --backend auto
 
-java -Xmx8g -jar target/gpu-eqtl-2.0.0-SNAPSHOT-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.0-all.jar \
   --genotype genotypes.csv --expression traits.csv --output reml.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model reml --reml-df satterthwaite

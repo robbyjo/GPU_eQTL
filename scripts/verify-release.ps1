@@ -35,13 +35,13 @@ $mavenArguments += @("clean", "package")
 & .\mvnw.cmd @mavenArguments
 if ($LASTEXITCODE -ne 0) { throw "Maven release build failed" }
 
-$sourceJar = Join-Path $buildDirectory "gpu-eqtl-2.0.0-SNAPSHOT-$classifier.jar"
+$sourceJar = Join-Path $buildDirectory "gpu-eqtl-1.9.0-$classifier.jar"
 if (-not (Test-Path -LiteralPath $sourceJar -PathType Leaf)) {
     throw "Expected shaded jar was not produced: $sourceJar"
 }
 $releaseDirectory = Join-Path $projectRoot ("target\release\" + $Platform)
 New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
-$releaseJar = Join-Path $releaseDirectory ("gpu-eqtl-2.0.0-SNAPSHOT-$Platform.jar")
+$releaseJar = Join-Path $releaseDirectory ("gpu-eqtl-1.9.0-$Platform.jar")
 Copy-Item -LiteralPath $sourceJar -Destination $releaseJar -Force
 
 $entries = & jar tf $releaseJar

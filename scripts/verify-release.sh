@@ -36,11 +36,11 @@ esac
 
 ./mvnw "-P$profile" "-Dproject.build.outputTimestamp=$output_timestamp" \
   ${platform_argument:+"$platform_argument"} clean package
-source_jar="$build_directory/gpu-eqtl-2.0.0-SNAPSHOT-$classifier.jar"
+source_jar="$build_directory/gpu-eqtl-1.9.0-$classifier.jar"
 test -f "$source_jar"
 release_directory="target/release/$platform"
 mkdir -p "$release_directory"
-release_jar="$release_directory/gpu-eqtl-2.0.0-SNAPSHOT-$platform.jar"
+release_jar="$release_directory/gpu-eqtl-1.9.0-$platform.jar"
 cp "$source_jar" "$release_jar"
 
 entries=$(jar tf "$release_jar")

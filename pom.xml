@@ -6,7 +6,7 @@
 
     <groupId>gov.nih.qtl</groupId>
     <artifactId>gpu-eqtl</artifactId>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>1.9.0</version>
     <name>GPU eQTL</name>
     <description>GPU-accelerated eQTL and QTL analysis</description>
 
