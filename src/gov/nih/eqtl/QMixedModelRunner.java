@@ -134,7 +134,7 @@ public final class QMixedModelRunner {
     }
     private static String signature(QeQTLAnalysisConfig config, int[] genotypeColumns, int[] traitColumns, String execution) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        digest.update("mixed-v1-jlinalg-0.3.0-jdistlib-0.10.2-fp64".getBytes(StandardCharsets.UTF_8));
+        digest.update("mixed-v2-jlinalg-0.3.6-jdistlib-0.10.2-fp64".getBytes(StandardCharsets.UTF_8));
         digest.update(execution.getBytes(StandardCharsets.UTF_8));
         Map<String,String> settings = new TreeMap<>(config.asMap());
         for (String key : List.of("resume", "keep_checkpoints", "rebuild_cache", "profile", "profile_output")) settings.remove(key);

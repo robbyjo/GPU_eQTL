@@ -21,6 +21,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <eqtl.build.directory>${project.basedir}/target</eqtl.build.directory>
         <jcuda.version>12.6.0</jcuda.version>
         <jocl.version>2.0.6</jocl.version>
         <htsjdk.version>5.0.0</htsjdk.version>
@@ -83,6 +84,7 @@
     </dependencies>
 
     <build>
+        <directory>${eqtl.build.directory}</directory>
         <sourceDirectory>src</sourceDirectory>
         <testSourceDirectory>test</testSourceDirectory>
         <resources>
@@ -108,25 +110,21 @@
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.2.0</version>
                 <executions>
-                    <!-- The upstream JLinAlg 0.3.0 asset is no longer available. Recover the same
-                         org.jlinalg classes from our checksum-pinned 1.9.0 release;
-                         do not upgrade the numerical dependency in this patch.
-                         Upstream releases are not on Maven Central. Verify pinned release
-                         artifacts, then incorporate only the Java namespaces we use. -->
+                    <!-- Verify pinned upstream releases and incorporate only the Java namespaces we use. -->
                     <execution>
                         <id>pinned-jlinalg-and-jdistlib</id>
                         <phase>initialize</phase>
                         <goals><goal>run</goal></goals>
                         <configuration><target>
                             <mkdir dir="${project.basedir}/.dependencies"/>
-                            <get src="https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0/gpu-eqtl-1.9.0-universal.jar" dest="${project.basedir}/.dependencies/gpu-eqtl-1.9.0-universal.jar" skipexisting="true"/>
+                            <get src="https://github.com/robbyjo/JLinAlg/releases/download/v0.3.6/JLinAlg-0.3.6-library.jar" dest="${project.basedir}/.dependencies/JLinAlg-0.3.6-library.jar" skipexisting="true"/>
                             <get src="https://github.com/robbyjo/JDistlib/releases/download/v0.10.2/jdistlib-all-0.10.2.jar" dest="${project.basedir}/.dependencies/jdistlib-all-0.10.2.jar" skipexisting="true"/>
-                            <checksum file="${project.basedir}/.dependencies/gpu-eqtl-1.9.0-universal.jar" algorithm="SHA-256" property="5a457224db20a87737e797c9cc315d492b29930ab3496dcea811fc59f4b3d64b" verifyproperty="jlinalg.verified"/>
+                            <checksum file="${project.basedir}/.dependencies/JLinAlg-0.3.6-library.jar" algorithm="SHA-256" property="52ebfcf86b4454eed8576a95d265842fef8971ecf54c47b77bbc8b9edd74de8e" verifyproperty="jlinalg.verified"/>
                             <checksum file="${project.basedir}/.dependencies/jdistlib-all-0.10.2.jar" algorithm="SHA-256" property="8b50aaa11d2cbd512525e0d74f8e609f40db9f4fc179ccb7a885a82257e0ac81" verifyproperty="jdistlib.verified"/>
                             <fail message="Pinned JLinAlg/JDistlib SHA-256 mismatch; remove the corrupted .dependencies artifact and retry.">
                                 <condition><not><and><istrue value="${jlinalg.verified}"/><istrue value="${jdistlib.verified}"/></and></not></condition>
                             </fail>
-                            <unzip src="${project.basedir}/.dependencies/gpu-eqtl-1.9.0-universal.jar" dest="${project.build.outputDirectory}">
+                            <unzip src="${project.basedir}/.dependencies/JLinAlg-0.3.6-library.jar" dest="${project.build.outputDirectory}">
                                 <patternset><include name="org/jlinalg/**"/></patternset>
                             </unzip>
                             <unzip src="${project.basedir}/.dependencies/jdistlib-all-0.10.2.jar" dest="${project.build.outputDirectory}">

@@ -18,9 +18,9 @@ if ($dirty -and -not $AllowDirty) {
 
 if ($Platform -eq "universal") {
     $profile = "cpu-openblas-universal"
-    $buildDirectory = Join-Path $projectRoot "target"
+    $buildDirectory = Join-Path $projectRoot ".dependencies/release-build-1.9.0.1"
     $classifier = "all"
-    $platformArgument = @()
+    $platformArgument = @("-Deqtl.build.directory=$buildDirectory")
 } else {
     $profile = "cpu-openblas-platform"
     $buildDirectory = Join-Path $projectRoot ("target-openblas-" + $Platform)

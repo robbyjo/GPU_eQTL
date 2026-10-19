@@ -1,7 +1,7 @@
 # Fitted Gaussian mixed models and pedigree analyses
 
 GPU eQTL now supports two fitted mixed-model modes. Both estimate variance
-components by REML using the pinned JLinAlg 0.3.0 library and JDistlib 0.10.2.
+components by REML using the pinned JLinAlg 0.3.6 library and JDistlib 0.10.2.
 The supplied-covariance `--cohort-model` GLS path remains a separate option.
 
 | Mode | Fitting and test | Intended use |
@@ -149,9 +149,9 @@ the normal Maven wrapper build downloads pinned release artifacts to ignored
 `.dependencies/`, verifies SHA-256 on every build, and incorporates only
 `org/jlinalg/**` and `jdistlib/**` Java entries into the application. It does not
 register upstream GPU/native service providers or bundle their vendor runtimes.
-JLinAlg 0.3.0 is recovered from the checksum-pinned GPU eQTL 1.9.0 universal
-archive because its original upstream release asset is no longer available;
-only its original Java namespace is extracted. No dependency version changes.
+JLinAlg 0.3.6 is pinned to its published library JAR; JDistlib remains 0.10.2.
+Mixed-model checkpoint signatures identify the new JLinAlg version, so older
+mixed-model checkpoints must be rebuilt rather than resumed.
 The existing CUDA/OpenCL/CPU backends continue to own association execution.
 All jars retain the upstream GPL notices under `META-INF/licenses` alongside
 the existing application and oneMKL notices. See `pom.xml` for hashes and URLs.

@@ -1,8 +1,8 @@
 GPU eQTL selectively incorporates Java classes from:
 
-JLinAlg 0.3.0, Copyright (C) 2026 JLinAlg contributors, GPL-2.0-or-later.
-Source: https://github.com/robbyjo/JLinAlg/tree/v0.3.0
-Release: https://github.com/robbyjo/JLinAlg/releases/tag/v0.3.0
+JLinAlg 0.3.6, Copyright (C) 2026 JLinAlg contributors, GPL-2.0-or-later.
+Source: https://github.com/robbyjo/JLinAlg/tree/v0.3.6
+Release: https://github.com/robbyjo/JLinAlg/releases/tag/v0.3.6
 
 JDistlib 0.10.2, Roby Joehanes and the original R statistical-routine authors,
 GPL-2.0-or-later. See the upstream source headers for original author attribution.

@@ -18,9 +18,9 @@ fi
 case "$platform" in
   universal)
     profile=cpu-openblas-universal
-    build_directory=target
+    build_directory=.dependencies/release-build-1.9.0.1
     classifier=all
-    platform_argument=
+    platform_argument="-Deqtl.build.directory=$project_root/$build_directory"
     ;;
   windows-x86_64|linux-x86_64|linux-arm64|macosx-x86_64|macosx-arm64)
     profile=cpu-openblas-platform

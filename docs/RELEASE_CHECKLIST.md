@@ -20,6 +20,8 @@ On Linux or macOS, run `./scripts/verify-release.sh linux-x86_64` (substitute th
 
 Release verification requires a clean worktree so the manifest commit identifies the packaged source exactly. PowerShell `-AllowDirty` or POSIX `ALLOW_DIRTY=1` exists only for development validation and records that state in the manifest; do not publish such an artifact.
 
+Universal release builds clean only their isolated `.dependencies/release-build-1.9.0.1/` directory, preserving unrelated files under `target/`. Standard development builds still use `target/`.
+
 The universal artifact contains OpenBLAS 0.3.34 natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. oneMKL evaluation artifacts remain separate under the existing `cpu-mkl-windows-x86_64` and `cpu-mkl-linux-x86_64` profiles because they carry Intel runtime licensing in addition to the project GPLv3 linking exception.
 
 ## Runtime matrix

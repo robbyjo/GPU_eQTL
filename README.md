@@ -113,7 +113,7 @@ Use an Eclipse installation with Maven Integration for Eclipse (m2e) and a Java 
 
 If the project was already open before the Maven metadata was added, select the project and run **Maven → Update Project…** (`Alt+F5`), enable **Force Update of Snapshots/Releases**, and then run **Project → Clean…**. Eclipse should show **Maven Dependencies** in the project tree and use the `JavaSE-17` execution environment.
 
-The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, OpenBLAS/oneMKL JavaCPP bindings, legacy JDistlib, Commons Compress, and JUnit are supplied by Maven. The Maven build also incorporates SHA-256-pinned JLinAlg 0.3.0 and modern JDistlib 0.10.2 Java namespaces; see [dependency details](docs/MIXED_MODELS.md#dependency-packaging-and-verification). The oneMKL native runtime is present only in an explicitly selected evaluation profile.
+The custom multi-delimiter JavaCSV jar remains attached directly with its source archive; JCuda, JOCL, OpenBLAS/oneMKL JavaCPP bindings, legacy JDistlib, Commons Compress, and JUnit are supplied by Maven. The Maven build also incorporates SHA-256-pinned JLinAlg 0.3.6 and modern JDistlib 0.10.2 Java namespaces; see [dependency details](docs/MIXED_MODELS.md#dependency-packaging-and-verification). The oneMKL native runtime is present only in an explicitly selected evaluation profile.
 
 ## Inspect and select compute backends
 
