@@ -72,12 +72,12 @@ otherwise. Grouping terms may accompany a pedigree. Redundant or confounded
 variance components fail the fitter's identifiability checks.
 
 ```sh
-java -Xmx8g -jar target/gpu-eqtl-1.9.0-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.0.1-all.jar \
   --genotype genotypes.csv --expression traits.csv --output score.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model score --backend auto
 
-java -Xmx8g -jar target/gpu-eqtl-1.9.0-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.0.1-all.jar \
   --genotype genotypes.csv --expression traits.csv --output reml.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model reml --reml-df satterthwaite
@@ -149,6 +149,9 @@ the normal Maven wrapper build downloads pinned release artifacts to ignored
 `.dependencies/`, verifies SHA-256 on every build, and incorporates only
 `org/jlinalg/**` and `jdistlib/**` Java entries into the application. It does not
 register upstream GPU/native service providers or bundle their vendor runtimes.
+JLinAlg 0.3.0 is recovered from the checksum-pinned GPU eQTL 1.9.0 universal
+archive because its original upstream release asset is no longer available;
+only its original Java namespace is extracted. No dependency version changes.
 The existing CUDA/OpenCL/CPU backends continue to own association execution.
 All jars retain the upstream GPL notices under `META-INF/licenses` alongside
 the existing application and oneMKL notices. See `pom.xml` for hashes and URLs.

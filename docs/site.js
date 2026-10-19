@@ -36,7 +36,7 @@ const analysisContent = {
     input: "none",
     result: "effect, t, log10 p",
     command: `java -Xmx12g --enable-native-access=ALL-UNNAMED \`
-  -jar target\\gpu-eqtl-1.9.0-all.jar \`
+  -jar target\\gpu-eqtl-1.9.0.1-all.jar \`
   --genotype cohort.vcf.gz --genotype-format vcf \`
   --expression expression.csv --covariates covariates.csv \`
   --genotype-id-column participant_id \`
@@ -53,7 +53,7 @@ const analysisContent = {
     input: "coordinates in variant IDs",
     result: "burden effect, t, log10 p",
     command: `java -Xmx12g --enable-native-access=ALL-UNNAMED \`
-  -jar target\\gpu-eqtl-1.9.0-all.jar \`
+  -jar target\\gpu-eqtl-1.9.0.1-all.jar \`
   --genotype cohort.vcf.gz --genotype-format vcf \`
   --expression expression.csv --covariates covariates.csv \`
   --fixed-covariates Age,Sex,PC1,PC2 \`
@@ -69,7 +69,7 @@ const analysisContent = {
     input: "windows or variant-set TSV",
     result: "Q statistic, p-value method",
     command: `java -Xmx12g --enable-native-access=ALL-UNNAMED \`
-  -jar target\\gpu-eqtl-1.9.0-all.jar \`
+  -jar target\\gpu-eqtl-1.9.0.1-all.jar \`
   --genotype cohort.vcf.gz --genotype-format vcf \`
   --expression expression.csv --covariates covariates.csv \`
   --fixed-covariates Age,Sex,PC1,PC2 \`
@@ -85,7 +85,7 @@ const analysisContent = {
     input: "windows or variant-set TSV",
     result: "adjusted omnibus p-value",
     command: `java -Xmx12g --enable-native-access=ALL-UNNAMED \`
-  -jar target\\gpu-eqtl-1.9.0-all.jar \`
+  -jar target\\gpu-eqtl-1.9.0.1-all.jar \`
   --genotype cohort.vcf.gz --genotype-format vcf \`
   --expression expression.csv --covariates covariates.csv \`
   --fixed-covariates Age,Sex,PC1,PC2 \`

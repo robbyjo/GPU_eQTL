@@ -12,8 +12,8 @@ This is a Java application for GPU-accelerated eQTL and related QTL analyses. Th
 - Use the checked-in Maven wrapper: `./mvnw test` on POSIX systems or `.\mvnw.cmd test` on Windows.
 - In Eclipse, use Maven Integration for Eclipse (m2e), import as an Existing Maven Project, and run Maven → Update Project after pom.xml changes.
 - Build the runnable jar with `./mvnw clean package` or `.\mvnw.cmd clean package`.
-- The packaged application is `target/gpu-eqtl-1.9.0-all.jar`.
-- Print detected compute-backend information with `java -jar target/gpu-eqtl-1.9.0-all.jar --printbackendinfo` (`--printgpuinfo` remains an alias).
+- The packaged application is `target/gpu-eqtl-1.9.0.1-all.jar`.
+- Print detected compute-backend information with `java -jar target/gpu-eqtl-1.9.0.1-all.jar --printbackendinfo` (`--printgpuinfo` remains an alias).
 - Do not commit `target/`, `bin/`, downloaded dependencies, GPU drivers, or vendor SDKs.
 
 The Maven build currently compiles the eQTL application and its supporting NIH utility packages. `src/gov/nih/exon` is deliberately outside the build because it depends on the absent QGeneric/qstats/qplugin projects. Do not silently add it to the build; either restore those dependencies or extract and test that code first.

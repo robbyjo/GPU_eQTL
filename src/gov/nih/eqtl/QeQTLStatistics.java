@@ -33,7 +33,12 @@ public final class QeQTLStatistics {
     public static double validateCorrelation(double correlation, GpuPrecision precision) {
         if (!Double.isFinite(correlation))
             throw new IllegalArgumentException("GPU returned a non-finite correlation");
-        double tolerance = precision == GpuPrecision.FP32 ? 1e-4 : 1e-10;
+        // Genotype-outer correlations combine independently accumulated dot products
+        // and residual variances (g'g minus the covariate projection). Near |r|=1,
+        // cancellation can exceed 1e-10 even in FP64. Allow only a bounded 1e-8
+        // overshoot, then clamp before R-squared and t/p inference. Values within
+        // [-1, 1] are unchanged; larger errors and non-finite values remain fatal.
+        double tolerance = precision == GpuPrecision.FP32 ? 1e-4 : 1e-8;
         double absolute = Math.abs(correlation);
         if (absolute > 1 + tolerance)
             throw new IllegalArgumentException("GPU returned an invalid correlation " + correlation);
