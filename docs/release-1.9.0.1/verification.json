@@ -1,0 +1,59 @@
+{
+  "version": "1.9.0.1",
+  "source_commit": "a78677be7b7e8cf956405ec1cf46a4573477f906",
+  "github_profile": "robbyjo",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.1",
+  "published_at": "2026-10-19T17:31:51Z",
+  "verified_utc": "2026-10-19T17:32:55.7220191+00:00",
+  "latest": true,
+  "tests": {
+    "total": 159,
+    "passed": 154,
+    "skipped": 5,
+    "failures": 0,
+    "errors": 0,
+    "packaged_regression_passed": 4
+  },
+  "jlinalg": {
+    "version": "0.3.6",
+    "library_sha256": "52ebfcf86b4454eed8576a95d265842fef8971ecf54c47b77bbc8b9edd74de8e",
+    "byte_identical_namespace_entries": 1098
+  },
+  "packaged_licenses_byte_verified": true,
+  "backend_smoke": true,
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.0.1-universal.jar",
+      "size": 140693376,
+      "sha256": "fb627729a25eac1c6297221db471221f51c7de6e382e9a08c730ab113eae1f72",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.1/gpu-eqtl-1.9.0.1-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 401,
+      "sha256": "6e18284b3c799e9e48bb88f53529b8ffcfe3be4a46920b2db7932dce47d22d83",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.1/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "ed5bd64ba28af1567cf6c1652362ebb5b4d817845fe0218c40b649d43f8acd71",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.1/SHA256SUMS"
+    }
+  ],
+  "website_version_observed": false,
+  "host": {
+    "os": "Windows x64",
+    "build_jdk": "25",
+    "java_target": "17",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "617.42",
+    "cuda_toolkit": "12.9"
+  },
+  "limitations": [
+    "No restricted production-server rerun",
+    "Linux/macOS native loading unvalidated",
+    "Separate Java 17 runtime smoke unperformed",
+    "Older mixed-model checkpoints must be rebuilt"
+  ]
+}
