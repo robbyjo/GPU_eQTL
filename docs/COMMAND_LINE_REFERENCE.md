@@ -4,13 +4,13 @@ This page is the reference for the command-line interface in GPU eQTL 2.0. It li
 
 ## Invocation
 
-The runnable artifact is `target/gpu-eqtl-1.9.0.1-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
+The runnable artifact is `target/gpu-eqtl-1.9.0.2-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
 
 ```text
-java [JVM options] -jar gpu-eqtl-1.9.0.1-all.jar legacy.ini
-java [JVM options] -jar gpu-eqtl-1.9.0.1-all.jar --config legacy.ini [overrides]
-java [JVM options] -jar gpu-eqtl-1.9.0.1-all.jar --genotype FILE --expression FILE [options]
-java [JVM options] -jar gpu-eqtl-1.9.0.1-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
+java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar legacy.ini
+java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --config legacy.ini [overrides]
+java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --genotype FILE --expression FILE [options]
+java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
 ```
 
 An association run requires predictor/genotype and trait/expression inputs plus `--output`. `--validate-only` and `--inspect-missingness` do not run association. `--preprocess-only` requires VCF/BCF plus the trait matrix and any selected covariates, but does not require `--output`.
@@ -25,7 +25,7 @@ PowerShell:
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -56,7 +56,7 @@ First create alignment-specific QC and the raw FP64 dosage cache without initial
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -76,7 +76,7 @@ Then run association with the same source, alignment, regions, field, frequency 
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -100,7 +100,7 @@ The matching QC checkpoint avoids repeating aligned MAF/MAC/HWE calculations. Th
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --variant-index cohort.vcf.gz.tbi `
@@ -117,7 +117,7 @@ Inline coordinates are one-based inclusive. For a file of regions, use `--region
 ### Inspect missingness without association
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.1-all.jar `
+java -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype predictors.csv `
   --predictor-type methylation `
   --expression proteins.csv `
@@ -134,7 +134,7 @@ Generic `--predictor` and `--traits` spellings require their corresponding type 
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --backend cpu `
   --genotype predictors.csv `
   --expression traits.csv `
@@ -289,7 +289,7 @@ For example, in PowerShell the `-D` argument should be quoted:
 ```powershell
 java '-Deqtl.cpu.blas=openblas' '-Deqtl.cpu.threads=8' `
   --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --backend cpu --printbackendinfo
 ```
 

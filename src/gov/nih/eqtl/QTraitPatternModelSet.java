@@ -245,6 +245,7 @@ final class QTraitPatternModelSet {
     int patternForPreparedRow(long row) { return preparedRowPatterns[Math.toIntExact(row)]; }
     int sampleCount() { return scan.sampleCount(); }
     int designColumns() { return design[0].length; }
+    double[][] design() { return design; }
     long estimableTraitRows() { return estimableTraitRows; }
     long excludedTraitRows() { return excludedTraitRows; }
     String firstExclusion() { return firstExclusion; }

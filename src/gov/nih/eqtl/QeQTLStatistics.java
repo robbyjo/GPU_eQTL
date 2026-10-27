@@ -25,6 +25,7 @@ import gov.nih.gpu.GpuPrecision;
 public final class QeQTLStatistics {
     private static final double LOG10_OF_2 = log10(2);
     private static final double LOG_OF_10 = log(10);
+    static final double FP64_CORRELATION_TOLERANCE = 1e-8;
 
     public record Result(double rSquared, double effect, double tStatistic, double log10P) { }
 
@@ -38,7 +39,7 @@ public final class QeQTLStatistics {
         // cancellation can exceed 1e-10 even in FP64. Allow only a bounded 1e-8
         // overshoot, then clamp before R-squared and t/p inference. Values within
         // [-1, 1] are unchanged; larger errors and non-finite values remain fatal.
-        double tolerance = precision == GpuPrecision.FP32 ? 1e-4 : 1e-8;
+        double tolerance = precision == GpuPrecision.FP32 ? 1e-4 : FP64_CORRELATION_TOLERANCE;
         double absolute = Math.abs(correlation);
         if (absolute > 1 + tolerance)
             throw new IllegalArgumentException("GPU returned an invalid correlation " + correlation);

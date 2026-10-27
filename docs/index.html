@@ -71,7 +71,7 @@
           <p class="hero-lede">GPU eQTL aligns samples, audits missingness and variant QC, adjusts fixed effects, and accelerates ordinary eQTL and rare-variant set tests across CUDA, OpenCL, and CPU backends.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#try-it">See it in action <span aria-hidden="true">↓</span></a>
-            <a class="button button-secondary" href="https://github.com/robbyjo/GPU_eQTL">View source <span aria-hidden="true">↗</span></a>
+            <a class="button button-secondary" href="https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.2">Download v1.9.0.2 <span aria-hidden="true">↗</span></a>
           </div>
           <ul class="hero-facts" aria-label="Project facts">
             <li><strong>CSV · VCF · BCF</strong><span>validated inputs</span></li>
@@ -265,7 +265,7 @@
               </button>
             </div>
             <pre><code data-command>java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.1-all.jar `
+  -jar target\gpu-eqtl-1.9.0.2-all.jar `
   --genotype cohort.vcf.gz --genotype-format vcf `
   --expression expression.csv --covariates covariates.csv `
   --genotype-id-column participant_id `

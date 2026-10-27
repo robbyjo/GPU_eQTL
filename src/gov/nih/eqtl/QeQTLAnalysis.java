@@ -1484,7 +1484,9 @@ public class QeQTLAnalysis implements IJobOwner
 					patternQc.activeComparisons(block, models));
 			}
 		QAnalysisProgress progress = QAnalysisProgress.dynamic(
-			"Association genotype-outer trait patterns", completedComparisons);
+			"Association genotype-outer trait patterns", completedComparisons,
+			Math.multiplyExact(predictorSource.metadata().rowCount(),
+				Math.addExact(models.estimableTraitRows(), models.excludedTraitRows())));
 		GpuContextPool contextPool = new GpuContextPool(mContexts);
 		try {
 			String header = kernelHeader(16, GpuPrecision.FP64) + "#define N_MIN_1 1" + sLn;
@@ -2101,7 +2103,7 @@ public class QeQTLAnalysis implements IJobOwner
 	public static void main(String[] args)
 	{
 		long timea = System.currentTimeMillis();
-		System.out.println("GPU eQTL analysis software version 1.9.0.1. By: Roby Joehanes");
+		System.out.println("GPU eQTL analysis software version 1.9.0.2. By: Roby Joehanes");
 		if (args == null || args.length < 1) {
 			printUsage();
 			System.exit(kExitCodeErrorInvalidParam);

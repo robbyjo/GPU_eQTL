@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -154,7 +157,20 @@ class QTraitPatternAnalysisTest {
 		assertTrue(Files.readString(errorAudit).contains("excluded\tnon-positive-residual-df"));
 
 		Path skipOutput = directory.resolve("skip.csv");
-		runAnalysisWithExpression(directory.resolve("skip"), skipOutput, expression, "skip");
+        ByteArrayOutputStream progressLog = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try (PrintStream capture = new PrintStream(progressLog, true, StandardCharsets.UTF_8)) {
+            System.setOut(capture);
+            try {
+                runAnalysisWithExpression(directory.resolve("skip"), skipOutput, expression, "skip");
+            } finally {
+                System.setOut(originalOut);
+            }
+        }
+        String progressOutput = progressLog.toString(StandardCharsets.UTF_8);
+        // The estimate includes both original trait rows; one is excluded by rank/DF QC.
+        assertTrue(progressOutput.contains("trait patterns started: approximately 6 variant-trait"));
+        assertTrue(progressOutput.contains("trait patterns complete: 3/3 (100.0%)"));
 		List<String> rows = Files.readAllLines(skipOutput);
 		assertEquals(4, rows.size());
 		assertTrue(rows.stream().skip(1).allMatch(row -> row.contains(",good,")));

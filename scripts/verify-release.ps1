@@ -18,7 +18,7 @@ if ($dirty -and -not $AllowDirty) {
 
 if ($Platform -eq "universal") {
     $profile = "cpu-openblas-universal"
-    $buildDirectory = Join-Path $projectRoot ".dependencies/release-build-1.9.0.1"
+    $buildDirectory = Join-Path $projectRoot ".dependencies/release-build-1.9.0.2"
     $classifier = "all"
     $platformArgument = @("-Deqtl.build.directory=$buildDirectory")
 } else {
@@ -35,13 +35,13 @@ $mavenArguments += @("clean", "package")
 & .\mvnw.cmd @mavenArguments
 if ($LASTEXITCODE -ne 0) { throw "Maven release build failed" }
 
-$sourceJar = Join-Path $buildDirectory "gpu-eqtl-1.9.0.1-$classifier.jar"
+$sourceJar = Join-Path $buildDirectory "gpu-eqtl-1.9.0.2-$classifier.jar"
 if (-not (Test-Path -LiteralPath $sourceJar -PathType Leaf)) {
     throw "Expected shaded jar was not produced: $sourceJar"
 }
 $releaseDirectory = Join-Path $projectRoot ("target\release\" + $Platform)
 New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
-$releaseJar = Join-Path $releaseDirectory ("gpu-eqtl-1.9.0.1-$Platform.jar")
+$releaseJar = Join-Path $releaseDirectory ("gpu-eqtl-1.9.0.2-$Platform.jar")
 Copy-Item -LiteralPath $sourceJar -Destination $releaseJar -Force
 
 $entries = & jar tf $releaseJar

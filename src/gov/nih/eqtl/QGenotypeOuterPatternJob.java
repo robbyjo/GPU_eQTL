@@ -44,6 +44,7 @@ final class QGenotypeOuterPatternJob implements Runnable {
     private final double minimumMaf;
     private final double minimumMac;
     private final boolean applyPatternFrequencyFilters;
+    private long verifiedCorrelations;
 
     record QMatrixBlock(long rowOffset, String[] rowIds, double[][] values) { }
 
@@ -129,6 +130,9 @@ final class QGenotypeOuterPatternJob implements Runnable {
                     activeVariants, doubledCapacity, traitBlock, patternStatistics, writer);
             }
             qcCheckpoint.writeBlock(blockNumber, patternStatistics.qcCounts());
+            if (verifiedCorrelations > 0)
+                System.err.println("Genotype-outer block " + blockNumber + ": scalar QR verified "
+                    + verifiedCorrelations + " correlation(s) outside the FP64 roundoff allowance.");
         } finally {
             contextPool.releaseContext(context);
         }
@@ -266,12 +270,31 @@ final class QGenotypeOuterPatternJob implements Runnable {
                 double rawDot = products[productBase]
                     + patternStatistics.replacements()[model.id][variant]
                         * products[productBase + 1];
-                double correlation = QeQTLStatistics.validateCorrelation(
-                    QPatternSufficientStatistics.correlation(rawDot, genotypeSd,
-                        model.observed.length), GpuPrecision.FP64);
+                double correlation = QPatternSufficientStatistics.correlation(rawDot, genotypeSd,
+                    model.observed.length);
+                double traitScale = 1;
+                try {
+                    if (QPatternCorrelationRecovery.canVerify(correlation)) {
+                        QPatternCorrelationRecovery.Result verified = QPatternCorrelationRecovery.verify(
+                            correlation, genotypeSd, genotype.values()[variant],
+                            traitBlock.values()[trait], patternStatistics.replacements()[model.id][variant],
+                            model.observed, models.design());
+                        correlation = verified.correlation();
+                        genotypeSd = verified.genotypeSd();
+                        traitScale = verified.traitScale();
+                        verifiedCorrelations++;
+                    } else {
+                        correlation = QeQTLStatistics.validateCorrelation(correlation, GpuPrecision.FP64);
+                    }
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid association for predictor '"
+                        + genotype.rowIds()[variant] + "', trait '" + traitBlock.rowIds()[trait]
+                        + "', pattern " + model.id + ", N=" + model.observed.length
+                        + ", DF=" + model.reportedDegreesOfFreedom(degreesOfFreedomOffset), e);
+                }
                 if (correlation * correlation < model.rSquaredThreshold)
                     continue;
-                appendResult(output, variant, trait, traitBlock, model, genotypeSd, correlation);
+                appendResult(output, variant, trait, traitBlock, model, genotypeSd, correlation, traitScale);
                 if (output.length() >= OUTPUT_BUFFER_CHARACTERS) {
                     writer.write(output.toString());
                     output.setLength(0);
@@ -293,9 +316,9 @@ final class QGenotypeOuterPatternJob implements Runnable {
 
     private void appendResult(StringBuilder output, int variant, int trait,
         PreparedBlock traitBlock, QTraitPatternModelSet.Model model,
-        double genotypeSd, double correlation) {
+        double genotypeSd, double correlation, double traitScale) {
         QeQTLStatistics.Result result = QeQTLStatistics.calculate(correlation,
-            traitBlock.standardDeviations()[trait], genotypeSd,
+            traitBlock.standardDeviations()[trait] * traitScale, genotypeSd,
             model.errorDegreesOfFreedom, degreesOfFreedomOffset);
         double rSquared = result.rSquared();
         if (!QeQTLAnalysis.rsqOnly) {
