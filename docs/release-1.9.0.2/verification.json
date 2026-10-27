@@ -1,0 +1,89 @@
+{
+  "version": "1.9.0.2",
+  "source_commit": "4fa1f803d12e256e48c89bc5068989c3664a71ee",
+  "github_profile": "robbyjo",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.2",
+  "published_at": "2026-10-27T16:06:00Z",
+  "verified_utc": "2026-10-27T16:07:30.5951488+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "packaged_regression_passed": 9,
+    "total": 166,
+    "skipped": 5,
+    "passed": 161,
+    "errors": 0,
+    "failures": 0
+  },
+  "jlinalg": {
+    "library_sha256": "52ebfcf86b4454eed8576a95d265842fef8971ecf54c47b77bbc8b9edd74de8e",
+    "version": "0.3.6",
+    "byte_identical_namespace_entries": 1098
+  },
+  "jdistlib": {
+    "version": "0.10.2",
+    "byte_identical_namespace_entries": 933
+  },
+  "packaged_licenses_byte_verified": 9,
+  "backend_smoke": true,
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.0.2-universal.jar",
+      "size": 140697900,
+      "sha256": "bd924d07b4b013d252a389c4cc77e6b58ff4b68ec388a0fdb050674c71e12ebb",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.2/gpu-eqtl-1.9.0.2-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 834,
+      "sha256": "2539159a2bd428f5a4c54706123154a57466d73486531070e51a8516693cd4e4",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.2/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "3a29ffd0f4cea11a713bfa6f299c9e1fe65d0c145c41fbfafd171c12273401b5",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.2/SHA256SUMS"
+    }
+  ],
+  "public_checksum_manifest_downloads_verified": true,
+  "website": {
+    "url": "https://robbyjo.github.io/GPU_eQTL/",
+    "version_observed": "1.9.0.2",
+    "source_commit": "4fa1f803d12e256e48c89bc5068989c3664a71ee",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/40537311944",
+    "script_http": 200,
+    "conclusion": "success",
+    "workflow_id": 40537311944,
+    "homepage_http": 200
+  },
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "hosted_release_build_workflow": "not configured",
+    "location": "local",
+    "dirty_worktree": false
+  },
+  "host": {
+    "java_target": "17",
+    "build_jdk": "25",
+    "cpu_blas": "OpenBLAS 0.3.34; 15 BLAS threads",
+    "driver": "617.42",
+    "os": "Windows x64",
+    "cuda_driver_api": "13.4",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "cuda_toolkit_path": "12.9",
+    "cuda_runtime": "12.6"
+  },
+  "compatibility": {
+    "dependencies_unchanged": true,
+    "complete_1_9_0_1_fixed_effect_blocks_reusable": true,
+    "cache_checkpoint_formats_unchanged": true
+  },
+  "limitations": [
+    "No production dataset or restricted-server rerun",
+    "Linux/macOS native loading unvalidated",
+    "Separate Java 17 runtime unvalidated",
+    "Scalar disagreements and larger/non-finite excursions remain fatal"
+  ]
+}
