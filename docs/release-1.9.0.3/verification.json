@@ -1,0 +1,115 @@
+{
+  "version": "1.9.0.3",
+  "source_commit": "decd3cdefd055e333c32b2e9220579f0dd2c30db",
+  "tag_object": "16ea5513f69f55bc99ddedc945831026b0f65577",
+  "github_profile": "robbyjo",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.3",
+  "release_id": 431880614,
+  "published_at": "2026-11-02T19:29:37Z",
+  "verified_utc": "2026-11-02T19:31:08.451117+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "full_suite": {
+      "tests": 167,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 162
+    },
+    "packaged_windows": {
+      "tests": 13,
+      "skipped": 1,
+      "errors": 0,
+      "failures": 0,
+      "passed": 12
+    },
+    "packaged_linux": {
+      "tests": 22,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0,
+      "passed": 21
+    }
+  },
+  "packaged_licenses_byte_verified": 9,
+  "dependency_namespace_files_byte_verified": {
+    "org/jlinalg/": 1098,
+    "jdistlib/": 933
+  },
+  "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.0.3-universal.jar",
+      "size": 140697876,
+      "sha256": "5bed2fc13c6916158229c0ee1bcdcf465cb009a7450f22d57ad9118fd9cf3354",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.3/gpu-eqtl-1.9.0.3-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 1132,
+      "sha256": "e46b587741ba514fda4ea62d82517dc029a7ae5cf4bf318bbe0b34ad4c83a801",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.3/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "b7347f8056cf643563e9f382eb13e574e4cf88e805202d06816220835d9e7dab",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.0.3/SHA256SUMS"
+    }
+  ],
+  "public_checksum_and_manifest_downloads_verified": true,
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "dirty_worktree": false,
+    "location": "local",
+    "java_target": 17,
+    "build_jdk": 25,
+    "host_os": "Windows x64",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "nvidia_driver": "617.42",
+    "cuda_runtime": "12.6",
+    "cuda_driver_api": "13.4",
+    "hosted_release_build_workflow": "not configured"
+  },
+  "linux_validation": {
+    "artifact_sha256": "5bed2fc13c6916158229c0ee1bcdcf465cb009a7450f22d57ad9118fd9cf3354",
+    "exact_release_jar": true,
+    "runtime": "OpenJDK 21 x64",
+    "actual_native_threads_verified": [
+      2,
+      1
+    ],
+    "loaded_openblas_instances": 1,
+    "native_max_threads": 64,
+    "nice": 19,
+    "logical_cpu_limit": 2,
+    "max_heap_mib": 256,
+    "backend_smoke": true,
+    "production_jobs_or_installed_jar_modified": false
+  },
+  "website": {
+    "url": "https://robbyjo.github.io/GPU_eQTL/",
+    "version_observed": "1.9.0.3",
+    "source_commit": "decd3cdefd055e333c32b2e9220579f0dd2c30db",
+    "workflow_id": 41510337685,
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/41510337685",
+    "conclusion": "success",
+    "homepage_http": 200,
+    "script_http": 200
+  },
+  "compatibility": {
+    "formats_unchanged": true,
+    "ordinary_fixed_effect_checkpoint_rules_unchanged": true,
+    "older_openblas_fitted_mixed_checkpoints_reusable": false,
+    "reason": "OpenBLAS backend description participates in fitted mixed-model execution identity",
+    "new_computations_may_differ_at_fp64_roundoff_scale": true
+  },
+  "limitations": [
+    "Bundled Linux x64 OpenBLAS MAX_THREADS=64 remains; no 96-thread implementation or speedup claim",
+    "No production-cohort rerun or throughput benchmark",
+    "macOS and Linux ARM64 native loading unvalidated",
+    "Separate Java 17 runtime execution unvalidated"
+  ]
+}
