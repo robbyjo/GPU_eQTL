@@ -4,13 +4,13 @@ This page is the reference for the command-line interface in GPU eQTL 2.0. It li
 
 ## Invocation
 
-The runnable artifact is `target/gpu-eqtl-1.9.0.2-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
+The runnable artifact is `target/gpu-eqtl-1.9.0.3-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
 
 ```text
-java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar legacy.ini
-java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --config legacy.ini [overrides]
-java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --genotype FILE --expression FILE [options]
-java [JVM options] -jar gpu-eqtl-1.9.0.2-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
+java [JVM options] -jar gpu-eqtl-1.9.0.3-all.jar legacy.ini
+java [JVM options] -jar gpu-eqtl-1.9.0.3-all.jar --config legacy.ini [overrides]
+java [JVM options] -jar gpu-eqtl-1.9.0.3-all.jar --genotype FILE --expression FILE [options]
+java [JVM options] -jar gpu-eqtl-1.9.0.3-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
 ```
 
 An association run requires predictor/genotype and trait/expression inputs plus `--output`. `--validate-only` and `--inspect-missingness` do not run association. `--preprocess-only` requires VCF/BCF plus the trait matrix and any selected covariates, but does not require `--output`.
@@ -25,7 +25,7 @@ PowerShell:
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -56,7 +56,7 @@ First create alignment-specific QC and the raw FP64 dosage cache without initial
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -76,7 +76,7 @@ Then run association with the same source, alignment, regions, field, frequency 
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -100,7 +100,7 @@ The matching QC checkpoint avoids repeating aligned MAF/MAC/HWE calculations. Th
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --variant-index cohort.vcf.gz.tbi `
@@ -117,7 +117,7 @@ Inline coordinates are one-based inclusive. For a file of regions, use `--region
 ### Inspect missingness without association
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype predictors.csv `
   --predictor-type methylation `
   --expression proteins.csv `
@@ -134,7 +134,7 @@ Generic `--predictor` and `--traits` spellings require their corresponding type 
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --backend cpu `
   --genotype predictors.csv `
   --expression traits.csv `
@@ -282,18 +282,20 @@ These are Java system properties, so they must appear before `-jar`. They are no
 | --- | --- | --- |
 | `-Deqtl.gpu.backend=VALUE` | `auto` (default), `cuda`, `opencl`, `cpu` | Compatibility selection equivalent to `--backend`; the explicit application argument sets this property for the process. |
 | `-Deqtl.cpu.blas=VALUE` | `auto` (default), `mkl`, `openblas`, `java` | Selects the CPU matrix engine. An explicitly forced unavailable native engine fails instead of silently falling back. |
-| `-Deqtl.cpu.threads=N` | `max(1, logical processors - 1)` | Controls the native BLAS inner thread pool independently of application `--threads`. |
+| `-Deqtl.cpu.threads=N` | `max(1, logical processors - 1)` | Requests the native BLAS inner thread count independently of application `--threads`; native build limits and operation size can reduce actual parallelism. |
 
 For example, in PowerShell the `-D` argument should be quoted:
 
 ```powershell
 java '-Deqtl.cpu.blas=openblas' '-Deqtl.cpu.threads=8' `
   --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.0.2-all.jar `
+  -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --backend cpu --printbackendinfo
 ```
 
 The internal `eqtl.variant.qc.checkpoint.records` property and `eqtl.test.*` properties exist only for deterministic development tests and are deliberately not supported user-facing analysis controls.
+
+The published universal 1.9.0.2 Linux x64 OpenBLAS binary has a verified 64-thread build limit. Its reported BLAS count can exceed that limit because JavaCPP's helper returns the requested value. The published JAR also loads separate GEMM and thread-control OpenBLAS instances: for future runs with that JAR, use both `OPENBLAS_NUM_THREADS=N` and `-Deqtl.cpu.threads=N` to bound them. Version 1.9.0.3 binds GEMM and thread control to one instance and describes the count as requested. Neither change removes native build limits. CPU genotype-outer exact-pattern work uses one context/outer worker, irrespective of a larger `--threads` value, and executes serial Java work between BLAS calls. Count all concurrent JVMs when choosing a host-wide thread budget. These controls do not reconfigure an already running job.
 
 ## Defaults that materially affect results
 

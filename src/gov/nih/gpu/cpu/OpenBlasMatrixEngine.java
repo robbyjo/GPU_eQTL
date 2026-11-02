@@ -9,12 +9,11 @@ package gov.nih.gpu.cpu;
 
 import org.bytedeco.javacpp.Loader;
 
-import static org.bytedeco.openblas.global.openblas.CblasNoTrans;
-import static org.bytedeco.openblas.global.openblas.CblasRowMajor;
-import static org.bytedeco.openblas.global.openblas.CblasTrans;
-import static org.bytedeco.openblas.global.openblas.cblas_dgemm;
-import static org.bytedeco.openblas.global.openblas.cblas_sgemm;
-import static org.bytedeco.openblas.presets.openblas_nolapack.blas_get_num_threads;
+import static org.bytedeco.openblas.global.openblas_nolapack.CblasNoTrans;
+import static org.bytedeco.openblas.global.openblas_nolapack.CblasRowMajor;
+import static org.bytedeco.openblas.global.openblas_nolapack.CblasTrans;
+import static org.bytedeco.openblas.global.openblas_nolapack.cblas_dgemm;
+import static org.bytedeco.openblas.global.openblas_nolapack.cblas_sgemm;
 import static org.bytedeco.openblas.presets.openblas_nolapack.blas_set_num_threads;
 
 /** Native OpenBLAS implementation supplied by the JavaCPP preset. */
@@ -25,15 +24,20 @@ final class OpenBlasMatrixEngine implements CpuMatrixEngine {
 	OpenBlasMatrixEngine(int requestedThreads) {
 		if (requestedThreads <= 0)
 			throw new IllegalArgumentException("OpenBLAS thread count must be positive");
-		nativePath = Loader.load(org.bytedeco.openblas.global.openblas.class);
+		// The thread helper controls the nolapack library. GEMM must use that same
+		// instance: loading the full preset creates a separate native thread pool.
+		nativePath = Loader.load(org.bytedeco.openblas.global.openblas_nolapack.class);
 		blas_set_num_threads(requestedThreads);
-		threads = Math.max(1, blas_get_num_threads());
+		// JavaCPP's blas_get_num_threads() only echoes the request; it does not
+		// query OpenBLAS, which may clamp it to its compiled MAX_THREADS limit.
+		threads = requestedThreads;
 	}
 
 	@Override
 	public String description() {
-		return "OpenBLAS 0.3.34 via JavaCPP 1.5.14, " + threads + " BLAS thread"
-			+ (threads == 1 ? "" : "s") + (nativePath == null ? "" : " (bundled native library)");
+		return "OpenBLAS 0.3.34 via JavaCPP 1.5.14, requested " + threads + " BLAS thread"
+			+ (threads == 1 ? "" : "s") + " (native limit may be lower"
+			+ (nativePath == null ? "" : "; bundled native library") + ")";
 	}
 
 	@Override

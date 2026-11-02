@@ -15,7 +15,7 @@ GPU-accelerated Java software for eQTL and related QTL analyses, with a portable
 
 ## Current status
 
-The current release is **[v1.9.0.2](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.2)**. Download `gpu-eqtl-1.9.0.2-universal.jar` and its `SHA256SUMS` from the release page. Version 2.0 is reserved for a later release after broader testing.
+The current release is **[v1.9.0.3](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.0.3)**. Download `gpu-eqtl-1.9.0.3-universal.jar` and its `SHA256SUMS` from the release page. Version 2.0 is reserved for a later release after broader testing.
 
 The application targets Java 17 and has selectable compute backends behind a vendor-neutral API:
 
@@ -58,9 +58,9 @@ On Linux or macOS:
 ./mvnw clean package
 ```
 
-The runnable jar is `target/gpu-eqtl-1.9.0.2-all.jar`. It includes the Java dependencies, JCuda/JOCL bindings, and OpenBLAS natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. Users on those desktop platforms can copy the one jar and run it without installing BLAS. It does not bundle GPU drivers, CUDA, cuBLAS, NVRTC, or an OpenCL ICD. CUDA therefore still needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation; CUDA genotype-outer exact-pattern analysis additionally needs the matching NVRTC runtime compiler. OpenCL needs the vendor's ICD and compiler. On an unbundled platform, CPU `auto` falls back to the slower pure-Java engine.
+The runnable jar is `target/gpu-eqtl-1.9.0.3-all.jar`. It includes the Java dependencies, JCuda/JOCL bindings, and OpenBLAS natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. Users on those desktop platforms can copy the one jar and run it without installing BLAS. It does not bundle GPU drivers, CUDA, cuBLAS, NVRTC, or an OpenCL ICD. CUDA therefore still needs a compatible NVIDIA driver plus CUDA runtime/cuBLAS installation; CUDA genotype-outer exact-pattern analysis additionally needs the matching NVRTC runtime compiler. OpenCL needs the vendor's ICD and compiler. On an unbundled platform, CPU `auto` falls back to the slower pure-Java engine.
 
-Reproducible platform packaging, checksums, license verification, and host smoke gates are documented in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); see [v1.9.0.2 release notes](docs/RELEASE_NOTES_1.9.0.2.md) for changes and validation limits.
+Reproducible platform packaging, checksums, license verification, and host smoke gates are documented in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); see [v1.9.0.3 release notes](docs/RELEASE_NOTES_1.9.0.3.md) for changes and validation limits.
 
 Hardware-independent CPU tests always run. CUDA and OpenCL FP64/FP32 numerical tests skip cleanly when their respective runtime/device is unavailable. A platform-gated test also verifies that the matching bundled OpenBLAS native loads on each supported desktop target.
 
@@ -74,17 +74,17 @@ For the NVIDIA CUDA backend on Windows or Linux x86-64, use **[NVIDIA CUDA Toolk
 
    ```powershell
    $env:PATH = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;' + $env:PATH
-   java -jar .\gpu-eqtl-1.9.0.2-universal.jar --printbackendinfo
+   java -jar .\gpu-eqtl-1.9.0.3-universal.jar --printbackendinfo
    ```
 
    For a standard Linux installation whose libraries are not already on the loader search path:
 
    ```sh
    export LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-   java -jar ./gpu-eqtl-1.9.0.2-universal.jar --printbackendinfo
+   java -jar ./gpu-eqtl-1.9.0.3-universal.jar --printbackendinfo
    ```
 
-   Adjust the directory for a custom installation. These commands change only the current shell environment. When building from source, substitute `target/gpu-eqtl-1.9.0.2-all.jar` for the downloaded JAR.
+   Adjust the directory for a custom installation. These commands change only the current shell environment. When building from source, substitute `target/gpu-eqtl-1.9.0.3-all.jar` for the downloaded JAR.
 4. Confirm the output lists `cuda` as usable and identifies your NVIDIA GPU. Subsequent analyses can use `--backend cuda` to require CUDA explicitly. Automatic mode may otherwise select OpenCL or CPU if CUDA cannot load.
 
 A CUDA 13-capable **driver** can run this CUDA 12 application, but installing **Toolkit 13 alone** does not supply its CUDA 12 libraries. Toolkit 12.6 can coexist with a newer toolkit; no driver downgrade is needed. The CUDA version displayed by `nvidia-smi` describes driver capability, not which toolkit libraries Java can load. CPU and OpenCL users do not need the CUDA Toolkit.
@@ -96,14 +96,14 @@ The ordinary build remains the portable OpenBLAS distribution. Separate profiles
 ```powershell
 .\mvnw.cmd -Pcpu-mkl-windows-x86_64 package
 java '-Deqtl.cpu.blas=mkl' --enable-native-access=ALL-UNNAMED `
-  -jar target-mkl-windows-x86_64\gpu-eqtl-1.9.0.2-mkl-windows-x86_64-all.jar `
+  -jar target-mkl-windows-x86_64\gpu-eqtl-1.9.0.3-mkl-windows-x86_64-all.jar `
   --backend cpu --printbackendinfo
 ```
 
 ```sh
 ./mvnw -Pcpu-mkl-linux-x86_64 package
 java -Deqtl.cpu.blas=mkl --enable-native-access=ALL-UNNAMED \
-  -jar target-mkl-linux-x86_64/gpu-eqtl-1.9.0.2-mkl-linux-x86_64-all.jar \
+  -jar target-mkl-linux-x86_64/gpu-eqtl-1.9.0.3-mkl-linux-x86_64-all.jar \
   --backend cpu --printbackendinfo
 ```
 
@@ -122,39 +122,43 @@ The custom multi-delimiter JavaCSV jar remains attached directly with its source
 Automatic selection is the default:
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar --printbackendinfo
+java -jar target\gpu-eqtl-1.9.0.3-all.jar --printbackendinfo
 ```
 
 Force a backend with the application argument:
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar --backend cuda --printbackendinfo
-java -jar target\gpu-eqtl-1.9.0.2-all.jar --backend opencl --printbackendinfo
-java -jar target\gpu-eqtl-1.9.0.2-all.jar --backend cpu --printbackendinfo
+java -jar target\gpu-eqtl-1.9.0.3-all.jar --backend cuda --printbackendinfo
+java -jar target\gpu-eqtl-1.9.0.3-all.jar --backend opencl --printbackendinfo
+java -jar target\gpu-eqtl-1.9.0.3-all.jar --backend cpu --printbackendinfo
 ```
 
 The equivalent system property remains supported in PowerShell (quote the `-D` argument):
 
 ```powershell
-java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-1.9.0.2-all.jar --printbackendinfo
-java '-Deqtl.gpu.backend=opencl' -jar target\gpu-eqtl-1.9.0.2-all.jar --printbackendinfo
-java '-Deqtl.gpu.backend=cpu' -jar target\gpu-eqtl-1.9.0.2-all.jar --printbackendinfo
+java '-Deqtl.gpu.backend=cuda' -jar target\gpu-eqtl-1.9.0.3-all.jar --printbackendinfo
+java '-Deqtl.gpu.backend=opencl' -jar target\gpu-eqtl-1.9.0.3-all.jar --printbackendinfo
+java '-Deqtl.gpu.backend=cpu' -jar target\gpu-eqtl-1.9.0.3-all.jar --printbackendinfo
 ```
 
 In POSIX shells, the same property does not need PowerShell quoting:
 
 ```sh
-java -Deqtl.gpu.backend=cpu -jar target/gpu-eqtl-1.9.0.2-all.jar --printbackendinfo
+java -Deqtl.gpu.backend=cpu -jar target/gpu-eqtl-1.9.0.3-all.jar --printbackendinfo
 ```
 
-`--gpu-backend` and `--printgpuinfo` remain compatibility aliases. CPU `auto` tries oneMKL when its profile natives are present, then bundled OpenBLAS, then portable Java. Force its behavior for diagnostics with `-Deqtl.cpu.blas=mkl`, `openblas`, or `java`; explicitly selected native engines fail rather than silently changing implementations. Native BLAS uses `max(1, logical processors - 1)` threads by default; override that independent inner pool with `-Deqtl.cpu.threads=N`.
+`--gpu-backend` and `--printgpuinfo` remain compatibility aliases. CPU `auto` tries oneMKL when its profile natives are present, then bundled OpenBLAS, then portable Java. Force its behavior for diagnostics with `-Deqtl.cpu.blas=mkl`, `openblas`, or `java`; explicitly selected native engines fail rather than silently changing implementations. Native BLAS requests `max(1, logical processors - 1)` threads by default; override that independent inner pool with `-Deqtl.cpu.threads=N`. This is a request, subject to the native library's build limit and the operation's useful parallelism.
+
+The published 1.9.0.2 universal JAR's Linux x64 OpenBLAS library was verified to have `MAX_THREADS=64`: requesting 96 cannot make that binary use 96 BLAS threads. Its thread-count display also echoes the request, and its thread setter can target a separate OpenBLAS instance from GEMM. Version 1.9.0.3 uses one OpenBLAS instance for both and labels the requested count explicitly; it retains the bundled library's build limit.
+
+For the published v1.9.0.2 JAR, set both `OPENBLAS_NUM_THREADS=N` in the launching environment and `-Deqtl.cpu.threads=N` before `-jar` to limit both instances on future runs. Application `--threads` controls outer work, not this native pool; genotype-outer CPU exact-pattern analysis has one worker/context, with serial Java processing between BLAS calls. Concurrent JVMs share the same CPUs, so budget their BLAS threads together. A single job requiring more than 64 BLAS threads needs a native build supporting that count, such as an appropriately packaged oneMKL build or rebuilt OpenBLAS; benchmark representative tiles before assuming more threads improve throughput.
 
 Recent Java runtimes may print a warning when a JNI binding loads. Add `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress it. Java 17 remains the compilation target.
 
 A manual, transfer-inclusive comparison is available after the build. Its results are indicative rather than a substitute for benchmarking a representative analysis:
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -cp 'target\test-classes;target\gpu-eqtl-1.9.0.2-all.jar' gov.nih.gpu.GpuBackendBenchmark
+java --enable-native-access=ALL-UNNAMED -cp 'target\test-classes;target\gpu-eqtl-1.9.0.3-all.jar' gov.nih.gpu.GpuBackendBenchmark
 ```
 
 ## Precision, automatic sizing, and multiple GPUs
@@ -202,13 +206,13 @@ The exhaustive [command-line reference](docs/COMMAND_LINE_REFERENCE.md) includes
 With automatic backend selection:
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar path\to\analysis.ini
+java -jar target\gpu-eqtl-1.9.0.3-all.jar path\to\analysis.ini
 ```
 
 The equivalent migration form is `--config`; command-line options override values read from the INI file:
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --config path\to\analysis.ini `
   --gpu-backend cuda `
   --threads 4
@@ -217,7 +221,7 @@ java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
 A run no longer needs an INI file:
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype genotype.csv `
   --expression expression.csv `
   --covariates covariates.csv `
@@ -278,17 +282,17 @@ Current limitations are explicit: cohort mode is ordinary eQTL only, not burden/
 Cache lifecycle commands skip compute-backend initialization. Inspection computes a SHA-256 readability digest for recognized artifacts and reports cache type, path, bytes, modification time, integrity, and planned action:
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --cache-dir work\cache --inspect-cache --cache-report work\cache-report.tsv
 ```
 
 Pruning is dry-run unless explicitly applied:
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --cache-dir work\cache --prune-cache --prune-cache-older-than-days 30
 
-java -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --cache-dir work\cache --prune-cache --prune-cache-older-than-days 30 `
   --apply-cache-prune
 ```
@@ -300,7 +304,7 @@ Only known cache extensions are candidates. Unrelated files, unreadable/empty ar
 Genotypes may be read from plain VCF, gzip/BGZF-compressed VCF, or BCF 2.1/2.2 while expression remains a headered delimited matrix. Variant input uses the same metadata/block interface, sample-ID alignment, prepared cache, checkpoint, full-memory path, and bounded-RAM path as CSV. For example:
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -351,7 +355,7 @@ Association computation also reports a start marker and progress approximately e
 Use `--preprocess-only` to perform sample alignment, selected-covariate validation, aligned-sample variant QC, MAF/MAC filtering, missingness reporting, and creation of a checksummed aligned FP64 dosage cache, then stop before compute-backend initialization and association. Expression and any selected covariates remain required because frequency statistics and the cache must describe the actual aligned analysis samples. `--output` is optional in this mode.
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -395,7 +399,7 @@ Use `--validate-only` to scan all row/sample IDs, resolve alignment, encode cova
 Set either block-row option to enable the streamed path; an omitted block-row value falls back to `--block-size`. Values are rounded up to the 16-row GPU tile boundary.
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --config path\to\analysis.ini `
   --genotype-block-rows 10240 `
   --expression-block-rows 10240
@@ -430,7 +434,7 @@ For 114,406 traits by 4,746 samples, the numeric FP64 values alone require about
 Add `--profile` to print phase totals for metadata/alignment, aligned-sample variant QC, cache creation and reads, accelerated residualization setup/upload/compute/download, host packing, association context wait, backend buffer setup/upload/compute/download, CPU statistics/result writing, and final assembly. The stable CSV phase names retain their historical `gpu_` prefix even in CPU mode; host-only CPU executions correctly report zero upload/download bytes and time. Variant QC is a subphase of metadata/alignment; worker-phase totals can overlap and therefore need not sum to wall time. Add `--profile-output FILE` to write the same measurements as CSV; specifying a profile output also enables profiling.
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --config path\to\analysis.ini `
   --profile `
   --profile-output run-profile.csv
@@ -443,7 +447,7 @@ The INI equivalents are `profile = true` and `profile_output = run-profile.csv`.
 Bounded-RAM analyses write one atomic result part per genotype block. Only a completely written part is considered finished, and final output is assembled in genotype-block order. On success the temporary checkpoint directory is removed. If execution stops, rerun the identical command with `--resume`:
 
 ```powershell
-java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.2-all.jar `
+java --enable-native-access=ALL-UNNAMED -jar target\gpu-eqtl-1.9.0.3-all.jar `
   --config path\to\analysis.ini `
   --genotype-block-rows 10240 `
   --expression-block-rows 10240 `
