@@ -120,6 +120,12 @@ parts and hashes are checked again before final assembly. An interrupted trait
 is recomputed. `--checkpoint-dir`, `--resume`, and `--keep-checkpoints` apply;
 the default directory is `OUTPUT.mixed-checkpoint`.
 
+Version 1.9.0.3 changes the OpenBLAS backend description while fixing its thread
+control. Because this description participates in the mixed-model execution
+identity, earlier OpenBLAS mixed-model checkpoints cannot be resumed with the
+new version. Retain them and select a fresh mixed-model checkpoint directory.
+Ordinary fixed-effect checkpoint signatures do not include this description.
+
 One trait's dense null state is resident at a time. The fitter needs several
 N-by-N workspaces and refuses an estimated allocation above 65% of the JVM heap.
 `--genotype-block-rows` bounds predictor tiles (default 256 here). The score

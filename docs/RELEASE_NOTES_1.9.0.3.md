@@ -16,7 +16,9 @@ Download `gpu-eqtl-1.9.0.3-universal.jar`, `SHA256SUMS`, and `RELEASE-MANIFEST.t
 
 The universal JAR includes OpenBLAS natives for Windows x64, Linux x64/ARM64, and macOS x64/ARM64. CUDA/OpenCL requirements and the separate oneMKL profiles are unchanged. Dependencies remain JLinAlg 0.3.6, JDistlib 0.10.2, OpenBLAS 0.3.34 and JavaCPP 1.5.14.
 
-Cache/checkpoint formats and signatures, identifiers, sample ordering, missingness policies, degrees of freedom, thresholds and result schemas are unchanged. Compatible completed fixed-effect blocks remain reusable with identical analysis settings and `--resume`; incomplete parts are retried. Using the correctly selected native thread count can change FP64 accumulation order, so newly computed results may differ at floating-point roundoff scale. Keep the original logs/checkpoints, and change the executable only when starting a new invocation. Publishing this release does not update or restart existing runs.
+Cache/checkpoint formats, fixed-effect signature rules, identifiers, sample ordering, missingness policies, degrees of freedom, thresholds and result schemas are unchanged. Compatible completed fixed-effect blocks remain reusable with identical analysis settings and `--resume`; incomplete parts are retried. Fitted mixed-model checkpoints also bind the backend description, so the changed OpenBLAS description makes older OpenBLAS mixed-model checkpoints incompatible. Keep those original checkpoints and start a fresh mixed-model checkpoint directory instead of forcing reuse.
+
+Using the correctly selected native thread count can change FP64 accumulation order, so newly computed results may differ at floating-point roundoff scale. Keep the original logs/checkpoints, and change the executable only when starting a new invocation. Publishing this release does not update or restart existing runs.
 
 ## Validation and limits
 
