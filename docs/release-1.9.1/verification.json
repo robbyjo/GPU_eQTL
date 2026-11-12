@@ -1,0 +1,109 @@
+{
+  "version": "1.9.1",
+  "source_commit": "ffc185c86ca6a9aeda483e1149ec1c3191ff2b61",
+  "tag_object": "6357d38cf1d3102232b7a44efb56ef61ad5d08c0",
+  "github_profile": "robbyjo",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1",
+  "release_id": 443434452,
+  "published_at": "2026-11-12T19:51:25Z",
+  "verified_utc": "2026-11-12T19:52:39.520348+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "full_suite": {
+      "tests": 182,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 177
+    },
+    "packaged_set_tests": {
+      "tests": 14,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "passed": 14
+    }
+  },
+  "packaged_licenses_byte_verified": 9,
+  "dependency_namespace_files_byte_verified": {
+    "org/jlinalg/": 1098,
+    "jdistlib/": 933
+  },
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.1-universal.jar",
+      "size": 140737416,
+      "sha256": "f837c46ff4153dcd334cc251e3455d0f2045ec2adf7ba0452edf4d33d8d4115b",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1/gpu-eqtl-1.9.1-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 1016,
+      "sha256": "7b31de2ee98ae0b3ea78e92a962e7e35d7057863a65e1f36f5f169b3c869b5d7",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 95,
+      "sha256": "6028f62afb8df4705a341cba7335b50d2ec3fe0761310bf8141ee99d908a1eb8",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1/SHA256SUMS"
+    }
+  ],
+  "public_checksum_and_manifest_downloads_verified": true,
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "dirty_worktree": false,
+    "location": "local",
+    "java_target": 17,
+    "build_jdk": 25,
+    "host_os": "Windows x64",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "nvidia_driver": "621.14",
+    "cuda_runtime": "12.6",
+    "cuda_driver_api": "13.5",
+    "opencl": "OpenCL 3.0 CUDA, driver 621.14"
+  },
+  "packaged_cuda_smoke": {
+    "analysis": "related SKAT-O, exact trait deletion",
+    "sample_count": 43,
+    "reml_iterations": 5,
+    "converged": true,
+    "actual_operations": [
+      "fitted-P-times-genotypes",
+      "genotype-scores",
+      "score-covariance"
+    ],
+    "result_and_audit_resume_byte_identical": true,
+    "resumed_matrix_products": 0
+  },
+  "website": {
+    "url": "https://robbyjo.github.io/GPU_eQTL/",
+    "version_observed": "1.9.1",
+    "source_commit": "ffc185c86ca6a9aeda483e1149ec1c3191ff2b61",
+    "workflow_id": 43294331470,
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/43294331470",
+    "conclusion": "success",
+    "homepage_http": 200,
+    "script_http": 200
+  },
+  "compatibility": {
+    "set_checkpoint_version": 4,
+    "older_set_checkpoints_reusable": false,
+    "raw_dosage_cache_formats_unchanged": true,
+    "first_15_result_columns_preserved": true,
+    "appended_result_columns": [
+      "Sample_mask",
+      "Null_model"
+    ],
+    "set_output_order": "trait-major",
+    "set_audit_granularity": "set/trait"
+  },
+  "limitations": [
+    "Synthetic correctness fixtures, not production-cohort throughput or universal tail calibration",
+    "General SKAT-O quadrature error is estimated; explicit convergence/work limits apply",
+    "Dense relationship/REML/eigen memory limits and per-trait genotype rereads remain",
+    "Linux/macOS, other GPU vendors, concurrent multi-GPU performance and a separate Java 17 runtime not tested for this release"
+  ]
+}
