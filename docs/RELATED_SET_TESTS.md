@@ -3,7 +3,7 @@
 Burden, SKAT, and SKAT-O support fitted pedigree/GRM adjustment, exact observed-sample trait masks, and CUDA/OpenCL/CPU FP64 matrix products. These are continuous Gaussian-trait tests. A ratio of **0 or 1 is observed**; only the matrix parser's missing sentinel or NaN removes a sample.
 
 ```sh
-java -Xmx12g -jar target/gpu-eqtl-1.9.0.3-all.jar \
+java -Xmx12g -jar target/gpu-eqtl-1.9.1-all.jar \
   --genotype dosage.csv --expression isoform-ratios.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex,PC1,PC2 \
   --variant-sets genes.tsv --analysis skat-o \
