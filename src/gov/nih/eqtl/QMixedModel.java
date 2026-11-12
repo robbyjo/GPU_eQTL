@@ -68,6 +68,14 @@ public final class QMixedModel {
                 relationship[i*n+j] = pedigree.relationship(individuals[i], individuals[j]);
             components.add(new VarianceComponent("additive-genetic", n, relationship));
         }
+        if (config.getRelationshipMatrixFilename() != null) {
+            String[] matrixIds = sampleIds.clone();
+            String prefix = config.getGenotypeIdStripPrefix();
+            if (prefix != null) for (int i = 0; i < matrixIds.length; i++)
+                if (matrixIds[i].startsWith(prefix)) matrixIds[i] = matrixIds[i].substring(prefix.length());
+            components.add(new VarianceComponent("genetic-relationship", n,
+                readRelationship(Path.of(config.getRelationshipMatrixFilename()), matrixIds)));
+        }
         if (config.getRandomCovariates() != null)
             for (String column : config.getRandomCovariates())
                 components.add(VarianceComponent.randomIntercept("group:" + column,
@@ -75,6 +83,106 @@ public final class QMixedModel {
         components.add(VarianceComponent.identity("residual", n));
         if (design == null) { design = new double[n][1]; for (double[] row : design) row[0] = 1; }
         return new QMixedModel(design, components, config.getRemlMaximumIterations(), config.getRemlDf());
+    }
+
+    /** Principal submatrices of covariance bases, never a subset of an already fitted P. */
+    public QMixedModel subset(int[] samples) {
+        double[][] x = new double[samples.length][];
+        Set<Integer> seen = new HashSet<>();
+        for (int i = 0; i < samples.length; i++) {
+            if (samples[i] < 0 || samples[i] >= design.length || !seen.add(samples[i]))
+                throw new IllegalArgumentException("Invalid mixed-model sample subset");
+            x[i] = design[samples[i]].clone();
+        }
+        List<VarianceComponent> bases = new ArrayList<>();
+        for (VarianceComponent component : components) {
+            double[] full = component.covariance(), part = new double[samples.length*samples.length];
+            for (int i = 0; i < samples.length; i++) for (int j = 0; j < samples.length; j++)
+                part[i*samples.length+j] = full[samples[i]*design.length+samples[j]];
+            bases.add(new VarianceComponent(component.name(), samples.length, part));
+        }
+        return new QMixedModel(x, bases, options.maximumIterations(), dfMethod);
+    }
+
+    /** All resolved model state participates in set checkpoint identity. */
+    public String signature() {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update(("jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var buffer = java.nio.ByteBuffer.allocate(8);
+            for (double[] row : design) for (double value : row) {
+                buffer.clear(); buffer.putDouble(value); digest.update(buffer.array());
+            }
+            for (VarianceComponent component : components) {
+                digest.update(component.name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                for (double value : component.covariance()) {
+                    buffer.clear(); buffer.putDouble(value); digest.update(buffer.array());
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+    }
+
+    /** Dense TSV with ID header/row labels; exact IDs, arbitrary order, extra IDs allowed. */
+    public static double[] readRelationship(Path path, String[] sampleIds) throws Exception {
+        try (var reader = Files.newBufferedReader(path)) {
+            String first = reader.readLine();
+            if (first == null) throw new IllegalArgumentException("Empty relationship matrix");
+            String[] header = first.split("\t", -1);
+            if (!header[0].equals("ID") || header.length < 2)
+                throw new IllegalArgumentException("Relationship matrix header must start with ID");
+            int size = header.length-1;
+            if (8.0*size*size*12 > Runtime.getRuntime().maxMemory()*.65)
+                throw new IllegalArgumentException("Dense relationship matrix and PSD validation exceed the JVM heap budget");
+            Map<String,Integer> columns = new LinkedHashMap<>();
+            for (int i = 0; i < size; i++) {
+                String id = header[i+1];
+                if (id.isBlank() || !id.equals(id.trim()) || columns.putIfAbsent(id,i) != null)
+                    throw new IllegalArgumentException("Blank, padded, or duplicate relationship ID");
+            }
+            double[][] matrix = new double[size][];
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] fields = line.split("\t", -1);
+                Integer row = columns.get(fields[0]);
+                if (fields.length != size+1 || row == null || matrix[row] != null)
+                    throw new IllegalArgumentException("Mismatched/duplicate relationship matrix row");
+                matrix[row] = new double[size];
+                for (int j = 0; j < size; j++) {
+                    double value = Double.parseDouble(fields[j+1]);
+                    if (!Double.isFinite(value)) throw new IllegalArgumentException("Non-finite relationship matrix");
+                    matrix[row][j] = value;
+                }
+            }
+            for (double[] row : matrix) if (row == null)
+                throw new IllegalArgumentException("Missing relationship matrix row");
+            double scale = 0;
+            for (int i = 0; i < size; i++) scale = Math.max(scale, Math.abs(matrix[i][i]));
+            if (!(scale > 0)) throw new IllegalArgumentException("Zero relationship matrix");
+            for (int i = 0; i < size; i++) for (int j = 0; j < i; j++) {
+                if (Math.abs(matrix[i][j]-matrix[j][i]) > 1e-12*scale)
+                    throw new IllegalArgumentException("Relationship matrix is not symmetric");
+                matrix[i][j] = matrix[j][i] = (matrix[i][j]+matrix[j][i])/2;
+            }
+            double[] eigenvalues = new gov.nih.jama.EigenvalueDecomposition(
+                new gov.nih.jama.Matrix(matrix)).getRealEigenvalues();
+            for (double value : eigenvalues) if (value < -1e-10*scale)
+                throw new IllegalArgumentException("Relationship matrix is not positive semidefinite");
+            int n = sampleIds.length;
+            int[] order = new int[n];
+            Set<String> seen = new HashSet<>();
+            for (int i = 0; i < n; i++) {
+                Integer index = columns.get(sampleIds[i]);
+                if (index == null || !seen.add(sampleIds[i]))
+                    throw new IllegalArgumentException("Missing/duplicate aligned relationship ID: " + sampleIds[i]);
+                order[i] = index;
+            }
+            double[] result = new double[n*n];
+            for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
+                result[i*n+j] = matrix[order[i]][order[j]];
+            return result;
+        }
     }
 
     /** Headered TSV: ID, SIRE, DAM; 0 or . denotes an unknown parent. IDs are literal. */

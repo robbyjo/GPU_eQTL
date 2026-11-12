@@ -80,7 +80,7 @@ const analysisContent = {
   "skat-o": {
     kicker: "Adaptive omnibus set test",
     title: "Balance burden and SKAT signals with SKAT-O.",
-    description: "Evaluate the configured rho grid and report a seeded, correlated-null adjusted omnibus p-value—not an unadjusted minimum component p-value.",
+    description: "Integrate the joint rho-grid tail with explicit convergence checks, including significance below the former simulation-count floor.",
     unit: "set × phenotype",
     input: "windows or variant-set TSV",
     result: "adjusted omnibus p-value",
@@ -90,7 +90,7 @@ const analysisContent = {
   --expression expression.csv --covariates covariates.csv \`
   --fixed-covariates Age,Sex,PC1,PC2 \`
   --analysis skat-o --window-size 50000 \`
-  --window-stride 10000 --skat-o-simulations 10000 \`
+  --window-stride 10000 --skat-o-method integration \`
   --precision fp64 --output skat-o-results.csv`
   }
 };

@@ -51,6 +51,10 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--skat-o-rho-grid", "skat_o_rho_grid");
         VALUE_OPTIONS.put("--skat-o-simulations", "skat_o_simulations");
         VALUE_OPTIONS.put("--skat-o-seed", "skat_o_seed");
+        VALUE_OPTIONS.put("--skat-o-method", "skat_o_method");
+        VALUE_OPTIONS.put("--skat-o-relative-tolerance", "skat_o_relative_tolerance");
+        VALUE_OPTIONS.put("--skat-o-max-evaluations", "skat_o_max_evaluations");
+        VALUE_OPTIONS.put("--relationship-matrix", "relationship_matrix");
         VALUE_OPTIONS.put("--family", "family_file");
         VALUE_OPTIONS.put("--pedigree", "pedigree_file");
         VALUE_OPTIONS.put("--mixed-model", "mixed_model");
@@ -110,7 +114,7 @@ public final class QeQTLCommandLine {
     }
 
     private static final List<String> PATH_OPTIONS = List.of(
-        "genotype_file", "expression_file", "covariate_file", "cohort_model", "output_file", "family_file", "pedigree_file",
+        "genotype_file", "expression_file", "covariate_file", "cohort_model", "output_file", "family_file", "pedigree_file", "relationship_matrix",
         "cache_dir", "cache_report", "checkpoint_dir", "profile_output", "variant_qc_output",
         "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output",
         "variant_sets", "set_audit_output");
@@ -262,10 +266,13 @@ public final class QeQTLCommandLine {
               --set-min-maf V --set-max-maf V  Inclusive aligned-cohort set-test MAF mask
               --set-min-mac V --set-max-mac V  Inclusive aligned-cohort set-test MAC mask
               --set-absent-variant {error|skip} --set-degenerate {error|skip}
-              --set-block-size N               Resident set tile size (default: 256)
+              --set-block-size N               Resident set tile size (default: 0, heap-aware automatic)
               --window-size BP                 Automatic one-based sliding-window size
               --window-stride BP               Window-start stride (default: window size)
               --skat-o-rho-grid LIST           Default: 0,0.25,0.5,0.75,1
+              --skat-o-method {integration|simulation}  Default: integration; no simulation-count tail floor
+              --skat-o-relative-tolerance VALUE  Default: 0.005 (estimated integration error)
+              --skat-o-max-evaluations N        Default: 1048576; unresolved integrals fail
               --skat-o-simulations N --skat-o-seed N
               --predictor-type {genotype|expression|methylation|proteomics|continuous}
               --trait-type {genotype|expression|methylation|proteomics|continuous}
@@ -296,6 +303,7 @@ public final class QeQTLCommandLine {
               --mixed-model {score|genesis|reml|none}  score defaults when random/pedigree terms are supplied
               --random-covariates LIST         Random-intercept grouping columns from --covariates
               --pedigree FILE                  Headered ID/SIRE/DAM TSV; 0 or . means unknown parent
+              --relationship-matrix FILE       Dense symmetric PSD TSV with ID row/column labels; alternative to pedigree
               --pedigree-id-column NAME        Observation-to-individual mapping for repeated measurements
               --reml-df {residual|satterthwaite|kenward-roger}  Per-predictor REML Wald inference
               --reml-max-iterations N          Maximum iterations per fit (default: 200)

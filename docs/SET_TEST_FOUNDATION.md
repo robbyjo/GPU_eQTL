@@ -2,6 +2,8 @@
 
 This document freezes the scientific contracts implemented by the deterministic FP64 references and the production burden, SKAT, and SKAT-O modes under `gov.nih.eqtl.settest`.
 
+For fitted relatedness, exact transcript sample masks, backend products, and the current SKAT-O integral, see [RELATED_SET_TESTS.md](RELATED_SET_TESTS.md). The scalar classes remain complete-case verification references; `QSetTestEngine` is the current production scheduler.
+
 ## Explicit variant-set input
 
 `QVariantSetTable` reads a UTF-8 tab-separated file with a header. Required columns are:
@@ -55,7 +57,7 @@ in deterministic file order. It projects the resulting burden through the same c
 
 Output order is set first-appearance order followed by input trait order. Every result records set ID, trait ID, retained variant count, effective N, residual DF, R-squared, effect, t, and log10 p.
 
-The production burden path prepares every resident set burden once and batches its FP64 set-by-trait products. Tests compare this path directly with the scalar reference.
+The production burden path aggregates weighted dosages and computes score/information products on the selected FP64 backend, with one trait null at a time. The complete-case scalar/batched CPU references remain independent verification paths.
 
 ## SKAT and SKAT-O
 
@@ -84,24 +86,24 @@ versions also had documented small-tail convergence/approximation issues, as
 described by [Wu, Guan and Pankow (2016)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4761292/),
 but these tests do not attribute the GPU eQTL discrepancy to an R SKAT bug.
 
-Kernel geometry is now reused across traits within each set/trait tile. Gram
+The complete-case reference can reuse kernel geometry across traits within each set/trait tile. Gram
 matrices exploit symmetry, eigenvalues are scaled before decomposition, and
 common rescaling no longer discards small valid kernels through an absolute
 cutoff. SKAT-O reuses positive-series coefficients within each quantile
 inversion (about 2 MiB for one bounded per-thread spectrum cache) and
 computes each Gaussian base score once across rho values. An exactly cancelling
 burden component has p=1 and does not discard estimable SKAT components. The
-set-runner signature is version 3; old result checkpoints must be rebuilt.
+current production set-runner signature is version 4; older result checkpoints must be rebuilt in a new directory.
 
-SKAT-O defaults to rho `0,0.25,0.5,0.75,1`. Each component combines `(1-rho)` times the SKAT kernel with `rho` times the weighted burden kernel. The same seeded Gaussian vector drives all rho components in each parametric-null replicate, preserving their correlation. The adjusted p-value is `(extreme + 1)/(simulations + 1)` and the output includes the minimum component p-value only as an audit field; it is not reported as the omnibus result. Defaults are 10,000 simulations and seed 20260827, both configurable.
+SKAT-O defaults to rho `0,0.25,0.5,0.75,1`. Each component combines `(1-rho)` times SKAT with `rho` times weighted burden. The default `--skat-o-method integration` integrates their joint Gaussian rejection event with a relative error target and explicit work-limit failures. The minimum component p-value is audit-only. Optional `--skat-o-method simulation` uses correlated Gaussian replicates and `(extreme + 1)/(simulations + 1)`, with defaults of 10,000 simulations and seed 20260827. See the [integration derivation and independent small-tail fixtures](RELATED_SET_TESTS.md#skat-o-joint-tail-integration).
 
 ## Production scheduling and output
 
-Use `--analysis burden|skat|skat-o` with `--window-size BP`, `--variant-sets FILE`, or indexed VCF/BCF custom region definitions. Every expression-matrix row is a tested phenotype; selected fixed covariates are adjustment variables and are not candidate phenotypes. An omitted or zero `--set-block-size` selects a heap-aware resident set tile from the aligned sample count, method workspaces, and actual set-membership density; a positive value is an explicit override. `--expression-block-rows` bounds resident traits. The resolved set size is part of the checkpoint signature. The scheduler writes one atomic checkpoint part for each deterministic set-tile/trait-tile pair. Resume validates source identities, aligned sample orders, covariate design, definitions, masks, thresholds, tile sizes, method, and SKAT-O settings before reusing a part.
+Use `--analysis burden|skat|skat-o` with `--window-size BP`, `--variant-sets FILE`, or indexed VCF/BCF custom region definitions. Every expression-matrix row is a phenotype; fixed covariates are adjustment variables. An omitted/zero `--set-block-size` selects a heap-aware resident set tile; a positive value is an override. The current scheduler retains one transcript null at a time and writes one atomic result/audit checkpoint part per trait/set tile. `--expression-block-rows` controls variant-source reading batches in this schedule, not concurrent fitted nulls. Resume validates source and trait-content identities, aligned orders, design, resolved covariance bases, definitions, masks, settings, and backend identity. Output is trait-major, then definition-set order.
 
 Automatic sliding-window runs build or reuse the version-1 checksummed aligned FP64 raw cache before set construction. A separately atomic and checksummed row-offset sidecar is bound to the raw-cache signature, byte length, modification time, and row count. Corrupt or incompatible sidecars are rebuilt; selected raw rows still undergo their version-1 CRC check. Resident set tiles retrieve only requested rows in source order, coalesce adjacent rows into sequential reads, bulk-decode each big-endian FP64 row, and transfer the trusted row buffer into the internal set-test value without a second dosage copy. Existing version-1 raw cache bytes remain compatible.
 
-Full chr22 CPU burden profiling used 428,629 variants, 4,746 aligned samples, two expression traits, `Age`, FP64, OpenBLAS, an 8-GiB heap, and set/trait tile sizes 256/1. The completed warm-cache measurements were:
+Historical complete-case CPU burden profiling (before the current trait-outer scheduler) used 428,629 variants, 4,746 aligned samples, two expression traits, `Age`, FP64, OpenBLAS, an 8-GiB heap, and set/trait tile sizes 256/1. These measurements do not establish current related-set throughput. The completed warm-cache measurements were:
 
 | Window / stride | Nonempty windows | Set blocks | Wall seconds | Selected FP64 bytes | Observed JVM heap at tile boundaries |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -111,10 +113,10 @@ Full chr22 CPU burden profiling used 428,629 variants, 4,746 aligned samples, tw
 
 The first CSV run additionally spent substantial time building the 16.29-GB aligned raw cache; preserve and reuse it for repeated grids. Heap depends on the number of unique variants spanned by one set tile, not just the number of windows. On the 100-kb/50-kb grid, automatic sizing selected 70 sets from a 3,956,932,400-byte worst-tile estimate under a 4,026,531,840-byte budget. It completed in 172.15 seconds with a 5,406,173,208-byte observed heap peak, versus 7,905,198,712 bytes with the former 256-set default; result rows were identical as an unordered set and the audit was byte-identical. Explicit sizing remains available for reproducibility and experiments. These measurements justify the indexed/bulk source path; they do not imply that one biological grid is preferable to another.
 
-The stable CSV result columns are `Set_ID,Trait_ID,Method,Variants,N,DF,Statistic,R_squared,Effect,T,P_value,log10P,P_value_method,Minimum_component_P,Rho_component_P_values`. Inapplicable fields are `NaN` or blank. The companion TSV audit records requested, absent, frequency-excluded, and included variants, status, retained IDs, definition signature, and method.
+The first CSV columns remain `Set_ID,Trait_ID,Method,Variants,N,DF,Statistic,R_squared,Effect,T,P_value,log10P,P_value_method,Minimum_component_P,Rho_component_P_values`; `Sample_mask` and `Null_model` are appended. Inapplicable fields are `NaN` or blank. The companion TSV now audits each set/trait pair, including exact mask, effective N, mask-specific monomorphic/no-call counts and fitted-null diagnostics.
 
 ## Current limits
 
-- Set tests require FP64 and continuous traits. Exact trait-pattern deletion is not yet supported in these modes.
-- Optimized CPU products are production-supported; direct multi-GPU set-test products remain a profiling-led extension and must match these references before becoming selectable.
-- Relatedness-aware set tests remain deferred until the cohort covariance/null-model design is implemented.
+- Set tests require FP64 and continuous traits. Exact observed-sample deletion and fitted pedigree/GRM nulls are supported.
+- CUDA/OpenCL and CPU products are supported, with sequential exclusive-context submissions. End-to-end multi-GPU scaling has not been established.
+- Dense REML/eigendecomposition, broad-spectrum tail work limits and quadrature convergence remain practical limits. Supplied cohort GLS, binary/GLMM outcomes and FP32 set tests remain unsupported.

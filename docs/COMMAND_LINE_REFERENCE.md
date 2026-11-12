@@ -173,14 +173,18 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
 | `--set-block-size N` | `0` automatic | `set_block_size` | Resident set tile size for bounded execution. Omitted/zero selects a heap-aware value from aligned sample count, method workspaces, and the actual set-membership density; a positive value remains an explicit override. |
 | `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
-| `--skat-o-simulations N` | `10000` | `skat_o_simulations` | Correlated parametric-null replicate count. |
-| `--skat-o-seed N` | `20260827` | `skat_o_seed` | Deterministic SKAT-O simulation seed. |
+| `--skat-o-method METHOD` | `integration` (default), `simulation` | `skat_o_method` | Joint rho-grid tail integration without an event-count floor; optional correlated Gaussian simulation. See [derivation and limits](RELATED_SET_TESTS.md). |
+| `--skat-o-relative-tolerance VALUE` | `0.005`; range `1e-6` to `0.05` | `skat_o_relative_tolerance` | Estimated relative integration error target. |
+| `--skat-o-max-evaluations N` | `1048576`; at least `256` | `skat_o_max_evaluations` | Integration work limit; nonconvergence is fatal. |
+| `--skat-o-simulations N` | `10000` | `skat_o_simulations` | Replicate count only with `--skat-o-method simulation`; p-value floor is `1/(N+1)`. |
+| `--skat-o-seed N` | `20260827` | `skat_o_seed` | Deterministic randomized-quadrature or simulation seed. |
 | `--genotype-format FORMAT` | `auto` (CLI default), `csv`, `vcf`, `vcf.gz`, `bcf`; `tped` legacy | `genotype_format` | `auto` infers `.vcf`, `.vcf.gz`, and `.bcf`, otherwise headered CSV. An old INI that omits this key retains the historical `tped` default. |
 | `--expression-format FORMAT` | `csv` | `expression_format` | Current modern trait input is a headered delimited matrix. |
 | `--predictor-type TYPE` | `genotype` for compatibility spelling | `predictor_type` | `genotype`, `expression`, `methylation`, `proteomics`, or `continuous`. Aliases accepted for some types include `protein`, `proteomic`, `dna-methylation`, and `dnm`. |
 | `--trait-type TYPE` | `expression` for compatibility spelling | `trait_type` | Same values as predictor type. Required with `--traits`. |
 | `--family FILE` | Optional; none | `family_file` | PLINK family file used only by the legacy TPED loader. |
 | `--pedigree FILE` | Optional | `pedigree_file` | ID/SIRE/DAM TSV; adds fitted numerator-relationship covariance. Defaults to mixed score mode. See [mixed models](MIXED_MODELS.md). |
+| `--relationship-matrix FILE` | Optional; alternative to pedigree | `relationship_matrix` | Dense symmetric PSD TSV with ID row/column labels. Fits a GRM plus residual variance, with optional grouping terms. Supports single-variant and set scores. |
 | `--no-genotype-header` | Flag; header is expected by default | `genotype_file_header = false` | Selects the legacy headerless delimited loader. It is not valid for the modern headered CSV alignment/streaming path. |
 
 ### Matrix model, missing values, and sample alignment

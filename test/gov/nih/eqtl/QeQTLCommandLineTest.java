@@ -13,6 +13,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class QeQTLCommandLineTest {
+    @Test void relatedSetIntegrationOptionsRoundTripThroughIni(@TempDir Path directory) throws Exception {
+        Path ini = directory.resolve("sets.ini");
+        Files.writeString(ini,"analysis = skat-o\nrelationship_matrix = grm.tsv\ntrait_missing = pattern\n"
+            +"skat_o_method = integration\nskat_o_relative_tolerance = 0.001\nskat_o_max_evaluations = 65536\n");
+        var config = QeQTLCommandLine.parse(new String[]{ini.toString()}).config();
+        assertEquals("score",config.getMixedModel()); assertEquals("integration",config.getSkatOMethod());
+        assertEquals(directory.resolve("grm.tsv").toString(),config.getRelationshipMatrixFilename());
+        assertEquals(.001,config.getSkatORelativeTolerance()); assertEquals(65536,config.getSkatOMaxEvaluations());
+        var cli = QeQTLCommandLine.parse(new String[]{"--config",ini.toString(),"--relationship-matrix","other.tsv","--skat-o-method","simulation"}).config();
+        assertEquals(Path.of("other.tsv").toAbsolutePath().toString(),cli.getRelationshipMatrixFilename());
+        assertEquals("simulation",cli.getSkatOMethod());
+        assertThrows(IllegalArgumentException.class,()->QeQTLCommandLine.parse(new String[]{"--config",ini.toString(),"--mixed-model","reml"}));
+        assertThrows(IllegalArgumentException.class,()->QeQTLCommandLine.parse(new String[]{"--config",ini.toString(),"--pedigree","ped.tsv"}));
+    }
     @Test
     void parsesSetTestOptions() throws Exception {
         QeQTLCommandLine.Result parsed = QeQTLCommandLine.parse(new String[] {

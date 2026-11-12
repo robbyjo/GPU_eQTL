@@ -80,7 +80,7 @@ class QSlidingWindowAnalysisTest {
             assertArrayEquals(Files.readAllBytes(initialAudit),
                 Files.readAllBytes(Path.of(bcfOutput + ".sets.tsv")), method + " BCF audit");
             assertTrue(Files.readAllLines(csvOutput).size() > 1);
-            assertEquals(8, Files.readAllLines(initialAudit).size());
+            assertEquals(15, Files.readAllLines(initialAudit).size()); // seven sets for each of two trait nulls
         }
     }
 

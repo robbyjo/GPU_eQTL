@@ -260,7 +260,7 @@ public final class QSetTestRunner {
             options.skatOSimulations(), options.skatOSeed());
     }
 
-    private static List<Variant> loadSelectedVariants(QMatrixRowSource source,
+    static List<Variant> loadSelectedVariants(QMatrixRowSource source,
         int[] columnOrder, QVariantSetTable definitions, int blockRows) throws IOException {
         Set<String> requested = new HashSet<>();
         for (QVariantSetTable.SetDefinition set : definitions.sets())
@@ -385,7 +385,7 @@ public final class QSetTestRunner {
         }
     }
 
-    private static String signature(QMatrixRowSource variants, int[] variantColumns,
+    static String signature(QMatrixRowSource variants, int[] variantColumns,
         QMatrixRowSource traits, int[] traitColumns, double[][] design,
         QVariantSetTable definitions, Options options, int effectiveSetBlockSize) {
         try {
@@ -425,7 +425,7 @@ public final class QSetTestRunner {
         }
     }
 
-    private static String csv(String value) {
+    static String csv(String value) {
         if (value.indexOf(',') < 0 && value.indexOf('"') < 0 && value.indexOf('\n') < 0
             && value.indexOf('\r') < 0) return value;
         return '"' + value.replace("\"", "\"\"") + '"';

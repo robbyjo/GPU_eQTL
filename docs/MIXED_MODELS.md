@@ -9,7 +9,7 @@ The supplied-covariance `--cohort-model` GLS path remains a separate option.
 | `--mixed-model score` (alias `genesis`) | Fit one REML null per trait; reuse its covariance for all predictor score tests; chi-square(1) inference | Association scans |
 | `--mixed-model reml` | Fit the null, then refit REML with each predictor in the fixed-effect design; Wald inference | Slower per-association fitting and sensitivity checks |
 
-Supplying `--pedigree` or `--random-covariates` defaults to `score`. Without
+Supplying `--pedigree`, `--relationship-matrix`, or `--random-covariates` defaults to `score`. Without
 either, the default remains the existing fixed-effect analysis. Explicit
 `--mixed-model none` rejects random/pedigree terms.
 
@@ -142,11 +142,9 @@ be expensive despite null reuse. General `--block-size`, `--threads`,
 not alter this one-trait schedule. Full private-cohort and multi-GPU scaling
 have not been established.
 
-Current exclusions: fitted mixed-model burden/SKAT/SKAT-O, exact trait-pattern
-deletion, supplied cohort GLS combined with fitted random effects, GLMM/binary
-outcomes, random slopes, and FP32. For traits with missing entries, choose an
-explicit filling/exclusion policy or a complete input. A default `pattern`
-policy is accepted when there are no missing trait values.
+Fitted-null burden/SKAT/SKAT-O now support exact trait-pattern deletion and pedigree or dense GRM input; see [RELATED_SET_TESTS.md](RELATED_SET_TESTS.md) for their score/covariance contract, appended output fields, and separate version-4 checkpoints. Use `--analysis burden|skat|skat-o --mixed-model score`; per-predictor refits do not define a set-test null.
+
+Current exclusions for ordinary single-variant mixed scans still include exact trait-pattern deletion. Those scans require a complete trait or explicit filling/exclusion. Supplied cohort GLS combined with fitted random effects, GLMM/binary outcomes, random slopes, and FP32 remain unsupported. The dense GRM option is also usable in ordinary mixed scans; the strict matrix format and alignment rules are documented in the related-set guide.
 
 ## Dependency packaging and verification
 

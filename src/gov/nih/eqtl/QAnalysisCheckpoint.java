@@ -141,6 +141,13 @@ public final class QAnalysisCheckpoint {
         return signature;
     }
 
+    /** Remove only this checkpoint's known files after a caller has published all outputs. */
+    public void removeCompleted() throws IOException {
+        for (int block = 0; block < totalBlocks; block++)
+            if (!isComplete(block)) throw new IOException("Cannot remove incomplete checkpoint");
+        cleanCompletedFiles();
+    }
+
     private void cleanCompletedFiles() throws IOException {
         for (int block = 0; block < totalBlocks; block++) {
             Files.deleteIfExists(part(block));

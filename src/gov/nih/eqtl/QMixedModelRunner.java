@@ -142,7 +142,7 @@ public final class QMixedModelRunner {
         digest.update(Arrays.toString(genotypeColumns).getBytes(StandardCharsets.UTF_8));
         digest.update(Arrays.toString(traitColumns).getBytes(StandardCharsets.UTF_8));
         for (String filename : new String[]{config.getGenotypeFilename(), config.getExpressionFilename(),
-                config.getCovariateFilename(), config.getPedigreeFilename(), config.getVariantIndexFilename(), config.getRegionsFilename()}) {
+                config.getCovariateFilename(), config.getPedigreeFilename(), config.getRelationshipMatrixFilename(), config.getVariantIndexFilename(), config.getRegionsFilename()}) {
             if (filename == null) continue;
             Path path = Path.of(filename).toAbsolutePath().normalize();
             digest.update(path.toString().getBytes(StandardCharsets.UTF_8));
@@ -167,7 +167,7 @@ public final class QMixedModelRunner {
     private static String sourceStamp(QeQTLAnalysisConfig config) throws IOException {
         StringBuilder stamp = new StringBuilder();
         for (String filename : new String[]{config.getGenotypeFilename(),config.getExpressionFilename(),
-                config.getCovariateFilename(),config.getPedigreeFilename(),config.getVariantIndexFilename(),config.getRegionsFilename()}) {
+                config.getCovariateFilename(),config.getPedigreeFilename(),config.getRelationshipMatrixFilename(),config.getVariantIndexFilename(),config.getRegionsFilename()}) {
             if (filename == null) continue;
             var attrs = Files.readAttributes(Path.of(filename),java.nio.file.attribute.BasicFileAttributes.class);
             stamp.append(filename).append(':').append(attrs.fileKey()).append(':').append(attrs.size())

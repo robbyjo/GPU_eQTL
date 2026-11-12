@@ -69,6 +69,7 @@ import gov.nih.eqtl.settest.QSetTestMethod;
 import gov.nih.eqtl.settest.QSetTestPolicy;
 import gov.nih.eqtl.settest.QSetTestPolicy.FailurePolicy;
 import gov.nih.eqtl.settest.QSetTestRunner;
+import gov.nih.eqtl.settest.QSetTestEngine;
 import gov.nih.eqtl.settest.QVariantSetTable;
 import gov.nih.eqtl.datastructure.QGeneExpressionData;
 import gov.nih.eqtl.datastructure.QSNPDataReal;
@@ -806,7 +807,7 @@ public class QeQTLAnalysis implements IJobOwner
 		}
 		if (genotypeFormat.equals("csv") && regionsRequested)
 			throw new IllegalArgumentException("--region/--regions-file requires VCF or BCF genotype input");
-		if (genotypeFormat.equals("csv") && frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED)
+		if (genotypeFormat.equals("csv") && frequencyScope != QVariantMatrixSource.FrequencyScope.ALIGNED && !config.getAnalysisMethod().isSetTest())
 			throw new IllegalArgumentException("--frequency-scope pattern currently requires VCF or BCF genotype input");
 		if (genotypeFormat.equals("csv") && preprocessOnly)
 			throw new IllegalArgumentException("--preprocess-only requires VCF or BCF genotype input");
@@ -1059,7 +1060,7 @@ public class QeQTLAnalysis implements IJobOwner
 			covariateQ = decomposition.getQ().getArray();
 			covariateModel = modelValues;
 		}
-		if (!config.getMixedModel().equals("none") && !preprocessOnly) {
+		if (!config.getMixedModel().equals("none") && !preprocessOnly && !config.getAnalysisMethod().isSetTest()) {
 			if (dynamicTraitPatterns)
 				throw new IllegalArgumentException("Fitted mixed models currently require complete, explicitly filled, or excluded traits; exact trait-pattern REML is not supported");
 			QMixedModel mixed = QMixedModel.create(config, covariateModel, covariates,
@@ -1095,14 +1096,19 @@ public class QeQTLAnalysis implements IJobOwner
 				throw new IllegalArgumentException("--variant-sets or --window-size is required for --analysis "
 					+ setTestMethod.optionName() + " unless indexed VCF/BCF regions define the sets");
 			}
-			if (traitMissing == QMissingValuePolicy.PATTERN && traitScan.hasMissingValues())
-				throw new IllegalArgumentException("Set-test production execution currently requires complete, mean-filled, zero-filled, or excluded traits; exact trait patterns are not yet supported");
 			if (gpuPrecision != GpuPrecision.FP64)
 				throw new IllegalArgumentException("Set-test production execution currently requires --precision fp64");
 			double[][] setDesign = covariateModel;
 			if (setDesign == null) {
 				setDesign = new double[alignment.sampleCount()][1];
 				for (double[] row : setDesign) row[0] = 1.0;
+			}
+			QMixedModel setMixedModel = config.getMixedModel().equals("none") ? null
+				: QMixedModel.create(config, setDesign, covariates, retainedCovariateRows, canonicalSampleIds);
+			if (config.getValidateOnly()) {
+				QSetTestEngine.validate(expressionSource, alignment.expressionColumnOrder(), setDesign, config);
+				System.out.println("Set-test alignment, relationship, mask-specific rank and DF validated; no fit or association was run.");
+				return;
 			}
 			QSetTestPolicy setPolicy = new QSetTestPolicy(config.getSetMinimumMaf(),
 				config.getSetMaximumMaf(), config.getSetMinimumMac(), config.getSetMaximumMac(),
@@ -1118,13 +1124,13 @@ public class QeQTLAnalysis implements IJobOwner
 				: Path.of(config.getCheckpointDirectory()).toAbsolutePath().normalize();
 			int setTraitRows = config.getExpressionBlockRows() > 0
 				? config.getExpressionBlockRows() : 1024;
-			QSetTestRunner.run(unfilledPredictorSource, predictorColumnOrder, expressionSource,
+			QSetTestEngine.run(unfilledPredictorSource, predictorColumnOrder, expressionSource,
 				alignment.expressionColumnOrder(), setDesign, setDefinitions,
 				new QSetTestRunner.Options(setTestMethod,
 					explicitSetPath, setOutput, setAudit, setCheckpoint,
 					setTraitRows, setPolicy, config.getResume(), config.getKeepCheckpoints(),
 					thresholdType, threshold, config.getSetBlockSize(), config.getSkatORhoGrid(),
-					config.getSkatOSimulations(), config.getSkatOSeed()));
+					config.getSkatOSimulations(), config.getSkatOSeed()), config, setMixedModel, mContexts);
 			return;
 		}
 

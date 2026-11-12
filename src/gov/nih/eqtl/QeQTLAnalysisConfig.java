@@ -45,20 +45,25 @@ public class QeQTLAnalysisConfig {
 
     /** Do not silently run a different statistical model than the one requested. */
     public void requireSupportedAnalysisModel() {
+        if (getAnalysisMethod().isSetTest()) {
+            getSkatOMethod(); getSkatORelativeTolerance(); getSkatOMaxEvaluations();
+        }
         String mode = getMixedModel();
         if (!java.util.Set.of("none", "score", "reml").contains(mode))
             throw new IllegalArgumentException("--mixed-model must be none, score (GENESIS-style), or reml");
-        boolean terms = getRandomCovariates() != null || getPedigreeFilename() != null;
+        boolean terms = getRandomCovariates() != null || getPedigreeFilename() != null || getRelationshipMatrixFilename() != null;
+        if (getPedigreeFilename() != null && getRelationshipMatrixFilename() != null)
+            throw new IllegalArgumentException("Select either --pedigree or --relationship-matrix");
         if (mode.equals("none") && terms)
             throw new IllegalArgumentException("Random/pedigree effects require --mixed-model score or reml");
         if (!mode.equals("none")) {
-            if (!terms) throw new IllegalArgumentException("Mixed models require --pedigree or --random-covariates");
+            if (!terms) throw new IllegalArgumentException("Mixed models require --pedigree, --relationship-matrix, or --random-covariates");
             if (getRandomCovariates() != null && getCovariateFilename() == null)
                 throw new IllegalArgumentException("Random-intercept grouping columns require --covariates");
             if (getCohortModelFilename() != null)
                 throw new IllegalArgumentException("Fitted mixed models cannot be combined with supplied --cohort-model GLS");
-            if (getAnalysisMethod().isSetTest())
-                throw new IllegalArgumentException("Fitted mixed-model set tests are not supported; use single-variant analysis");
+            if (getAnalysisMethod().isSetTest() && mode.equals("reml"))
+                throw new IllegalArgumentException("Related set tests use --mixed-model score (one REML null per trait); per-predictor refits do not define a SKAT null");
             if (getGpuPrecision() != GpuPrecision.FP64)
                 throw new IllegalArgumentException("Fitted mixed models require FP64");
             if (getDFOffset() != 0 || getThresholdType().equals("rsq") || getRSqOutput() || getSimplifyOutput())
@@ -79,10 +84,28 @@ public class QeQTLAnalysisConfig {
 
     public String getMixedModel() {
         String value = mIni.get("mixed_model");
-        if (value == null) return getPedigreeFilename() != null || getRandomCovariates() != null ? "score" : "none";
+        if (value == null) return getPedigreeFilename() != null || getRelationshipMatrixFilename() != null || getRandomCovariates() != null ? "score" : "none";
         return value.toLowerCase(Locale.ROOT).equals("genesis") ? "score" : value.toLowerCase(Locale.ROOT);
     }
     public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
+    public String getRelationshipMatrixFilename() { return expandPath(mIni.get("relationship_matrix"), getIniPath()); }
+    public String getSkatOMethod() {
+        String value = mIni.getOrDefault("skat_o_method", "integration");
+        if (!java.util.Set.of("integration", "simulation").contains(value))
+            throw new IllegalArgumentException("--skat-o-method must be integration or simulation");
+        return value;
+    }
+    public double getSkatORelativeTolerance() {
+        double value = Double.parseDouble(mIni.getOrDefault("skat_o_relative_tolerance", "0.005"));
+        if (!(value >= 1e-6 && value <= 0.05))
+            throw new IllegalArgumentException("SKAT-O relative tolerance must be between 1e-6 and 0.05");
+        return value;
+    }
+    public int getSkatOMaxEvaluations() {
+        int value = Integer.parseInt(mIni.getOrDefault("skat_o_max_evaluations", "1048576"));
+        if (value < 256) throw new IllegalArgumentException("SKAT-O maximum evaluations must be at least 256");
+        return value;
+    }
     public int getRemlMaximumIterations() {
         int value = Integer.parseInt(mIni.getOrDefault("reml_max_iterations", "200"));
         if (value < 1) throw new IllegalArgumentException("--reml-max-iterations must be positive");
@@ -520,6 +543,8 @@ public class QeQTLAnalysisConfig {
 
 	public QUnestimableTraitPolicy getUnestimableTraitPolicy()
 	{ return QUnestimableTraitPolicy.parse(mIni.get("unestimable_trait_patterns")); }
+
+    public boolean getSkipUnestimableTraits() { return getUnestimableTraitPolicy() == QUnestimableTraitPolicy.SKIP; }
 
 	public boolean getProfile()
 	{ return getBoolean("profile") || mIni.get("profile_output") != null; }

@@ -6,7 +6,7 @@ Recommended dependency order after closing the production VCF/VCF.gz milestone:
 
 `set-test foundation -> burden -> GPU burden -> SKAT -> SKAT-O`
 
-Bounded CPU-output profiling and release validation should proceed alongside that main sequence. Cohort covariance models must be established before relatedness-aware set tests.
+Bounded CPU-output profiling and release validation should proceed alongside that main sequence. Relatedness-aware set tests now use the fitted pedigree/GRM covariance layer; supplied cohort GLS integration remains separate work.
 
 ## 0. Completed: production VCF/VCF.gz and QC milestone
 
@@ -47,18 +47,18 @@ Bounded CPU-output profiling and release validation should proceed alongside tha
 ### 3b. Burden tests first
 
 - Delivered production weighted/unweighted FP64 burden execution. The batched optimized-CPU set-by-trait path reuses prepared null state and is tested directly against the scalar reference over partial set/trait tiles.
-- Direct GPU burden products remain optional future work after profiling demonstrates value over the batched CPU path.
+- Delivered FP64 CUDA/OpenCL/CPU burden aggregation, projection, scores and information products with scalar-reference comparisons. Profile representative cohorts before claiming an end-to-end speed improvement; submissions are currently sequential through the context pool.
 
 ### 3c. SKAT
 
 - Delivered deterministic FP64 CPU SKAT with weighted projected kernels, batched score/covariance products, CPU eigenvalues, exact single/equal-eigenvalue chi-square cases, rank-two angular quadrature, and an error-checked positive gamma series; the September 2026 follow-up removes the former Imhof/Satterthwaite fallback.
-- Direct multi-GPU score/covariance products remain optional future work; keep eigenvalue and p-value work on the CPU.
+- Delivered FP64 backend score/covariance products, including fitted related-sample `G'PG`; eigenvalue and p-value work remains on the CPU. Concurrent multi-GPU scheduling remains a profiling-led extension.
 
 ### 3d. SKAT-O
 
-- Delivered a configurable rho grid (default `0,0.25,0.5,0.75,1`), weighted burden/SKAT mixture construction, shared-Gaussian correlated parametric-null replicates, fixed seed/signature, and adjusted omnibus p-value. The minimum component p-value is audit-only.
+- Delivered a configurable rho grid (default `0,0.25,0.5,0.75,1`), weighted burden/SKAT mixtures and joint radial-tail integration with convergence diagnostics, relative-error estimates and work limits. Independent conditional-normal/chi-square, CompQuadForm and cubature fixtures cover small tails. Correlated parametric-null simulation remains opt-in; minimum component p is audit-only.
 - Delivered additional statistical hardening fixtures for singleton exact scaled chi-square behavior, nearly collinear variants, extreme finite weights, explicit failure for unresolved mixture spectra, monotone tails and inverse-tail checks, and SKAT-O Monte Carlo resolution/determinism. Retain these as gates before enabling any direct GPU set-test product.
-- Defer relatedness-aware burden/SKAT/SKAT-O until the cohort covariance/null-model design below is implemented and verified.
+- Delivered fitted pedigree/GRM set-score tests and exact observed-sample transcript deletion: subset every covariance basis before trait-specific REML; recompute predictor means/monomorphic decisions and optional pattern frequencies; retain observed 0/1 ratios. Version-4 checkpoints atomically bind result/audit parts to trait content, mask/model state, settings and backend identity. See `docs/RELATED_SET_TESTS.md`. Extend validation to representative large-cohort/high-rank spectra before broader accuracy or throughput claims.
 
 ## 4. Missing-data production hardening
 
@@ -98,7 +98,7 @@ Bounded CPU-output profiling and release validation should proceed alongside tha
 
 ## 8. Other input and output work
 
-- Delivered strict pedigree ID/parent/cycle validation and observation-to-individual mapping with fitted REML/null-score modes. Sparse pedigree fitting, related-sample set tests and exact trait-pattern REML remain future work; see docs/MIXED_MODELS.md.
+- Delivered strict pedigree ID/parent/cycle validation, observation mapping, dense GRM input, and fitted REML/null-score modes including related-sample set tests with exact trait-pattern deletion. Sparse pedigree fitting and exact trait-pattern deletion for ordinary single-variant mixed scans remain future work; see docs/MIXED_MODELS.md.
 - Add optional compressed result output and decide whether the legacy full-memory scheduler should also assemble deterministic block-ordered output.
 - Generalize legacy association labels such as `Rs_ID` and `ProbesetID` through an opt-in output schema for methylation, proteomics, and other declared matrix roles without breaking existing parsers.
 
