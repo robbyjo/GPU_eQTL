@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.9.1.1](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.1) — 2026-11-16
 
 - Resolve difficult SKAT eigenvalue spectra with a tilted characteristic-function integral when the checked positive-gamma series reaches its work or resolution limit. This evaluates the same distribution, retains explicit error/work checks, and supplies the same tail to SKAT-O quantile inversion.
 - Retry recoverable REML null line-search failures in QR/scaled coordinates, preserving the model, variance bounds, convergence tolerances and total iteration budget. Refine likelihood plateaus only with a decreasing projected score and require the original score tolerance. Use the orthonormal design in the fitted projection to reduce cancellation.
