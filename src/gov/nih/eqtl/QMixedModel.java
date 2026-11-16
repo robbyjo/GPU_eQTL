@@ -108,7 +108,7 @@ public final class QMixedModel {
     public String signature() {
         try {
             var digest = java.security.MessageDigest.getInstance("SHA-256");
-            digest.update(("qr-scaled-null-retry-v1;jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
+            digest.update(("exact-identity-set-null-v1;qr-scaled-null-retry-v1;jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             var buffer = java.nio.ByteBuffer.allocate(8);
             for (double[] row : design) for (double value : row) {
@@ -209,7 +209,39 @@ public final class QMixedModel {
     }
     private static String parent(String value) { return value.equals("0") || value.equals(".") ? null : value; }
 
-    public NullState fitNull(double[] y) {
+    /**
+     * Fit a set-test null after exact sample subsetting. For an identity
+     * pedigree plus residual identity, only their sum is identifiable:
+     * V = (theta_A + theta_e) I. Estimate that total without inventing a split.
+     * The sum has bounds [2*minimum,2*maximum], exactly the original covariance
+     * family. No tolerance-based covariance approximation is used here.
+     * Ordinary single-predictor fitting/refits retain their existing policy.
+     */
+    public NullState fitSetNull(double[] y) {
+        if (components.size() == 2 && components.get(0).name().equals("additive-genetic")
+                && components.get(1).name().equals("residual")
+                && components.get(0).dimension() == design.length && components.get(1).dimension() == design.length
+                && exactIdentity(components.get(0)) && exactIdentity(components.get(1))) {
+            QMixedModel total = new QMixedModel(design,
+                List.of(VarianceComponent.identity("total-genetic-plus-residual",design.length)),
+                options.maximumIterations(),dfMethod);
+            NullState result = total.fitNull(y,2);
+            System.out.println("Set null uses one total variance: observed pedigree and residual covariance are exactly identity.");
+            return new NullState(result);
+        }
+        return fitNull(y);
+    }
+
+    private static boolean exactIdentity(VarianceComponent component) {
+        int n=component.dimension();double[] covariance=component.covariance();
+        for(int i=0;i<n;i++)for(int j=0;j<n;j++)
+            if(covariance[i*n+j] != (i==j ? 1.0 : 0.0))return false;
+        return true;
+    }
+
+    public NullState fitNull(double[] y) { return fitNull(y,1); }
+
+    private NullState fitNull(double[] y,double varianceBoundMultiplier) {
         if (y == null || y.length != design.length)
             throw new IllegalArgumentException("Mixed-model response length differs from design");
         for (double value : y) if (!Double.isFinite(value))
@@ -228,8 +260,8 @@ public final class QMixedModel {
         double pilotSd = residualNorm/Math.sqrt(y.length-design[0].length), pilotVariance = pilotSd*pilotSd;
         if (!Double.isFinite(pilotVariance) || pilotVariance < Double.MIN_NORMAL)
             throw new IllegalArgumentException("Mixed-model trait variance is outside the supported FP64 range; rescale the trait");
-        double minimumVariance = Math.max(Double.MIN_NORMAL,pilotVariance*1e-10);
-        double maximumVariance = Math.min(Double.MAX_VALUE/y.length,pilotVariance*1e10);
+        double minimumVariance = varianceBoundMultiplier*Math.max(Double.MIN_NORMAL,pilotVariance*1e-10);
+        double maximumVariance = varianceBoundMultiplier*Math.min(Double.MAX_VALUE/y.length,pilotVariance*1e10);
         RemlResult fit = Reml.fit(y, design, components,
             RemlOptions.builder().maximumIterations(options.maximumIterations())
                 .varianceBounds(minimumVariance,maximumVariance).build(), BackendPolicy.CPU);
@@ -389,20 +421,28 @@ public final class QMixedModel {
         private final double norm;
         private final double minimumVariance, maximumVariance;
         private final boolean stableCoordinates;
+        private final boolean combinedIdentity;
         private final double[][] q;
         NullState(RemlResult fit, double[] projection, double[] response, double[][] design, double minimumVariance, double maximumVariance,boolean stableCoordinates) {
             this.fit = fit; this.projection = projection; this.projectedResponse = response;
             this.minimumVariance = minimumVariance; this.maximumVariance = maximumVariance;
             this.stableCoordinates = stableCoordinates;
+            this.combinedIdentity = false;
             q = new QRDecomposition(design).getQ().getArray();
             double maximum = 0; int n = response.length;
             for (int i = 0; i < n; i++) { double sum = 0;
                 for (int j = 0; j < n; j++) sum += Math.abs(projection[i*n+j]); maximum = Math.max(maximum, sum); }
             norm = maximum;
         }
+        private NullState(NullState total) {
+            fit=total.fit;projection=total.projection;projectedResponse=total.projectedResponse;
+            norm=total.norm;minimumVariance=total.minimumVariance;maximumVariance=total.maximumVariance;
+            stableCoordinates=total.stableCoordinates;q=total.q;combinedIdentity=true;
+        }
         /** Original-unit fit; coefficient-space recovery reports unavailable log-variance scores as zero. */
         public RemlResult fit() { return fit; }
         public boolean usedStableCoordinates() { return stableCoordinates; }
+        public boolean combinedIdentityVariance() { return combinedIdentity; }
         public double[] projection() { return projection.clone(); }
         public double[] projectedResponse() { return projectedResponse.clone(); }
         /** Remove fixed-effect span before products to avoid offset cancellation. */
