@@ -1,0 +1,109 @@
+{
+  "version": "1.9.1.1",
+  "merged_pull_request": 1,
+  "merged_commit": "d1c3ab2c958097ab9e2880ab1c486fac6db13172",
+  "source_commit": "d30d0402040acc6c2ab6f9e2eed9bbee36b961ba",
+  "tag_object": "4e3b800724104ac52f68c78bde30c12620982b6f",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.1",
+  "release_id": 447485884,
+  "published_at": "2026-11-16T19:19:55Z",
+  "verified_utc": "2026-11-16T19:20:23.411959+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "full_suite": {
+      "tests": 190,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 185
+    },
+    "exact_packaged_jar": {
+      "tests": 31,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "passed": 31
+    }
+  },
+  "packaged_licenses_byte_verified": 9,
+  "dependency_namespace_files_byte_verified": {
+    "org/jlinalg/": 1098,
+    "jdistlib/": 933
+  },
+  "cold_upstream_dependency_sha256": "52ebfcf86b4454eed8576a95d265842fef8971ecf54c47b77bbc8b9edd74de8e",
+  "independent_R_reference": {
+    "generator": "scripts/generate-difficult-tail-reference.R",
+    "R": "4.6.1",
+    "CompQuadForm": "1.4.4",
+    "accepted_cases": 14,
+    "byte_identical": true,
+    "sha256": "f6cf18a74efd45ca527e574a89a547a79280f1ae0dde77cfb645dd9f80e79537"
+  },
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.1.1-universal.jar",
+      "size": 140756811,
+      "sha256": "4907f6404393d208b73e5fff3d6aea081790139c55efe572cdd75501d87fd286",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.1/gpu-eqtl-1.9.1.1-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 1314,
+      "sha256": "1f9a9e4bf5b94bf34b2f7339945d0b96e4ca61b1c3c2ac12dc94c222041f65c0",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.1/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "7e56233d61cd0bdbd786da848a8cda8184fb4b460a9cba23d683b874213eac54",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.1/SHA256SUMS"
+    }
+  ],
+  "public_checksum_and_manifest_downloads_verified": true,
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "dirty_worktree": false,
+    "java_target": 17,
+    "build_jdk": 25,
+    "host_os": "Windows x64",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "nvidia_driver": "621.14",
+    "cuda_runtime": "12.6",
+    "cuda_driver_api": "13.5",
+    "opencl": "OpenCL 3.0 CUDA, driver 621.14"
+  },
+  "packaged_cuda_smoke": {
+    "analysis": "related SKAT-O, exact trait deletion",
+    "sample_count": 43,
+    "result_and_audit_resume_byte_identical": true,
+    "resumed_matrix_products": 0
+  },
+  "website": {
+    "homepage_url": "https://robbyjo.github.io/GPU_eQTL/",
+    "site_js_version_verified": true,
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/43938122514",
+    "site_js_status": 200,
+    "workflow_id": 43938122514,
+    "workflow_status": "completed",
+    "source_commit": "d30d0402040acc6c2ab6f9e2eed9bbee36b961ba",
+    "homepage_release_link_verified": true,
+    "homepage_status": 200,
+    "verified_utc": "2026-11-16T19:20:20.9427716+00:00",
+    "workflow_conclusion": "success"
+  },
+  "compatibility": {
+    "set_checkpoint_version": 5,
+    "mixed_checkpoint_version": 3,
+    "older_set_and_mixed_checkpoints_reusable": false,
+    "raw_dosage_cache_formats_unchanged": true
+  },
+  "limitations": [
+    "Synthetic correctness validation, not full-cohort throughput or universal tail calibration",
+    "General quadrature/rounding errors are estimates; explicit convergence/work limits remain",
+    "Dense relationship/REML/eigen memory limits remain",
+    "No fresh Linux/macOS, other-GPU-vendor, concurrent-multi-GPU or separate Java 17 runtime validation",
+    "Private Biowulf PR replays were not rerun during this release check"
+  ]
+}
