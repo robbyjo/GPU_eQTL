@@ -75,7 +75,8 @@ public final class QSetTraitModel {
         for (int i = 0; i < values.length; i++) variances.add(mixed.fit().componentNames().get(i)+"="+values[i]);
         return "null-reml-score;variance="+variances
             +";logLik="+mixed.fit().restrictedLogLikelihood()+";iterations="+mixed.fit().iterations()
-            +";converged="+mixed.fit().converged()+";singular="+mixed.fit().isSingular(1e-8);
+            +";converged="+mixed.fit().converged()+";singular="+mixed.fit().isSingular(1e-8)
+            +(mixed.usedStableCoordinates()?";fit-method=qr-scaled-retry":"");
     }
     public static int[] observed(double[] y) {
         return java.util.stream.IntStream.range(0,y.length).filter(i -> {

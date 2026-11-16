@@ -70,7 +70,7 @@ public final class QSetTestEngine {
             +";"+config.getSkatOMethod()+";"+config.getSkatORelativeTolerance()+";"+config.getSkatOMaxEvaluations();
         try (GpuContextPool ownership = new GpuContextPool(contexts);
             QSetMatrixOperations operations = new QSetMatrixOperations(contexts,config.get("residualization") != null && config.get("residualization").equals("cpu"))) {
-            String signature = hash("set-v4-related-pattern-radial;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature());
+            String signature = hash("set-v5-related-pattern-tilted-tail-stable-null;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature());
             QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(options.checkpointDirectory(),signature,
                 Math.multiplyExact(traitCount,setBlocks),options.resume(),true);
             System.out.println("Set FP64 products: "+operations.executionSignature());
