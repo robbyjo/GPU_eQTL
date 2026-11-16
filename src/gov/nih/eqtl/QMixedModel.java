@@ -108,7 +108,7 @@ public final class QMixedModel {
     public String signature() {
         try {
             var digest = java.security.MessageDigest.getInstance("SHA-256");
-            digest.update(("jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
+            digest.update(("qr-scaled-null-retry-v1;jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             var buffer = java.nio.ByteBuffer.allocate(8);
             for (double[] row : design) for (double value : row) {
@@ -214,7 +214,8 @@ public final class QMixedModel {
             throw new IllegalArgumentException("Mixed-model response length differs from design");
         for (double value : y) if (!Double.isFinite(value))
             throw new IllegalArgumentException("Mixed-model response contains missing/non-finite values");
-        double[][] q = new QRDecomposition(design).getQ().getArray();
+        QRDecomposition decomposition = new QRDecomposition(design);
+        double[][] q = decomposition.getQ().getArray();
         double[] residual = y.clone();
         for (int column = 0; column < q[0].length; column++) {
             double product = 0; for (int i = 0; i < y.length; i++) product += q[i][column]*y[i];
@@ -232,6 +233,12 @@ public final class QMixedModel {
         RemlResult fit = Reml.fit(y, design, components,
             RemlOptions.builder().maximumIterations(options.maximumIterations())
                 .varianceBounds(minimumVariance,maximumVariance).build(), BackendPolicy.CPU);
+        boolean recovered = false;
+        if (!fit.converged() && fit.convergenceMessage().equals("line search could not improve the likelihood")
+                && fit.iterations() < options.maximumIterations()) {
+            fit = retryNullInStableCoordinates(y,decomposition,fit,minimumVariance,maximumVariance);
+            recovered = true;
+        }
         requireConverged(fit);
         int n = y.length, p = design[0].length;
         double[] covariance = new double[n*n], variance = fit.varianceComponents();
@@ -243,8 +250,18 @@ public final class QMixedModel {
             var factor = backend.dpotrf(covariance, n);
             double[] identity = new double[n*n]; for (int i = 0; i < n; i++) identity[i*n+i] = 1;
             double[] projection = factor.solve(identity, n), x = new double[n*p];
-            for (int i = 0; i < n; i++) System.arraycopy(design[i], 0, x, i*p, p);
-            double[] inverseX = factor.solve(x, p), betaCov = fit.fixedEffectCovariance();
+            // The correction depends on the fixed-effect span, not its units.
+            // Use Q here too; multiplying raw, ill-scaled X and its covariance
+            // can reintroduce the cancellation avoided by the fitting retry.
+            for (int i = 0; i < n; i++) System.arraycopy(q[i], 0, x, i*p, p);
+            double[] inverseX = factor.solve(x, p), information = new double[p*p];
+            for (int a = 0; a < p; a++) for (int b = 0; b <= a; b++) {
+                double value = 0;
+                for (int i = 0; i < n; i++) value += q[i][a]*inverseX[i*p+b];
+                information[a*p+b] = information[b*p+a] = value;
+            }
+            double[] unit = new double[p*p]; for (int i = 0; i < p; i++) unit[i*p+i] = 1;
+            double[] betaCov = backend.dpotrf(information,p).solve(unit,p);
             double[] middle = new double[n*p];
             for (int i = 0; i < n; i++) for (int a = 0; a < p; a++)
                 for (int b = 0; b < p; b++) middle[i*p+a] += inverseX[i*p+b]*betaCov[b*p+a];
@@ -253,8 +270,88 @@ public final class QMixedModel {
                 for (int a = 0; a < p; a++) correction += middle[i*p+a]*inverseX[j*p+a];
                 projection[i*n+j] = projection[j*n+i] = projection[i*n+j]-correction;
             }
-            return new NullState(fit, projection, factor.solve(fit.residuals()), design, minimumVariance, maximumVariance);
+            return new NullState(fit, projection, factor.solve(fit.residuals()), design, minimumVariance, maximumVariance,recovered);
         }
+    }
+
+    /** Retry the same REML objective in an orthonormal design and residual units.
+     * A failed fit is never accepted: JLinAlg must converge within the remaining
+     * iteration budget, with exactly the same original-unit variance bounds.
+     */
+    private RemlResult retryNullInStableCoordinates(double[] y,QRDecomposition qr,RemlResult failed,
+        double minimum,double maximum) {
+        int n=y.length,p=design[0].length;
+        double[][] q=qr.getQArray(),r=qr.getRArray();
+        double anchor=0;
+        boolean intercept=design[0][0]!=0;
+        for(int i=1;i<n;i++)intercept &= design[i][0]==design[0][0];
+        if(intercept)anchor=y[0];
+        double[] residual=new double[n],offset=new double[p];
+        for(int i=0;i<n;i++)residual[i]=y[i]-anchor;
+        for(int column=0;column<p;column++) {
+            double sum=0,correction=0;
+            for(int i=0;i<n;i++) {
+                double term=q[i][column]*residual[i]-correction;
+                double next=sum+term;correction=(next-sum)-term;sum=next;
+            }
+            offset[column]=sum;
+            for(int i=0;i<n;i++)residual[i]=Math.fma(-sum,q[i][column],residual[i]);
+        }
+        double norm=0;for(double value:residual)norm=Math.hypot(norm,value);
+        double sd=norm/Math.sqrt(n-p),variance=sd*sd;
+        if(!(variance>=Double.MIN_NORMAL) || !Double.isFinite(variance))
+            throw new IllegalArgumentException("Stable-coordinate REML response variance is outside FP64 range");
+        for(int i=0;i<n;i++)residual[i]/=sd;
+        double lower=minimum/variance,upper=maximum/variance;
+        double[] initial=failed.varianceComponents();
+        for(int i=0;i<initial.length;i++)initial[i]=Math.max(lower,Math.min(upper,initial[i]/variance));
+        RemlResult stable=Reml.fit(residual,q,components,RemlOptions.builder()
+            .maximumIterations(options.maximumIterations()-failed.iterations())
+            .varianceBounds(lower,upper).initialVariances(initial).build(),BackendPolicy.CPU);
+        int refinementIterations=0;
+        if(!stable.converged() && stable.convergenceMessage().equals("line search could not improve the likelihood")
+                && failed.iterations()+stable.iterations()<options.maximumIterations()) {
+            int used=stable.iterations();
+            stable=QRemlScoreRefinement.fit(residual,q,components,RemlOptions.builder()
+                .maximumIterations(options.maximumIterations()-failed.iterations()-used)
+                .varianceBounds(lower,upper).initialVariances(stable.varianceComponents()).build());
+            refinementIterations=used;
+        }
+        requireConverged(stable);
+        // X[:,pivot]=Q*R. Convert coefficients and their covariance back to X.
+        double[][] inverse=new double[p][p],transform=new double[p][p];
+        for(int column=0;column<p;column++)for(int i=p-1;i>=0;i--) {
+            double value=i==column?1:0;
+            for(int j=i+1;j<p;j++)value-=r[i][j]*inverse[j][column];
+            inverse[i][column]=value/r[i][i];
+        }
+        int[] pivot=qr.getPivot();
+        for(int i=0;i<p;i++)transform[pivot[i]]=inverse[i];
+        double[] betaQ=stable.fixedEffects(),beta=new double[p];
+        for(int i=0;i<p;i++)betaQ[i]=offset[i]+sd*betaQ[i];
+        for(int i=0;i<p;i++)for(int j=0;j<p;j++)beta[i]+=transform[i][j]*betaQ[j];
+        if(intercept)beta[0]+=anchor/design[0][0];
+        double[] normalizedCov=stable.fixedEffectCovariance(),cov=new double[p*p],se=new double[p];
+        for(int i=0;i<p;i++)for(int j=0;j<p;j++)for(int a=0;a<p;a++)for(int b=0;b<p;b++)
+            cov[i*p+j]+=variance*transform[i][a]*normalizedCov[a*p+b]*transform[j][b];
+        for(int i=0;i<p;i++)se[i]=Math.sqrt(Math.max(0,cov[i*p+i]));
+        double[] fitted=new double[n],errors=stable.residuals(),variances=stable.varianceComponents();
+        for(int i=0;i<n;i++) {
+            fitted[i]=anchor;
+            for(int j=0;j<p;j++)fitted[i]=Math.fma(q[i][j],betaQ[j],fitted[i]);
+            errors[i]*=sd;
+        }
+        for(int i=0;i<variances.length;i++)variances[i]*=variance;
+        double logLikelihood=stable.restrictedLogLikelihood()-(n-p)*Math.log(sd);
+        for(int i=0;i<p;i++)logLikelihood-=Math.log(Math.abs(r[i][i]));
+        var association=org.jlinalg.inference.AssociationStatistics.studentT(beta,se,
+            stable.degreesOfFreedom(),DegreesOfFreedomMethod.RESIDUAL_APPROXIMATION);
+        System.out.println("REML null fit recovered in QR/scaled coordinates; original variance bounds and iteration budget retained.");
+        // The pinned library's public coefficient-space adapter preserves fitted
+        // quantities, but represents unavailable original-coordinate score
+        // diagnostics as zero. Convergence above is checked on the actual fit.
+        return RemlResult.fromCoefficientSpace(stable.componentNames(),variances,association,cov,fitted,errors,
+            logLikelihood,stable.varianceEstimation(),n,p,failed.iterations()+refinementIterations+stable.iterations(),stable.converged(),stable.backend());
     }
 
     public Association refit(double[] y, double[] g, NullState state) {
@@ -279,7 +376,8 @@ public final class QMixedModel {
     }
 
     static void requireConverged(RemlResult fit) {
-        if (!fit.converged()) throw new IllegalArgumentException("REML did not converge: " + fit.convergenceMessage());
+        if (!fit.converged()) throw new IllegalArgumentException("REML did not converge: " + fit.convergenceMessage()
+            + "; iterations="+fit.iterations()+"; maximum absolute log-variance score="+fit.maximumAbsoluteScore());
     }
     static Association degenerate(RemlResult fit) {
         return new Association(Double.NaN, Double.NaN, 0, 1, 0,
@@ -290,17 +388,21 @@ public final class QMixedModel {
         private final double[] projection, projectedResponse;
         private final double norm;
         private final double minimumVariance, maximumVariance;
+        private final boolean stableCoordinates;
         private final double[][] q;
-        NullState(RemlResult fit, double[] projection, double[] response, double[][] design, double minimumVariance, double maximumVariance) {
+        NullState(RemlResult fit, double[] projection, double[] response, double[][] design, double minimumVariance, double maximumVariance,boolean stableCoordinates) {
             this.fit = fit; this.projection = projection; this.projectedResponse = response;
             this.minimumVariance = minimumVariance; this.maximumVariance = maximumVariance;
+            this.stableCoordinates = stableCoordinates;
             q = new QRDecomposition(design).getQ().getArray();
             double maximum = 0; int n = response.length;
             for (int i = 0; i < n; i++) { double sum = 0;
                 for (int j = 0; j < n; j++) sum += Math.abs(projection[i*n+j]); maximum = Math.max(maximum, sum); }
             norm = maximum;
         }
+        /** Original-unit fit; coefficient-space recovery reports unavailable log-variance scores as zero. */
         public RemlResult fit() { return fit; }
+        public boolean usedStableCoordinates() { return stableCoordinates; }
         public double[] projection() { return projection.clone(); }
         public double[] projectedResponse() { return projectedResponse.clone(); }
         /** Remove fixed-effect span before products to avoid offset cancellation. */

@@ -5,6 +5,20 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 class QQuadraticFormDistributionTest {
+    @Test void broadSpectraMatchIndependentDaviesAndImhofReferences() throws Exception {
+        var lines=java.nio.file.Files.readAllLines(java.nio.file.Path.of("test/resources/difficult-tail-reference.csv"));
+        assertTrue(lines.size()>10);
+        for(String row:lines.subList(1,lines.size())) {
+            String[] fields=row.split(",");
+            double q=Double.parseDouble(fields[0]),expected=Double.parseDouble(fields[2]);
+            double[] lambda=java.util.Arrays.stream(fields[1].split(";")).mapToDouble(Double::parseDouble).toArray();
+            try {
+                assertEquals(expected,QSkatReference.mixturePValue(q,lambda).pValue(),Math.max(2e-11,expected*3e-8),row);
+            } catch (RuntimeException exception) {
+                throw new AssertionError("Independent reference: "+row,exception);
+            }
+        }
+    }
     @Test void tailsAreMonotoneAndQuantilesInvertTheSameDistribution() {
         for (double[] spectrum : new double[][]{{.5,2},{.5,2,7},{.1,.5,1,2,4},{.01,1,10}}) {
             double previous = 1;
@@ -18,8 +32,51 @@ class QQuadraticFormDistributionTest {
             }
         }
     }
-    @Test void unresolvedSpectraFailWithoutMomentApproximation() {
-        assertThrows(IllegalArgumentException.class,()->QSkatReference.mixturePValue(10,new double[]{1e-12,1,10}));
+    @Test void broadSpectraUseTheSameLawWithoutMomentApproximation() {
+        var tail=QSkatReference.mixturePValue(10,new double[]{1e-12,1,10});
+        assertTrue(tail.method().startsWith("tilted-characteristic-inversion"));
+        double limiting=QSkatReference.mixturePValue(10,new double[]{1,10}).pValue();
+        assertEquals(limiting,tail.pValue(),2e-11);
+        // Independent convolution: chi-square(2) is exponential. Conditioning
+        // on the small chi-square(1) gives this closed form, even in tiny tails.
+        for(double epsilon:new double[]{1e-12,1e-6,.01})
+            for(double q:new double[]{.001,.1,1,10,100,1000}) {
+                double expected=Math.exp(-q/2)/Math.sqrt(1-epsilon)
+                    *jdistlib.ChiSquare.cumulative((1-epsilon)*q/epsilon,1,true,false)
+                    +jdistlib.ChiSquare.cumulative(q/epsilon,1,false,false);
+                assertEquals(expected,QSkatReference.mixturePValue(q,new double[]{epsilon,1,1}).pValue(),
+                    expected*2e-9,"epsilon="+epsilon+" q="+q);
+            }
+    }
+    @Test void difficultSpectrumQuantilesAndScalingRemainConsistent() {
+        double[] lambda={1e-12,.01,1};
+        double previous=1;
+        for(double q:new double[]{.001,.1,1,10,100,1000}) {
+            double p=QSkatReference.mixturePValue(q,lambda).pValue();
+            assertTrue(p<=previous);previous=p;
+            for(double scale:new double[]{1e-100,1e100}) {
+                double[] scaled=java.util.Arrays.stream(lambda).map(x->x*scale).toArray();
+                assertEquals(p,QSkatReference.mixturePValue(q*scale,scaled).pValue(),p*2e-9);
+            }
+            if(p>1e-200)assertEquals(q,QQuadraticFormDistribution.critical(lambda,p),2e-8*Math.max(1,q));
+        }
+        for(double p:new double[]{1e-12,Math.nextDown(1.0)}) {
+            double critical=QQuadraticFormDistribution.critical(lambda,p);
+            assertEquals(p,QSkatReference.mixturePValue(critical,lambda).pValue(),Math.max(1e-15,p*2e-8));
+        }
+    }
+    @Test void tinyLowerTailIsIntegratedDirectly() {
+        // Inside the ellipsoid sum(lambda*z^2)<=q the Gaussian density is
+        // between exp(-q/(2*min(lambda))) and one times its value at zero.
+        // Its volume therefore bounds F(q) by this leading term with relative
+        // difference <=q/(2*min(lambda)), below 5e-13 in these cases.
+        double[] lambda={1e-12,1,1};
+        for(double q:new double[]{1e-24,1e-28}) {
+            double leading=Math.sqrt(2/Math.PI)/3*Math.pow(q,1.5)/Math.sqrt(1e-12);
+            var actual=QTiltedQuadraticForm.probability(q,lambda,true);
+            assertEquals(leading,actual.probability(),leading*2e-10);
+            assertTrue(actual.estimatedRelativeError()<=2e-11);
+        }
     }
     @Test void smallRankTwoTailUsesRelativeRatherThanAbsoluteQuadrature() {
         // For lambda=(1,2), the rank-two angular integral is independently

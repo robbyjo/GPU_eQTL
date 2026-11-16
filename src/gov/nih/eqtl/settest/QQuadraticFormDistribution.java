@@ -62,8 +62,15 @@ final class QQuadraticFormDistribution {
             return new Tail(probability(angularProbability(statistic, eigenvalues, false)),
                 "rank-two-angular-integral", degrees, maximum*scale);
         }
-        return new Tail(probability(gammaSeries(statistic, eigenvalues, false)),
-            "positive-gamma-series", degrees, maximum * scale);
+        try {
+            return new Tail(probability(gammaSeries(statistic, eigenvalues, false)),
+                "positive-gamma-series", degrees, maximum * scale);
+        } catch (SeriesResolutionException unresolved) {
+            var result = QTiltedQuadraticForm.probability(statistic,eigenvalues,false);
+            return new Tail(probability(result.probability()),
+                "tilted-characteristic-inversion;estimated-relative-error="+result.estimatedRelativeError(),
+                degrees,maximum*scale);
+        }
     }
 
     static double critical(double[] eigenvalues, double survivalProbability) {
@@ -99,8 +106,11 @@ final class QQuadraticFormDistribution {
     }
 
     private static double lowerProbability(double q, double[] eigenvalues) {
-        return eigenvalues.length == 2 ? angularProbability(q, eigenvalues, true)
-            : gammaSeries(q, eigenvalues, true);
+        if (eigenvalues.length == 2) return angularProbability(q,eigenvalues,true);
+        try { return gammaSeries(q,eigenvalues,true); }
+        catch (SeriesResolutionException unresolved) {
+            return QTiltedQuadraticForm.probability(q,eigenvalues,true).probability();
+        }
     }
 
     private static double angularProbability(double q, double[] lambda, boolean lower) {
@@ -164,9 +174,9 @@ final class QQuadraticFormDistribution {
         double z = 1 + .9*(1/maximumRatio-1), logZ = Math.log(z), logG = logC;
         for (double r : ratios) logG -= .5*Math.log1p(-r*z);
         if (!(logZ > 0) || !Double.isFinite(logG) || Math.exp(logC) == 0)
-            throw new IllegalArgumentException("positive gamma series cannot resolve this eigenvalue spectrum");
+            throw new SeriesResolutionException("positive gamma series cannot resolve this eigenvalue spectrum");
         if (!lower && logG-(MAXIMUM_SERIES_TERMS+1)*logZ > Math.log(RELATIVE_SERIES_TOLERANCE))
-            throw new IllegalArgumentException("positive gamma series cannot meet its remainder bound for this spectrum within "
+            throw new SeriesResolutionException("positive gamma series cannot meet its remainder bound for this spectrum within "
                 + MAXIMUM_SERIES_TERMS + " terms; no approximate p-value was substituted");
         Series state = SERIES.get();
         if (state == null || !Arrays.equals(state.lambda, lambda)) {
@@ -183,13 +193,16 @@ final class QQuadraticFormDistribution {
             if (probability > 0 && logRemainder <= Math.log(probability)+Math.log(RELATIVE_SERIES_TOLERANCE))
                 return Math.min(1, probability);
         }
-        throw new IllegalArgumentException("positive gamma series did not meet relative remainder tolerance in "
+        throw new SeriesResolutionException("positive gamma series did not meet relative remainder tolerance in "
             + MAXIMUM_SERIES_TERMS + " terms");
     }
 
     // One bounded spectrum per calling thread. Quantile inversion and repeated
     // traits reuse the expensive, positive convolution coefficients.
     private static final ThreadLocal<Series> SERIES = new ThreadLocal<>();
+    private static final class SeriesResolutionException extends IllegalArgumentException {
+        SeriesResolutionException(String message) { super(message); }
+    }
     private static final class Series {
         final double[] lambda, ratios, powers;
         final double[] weights = new double[MAXIMUM_SERIES_TERMS+1];

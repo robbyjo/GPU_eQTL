@@ -40,6 +40,15 @@ is an approximation even though variance estimation is REML.
 coefficient-specific inference; the latter also adjusts the inference covariance.
 `--reml-max-iterations` defaults to 200 per fit. Nonconvergence stops execution.
 
+A null fit that stops at an unsuccessful line search can retry with an
+orthonormal design and centered, residual-SD-scaled response. This is the same
+model and likelihood with the same variance bounds in original units. The
+retry must converge within the remaining iteration budget under unchanged
+tolerances; estimates and likelihood are then returned in original units.
+Per-predictor refits retain their existing convergence behavior. See the
+[related-set guide](RELATED_SET_TESTS.md#grm-contract-and-fitted-null-calculation)
+for diagnostics and the pinned result adapter's score-diagnostic limitation.
+
 ## Inputs and commands
 
 Pedigrees are headered, tab-separated files with exactly these columns:
@@ -126,6 +135,10 @@ identity, earlier OpenBLAS mixed-model checkpoints cannot be resumed with the
 new version. Retain them and select a fresh mixed-model checkpoint directory.
 Ordinary fixed-effect checkpoint signatures do not include this description.
 
+The stable null-fit retry changes the mixed execution signature to version 3.
+Use a fresh mixed-result checkpoint directory when upgrading from earlier
+signatures. Existing aligned raw dosage caches remain compatible.
+
 One trait's dense null state is resident at a time. The fitter needs several
 N-by-N workspaces and refuses an estimated allocation above 65% of the JVM heap.
 `--genotype-block-rows` bounds predictor tiles (default 256 here). The score
@@ -142,7 +155,7 @@ be expensive despite null reuse. General `--block-size`, `--threads`,
 not alter this one-trait schedule. Full private-cohort and multi-GPU scaling
 have not been established.
 
-Fitted-null burden/SKAT/SKAT-O now support exact trait-pattern deletion and pedigree or dense GRM input; see [RELATED_SET_TESTS.md](RELATED_SET_TESTS.md) for their score/covariance contract, appended output fields, and separate version-4 checkpoints. Use `--analysis burden|skat|skat-o --mixed-model score`; per-predictor refits do not define a set-test null.
+Fitted-null burden/SKAT/SKAT-O now support exact trait-pattern deletion and pedigree or dense GRM input; see [RELATED_SET_TESTS.md](RELATED_SET_TESTS.md) for their score/covariance contract, appended output fields, and separate version-5 checkpoints. Use `--analysis burden|skat|skat-o --mixed-model score`; per-predictor refits do not define a set-test null.
 
 Current exclusions for ordinary single-variant mixed scans still include exact trait-pattern deletion. Those scans require a complete trait or explicit filling/exclusion. Supplied cohort GLS combined with fitted random effects, GLMM/binary outcomes, random slopes, and FP32 remain unsupported. The dense GRM option is also usable in ordinary mixed scans; the strict matrix format and alignment rules are documented in the related-set guide.
 
@@ -154,6 +167,8 @@ the normal Maven wrapper build downloads pinned release artifacts to ignored
 `org/jlinalg/**` and `jdistlib/**` Java entries into the application. It does not
 register upstream GPU/native service providers or bundle their vendor runtimes.
 JLinAlg 0.3.6 is pinned to its published library JAR; JDistlib remains 0.10.2.
+The download URL follows JLinAlg's upstream rename to OmicsMatic; the pinned
+library bytes, SHA-256 and incorporated `org.jlinalg` namespace are unchanged.
 Mixed-model checkpoint signatures identify the new JLinAlg version, so older
 mixed-model checkpoints must be rebuilt rather than resumed.
 The existing CUDA/OpenCL/CPU backends continue to own association execution.

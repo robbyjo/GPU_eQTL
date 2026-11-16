@@ -38,6 +38,24 @@ C = W G' P G W
 
 `G` contains filled declared-effect dosages and `W` the positive definition weights. Both scores and their covariance include fitted relatedness. Genotype columns are first projected off the ordinary fixed-effect span to reduce cancellation; this leaves `U` and `C` mathematically unchanged because `P X = 0`.
 
+If the null fitter stops because its line search cannot improve the likelihood,
+it retries in orthonormal fixed-effect coordinates after removing the fixed
+response span and scaling by residual SD. This represents the same REML
+objective, preserves the original-unit variance bounds, and uses only the
+remaining iteration budget. The retry must converge under the original
+tolerances. If a final improving likelihood step rounds to zero, an additional
+Fisher-scoring refinement permits a step within a 16-ulp likelihood plateau
+only when it reduces the projected score. It still requires the original
+`1e-6` projected-score tolerance and shares the remaining iteration budget;
+an unresolved score remains fatal. The refinement uses the same JLinAlg REML
+score and expected-information equations. Variances, coefficients, covariance and likelihood are transformed
+back to the original units; the projection correction uses the orthonormal
+design to avoid reintroducing cancellation. Recovered nulls append
+`fit-method=qr-scaled-retry` to their diagnostics. The pinned library's public
+result adapter reports unavailable original-coordinate log-variance scores as
+zero; these values are not a separate convergence certificate. Convergence is
+checked on the actual transformed fit before adaptation.
+
 Related burden uses `(1'U)^2 / (1'C1)` with chi-square(1) inference and reports the score effect `(1'U)/(1'C1)`. Fixed-effect burden retains its regression t test, effect, R-squared, and `N-rank(X)-1` DF. SKAT uses `U'U` with the nonzero eigenvalues of `C`. Fixed-effect kernel scores use the null residual variance estimated with `N-rank(X)` DF. Related kernel scores already contain the fitted variance through `P` and must **not** be divided by an additional residual variance. Kernel output `DF` records null residual DF, not the degrees of freedom of a single chi-square distribution. Fitted-null inference remains asymptotic.
 
 ## Exact transcript sample masks
@@ -89,15 +107,16 @@ The algorithm integrates this radial survival probability directly. It never cou
 
 The first 15 result columns retain their names and meanings. `Sample_mask` and `Null_model` are appended; the latter reports fitted variances, likelihood, iterations, convergence and singularity diagnostics for related tests. Audits now contain one row **per set and trait**, including effective N, exact-mask hash, and mask-specific no-call/monomorphic counts. Output order is input trait order, then definition set order. The SHA-256 mask identifies ordered aligned column positions; aligned sample IDs/order and source identity are signed separately.
 
-Each version-4 checkpoint part atomically stores both result and audit records for one trait/set tile. Signatures cover ordered source/alignment/design/definition state, trait content, resolved relationship covariance bases, fitter/dependency version, numerical settings, thresholds and backend/device/runtime identity. Result and audit assembly reproduces the same bytes after interrupted-tile recovery. Changed masks, trait values, GRM state, or settings reject reuse. Source metadata changes before part commit or assembly are fatal. Existing raw caches remain compatible; **use a new set-result checkpoint directory** for pre-v4 analyses. Preserve historical results rather than overwriting their provenance.
+Each version-5 checkpoint part atomically stores both result and audit records for one trait/set tile. Signatures cover ordered source/alignment/design/definition state, trait content, resolved relationship covariance bases, fitter/dependency version, numerical settings, thresholds and backend/device/runtime identity. Result and audit assembly reproduces the same bytes after interrupted-tile recovery. Changed masks, trait values, GRM state, or settings reject reuse. Source metadata changes before part commit or assembly are fatal. Existing raw caches remain compatible; **use a new set-result checkpoint directory** for pre-v5 analyses. Preserve historical results rather than overwriting their provenance.
 
-The dense REML workspace and GRM PSD check have heap guards. Related set-tile recommendations reserve more heap for null fitting. A very large individual set can still exceed memory or make its eigenvalue decomposition expensive. The trait-outer schedule rereads genotype tiles for every transcript, including transcripts sharing a mask. Large, high-entropy isoform analyses have no new end-to-end performance guarantee. Broad spectra can still exceed the existing positive-gamma work bound, or fail omnibus quadrature convergence. Sparse REML, binary/GLMM outcomes, supplied cohort GLS with set tests, and FP32 set tests remain unsupported. Ordinary single-variant mixed-model exact deletion is still separate future work.
+The dense REML workspace and GRM PSD check have heap guards. Related set-tile recommendations reserve more heap for null fitting. A very large individual set can still exceed memory or make its eigenvalue decomposition expensive. The trait-outer schedule rereads genotype tiles for every transcript, including transcripts sharing a mask. Large, high-entropy isoform analyses have no new end-to-end performance guarantee. Broad spectra that exceed the positive-gamma bound now use the same-law tilted inversion described in the [foundation guide](SET_TEST_FOUNDATION.md#skat-and-skat-o); unresolved inversion or omnibus quadrature still fails explicitly. Sparse REML, binary/GLMM outcomes, supplied cohort GLS with set tests, and FP32 set tests remain unsupported. Ordinary single-variant mixed-model exact deletion is still separate future work.
 
 ## Independent validation
 
 Fixtures and replayable generators are under `test/resources/related-set-reference` and `scripts/generate-*-reference.R`. They require no R installation at test runtime.
 
 - Base R `optim`, Cholesky and direct GLS matrix products independently fit pedigree/GRM nulls on 48 or 43 samples. Checks cover all score/covariance entries, burden/SKAT statistics, a repeated mask with a different response, subset mean filling, and observed ratio endpoints. Maximum scaled score/covariance discrepancy on this fixture: `7.16e-7` (gate `3e-6`).
+- Small-variance responses offset near one are checked against closed-form balanced random-intercept REML and direct GLS. A separate combined pedigree/group fixture checks response offsets and covariate rescaling, including original-unit coefficient covariance and invariant scores. Exhausted iteration budgets and genuine nonconvergence remain errors.
 - Rank-two omnibus tails use independent conditional-normal interval integration with R `stats::integrate` (QUADPACK), covering positive/negative correlation and adjusted p-values down to `2.22e-23`. Maximum relative discrepancy: `1.28e-8`.
 - Equal-spectrum ranks 3, 8 and 20 use independent conditional chi-square integration through minimum component p `1e-12` (relative gate `2e-6`).
 - General rank-three component quantiles use **CompQuadForm 1.4.4 Farebrother** and independent **cubature 2.1.4.1 hcubature** for the joint event, down to minimum p `1e-10`. Maximum observed relative discrepancy: `2.77e-4`, below the default `0.005` integration tolerance. These checks validate the implemented joint event; they do not claim numerical equivalence to every R SKAT approximation/version.

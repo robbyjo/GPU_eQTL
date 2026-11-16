@@ -67,9 +67,17 @@ Quadratic-form survival probabilities use exact scaled chi-square distributions
 for single/equal spectra, nonoscillatory angular quadrature for rank two, and a
 positive gamma series for higher rank. The latter bounds omitted probability
 mass to at most 1e-12 of the computed tail, with a 131,072-term work limit.
-Unresolvable spectra or quadrature nonconvergence stop execution; no
-moment-matched fallback is substituted. The bound concerns series truncation,
-not interval-arithmetic floating-point rounding. Subnormal/underflow tails
+If that series cannot resolve a spectrum within its bound, an exponentially
+tilted characteristic-function integral evaluates the same distribution. The
+tilt changes the integration contour; it is not a saddlepoint approximation.
+Upper and lower tails use their own contours to avoid catastrophic subtraction.
+Twelve integration-by-parts endpoint terms and a derivative remainder bound
+control truncation. Adaptive Gauss-Kronrod quadrature and FP64 rounding estimates
+must meet a relative target of `2e-11`, within 262,144 integrand evaluations.
+`P_value_method` identifies this path and its estimated relative error.
+Unresolvable spectra or quadrature nonconvergence still stop execution; no
+moment-matched fallback is substituted. The truncation bounds and numerical
+error estimates are not interval-arithmetic guarantees. Subnormal/underflow tails
 remain limited by FP64 and the existing minimum-positive-probability floor.
 
 The [September 2026 audit](AUDIT_2026-09-09.md) found 16 fallback cases in a
@@ -80,6 +88,12 @@ R CompQuadForm Davies references within 1.22e-8 absolute error (R requested
 absolute accuracy 1e-7). Rank-two tails down to about 2.54e-219 are also checked
 against independent 80-digit angular quadrature. This remains a bounded
 validation grid, not a guarantee that every spectrum is computationally practical.
+
+Additional difficult-spectrum regressions include 14 synthetic rank-20/80/120
+Davies references checked against Imhof, a closed-form convolution with
+eigenvalues `(epsilon,1,1)` down to tails near `7e-218`, and scale/quantile
+round trips for eigenvalue ratios down to `1e-12`. The replayable independent
+generator is `scripts/generate-difficult-tail-reference.R`; test runtime needs no R.
 
 The discrepancy was local to GPU eQTL's approximation. Historical R SKAT
 versions also had documented small-tail convergence/approximation issues, as
@@ -93,7 +107,7 @@ cutoff. SKAT-O reuses positive-series coefficients within each quantile
 inversion (about 2 MiB for one bounded per-thread spectrum cache) and
 computes each Gaussian base score once across rho values. An exactly cancelling
 burden component has p=1 and does not discard estimable SKAT components. The
-current production set-runner signature is version 4; older result checkpoints must be rebuilt in a new directory.
+current production set-runner signature is version 5; older result checkpoints must be rebuilt in a new directory. Aligned raw dosage caches remain compatible.
 
 SKAT-O defaults to rho `0,0.25,0.5,0.75,1`. Each component combines `(1-rho)` times SKAT with `rho` times weighted burden. The default `--skat-o-method integration` integrates their joint Gaussian rejection event with a relative error target and explicit work-limit failures. The minimum component p-value is audit-only. Optional `--skat-o-method simulation` uses correlated Gaussian replicates and `(extreme + 1)/(simulations + 1)`, with defaults of 10,000 simulations and seed 20260827. See the [integration derivation and independent small-tail fixtures](RELATED_SET_TESTS.md#skat-o-joint-tail-integration).
 
