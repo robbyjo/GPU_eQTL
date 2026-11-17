@@ -26,7 +26,7 @@ public final class QSetTraitModel {
         double[] values = new double[samples.length];
         for (int i = 0; i < samples.length; i++) values[i] = y[samples[i]];
         if (fullModel != null) {
-            mixed = fullModel.subset(samples).fitNull(values);
+            mixed = fullModel.subset(samples).fitSetNull(values);
             response = mixed.projectedResponse(); sigma = 1;
             double[] p = mixed.projection(); projection = new double[samples.length][samples.length];
             for (int i = 0; i < samples.length; i++) System.arraycopy(p,i*samples.length,projection[i],0,samples.length);
@@ -76,7 +76,8 @@ public final class QSetTraitModel {
         return "null-reml-score;variance="+variances
             +";logLik="+mixed.fit().restrictedLogLikelihood()+";iterations="+mixed.fit().iterations()
             +";converged="+mixed.fit().converged()+";singular="+mixed.fit().isSingular(1e-8)
-            +(mixed.usedStableCoordinates()?";fit-method=qr-scaled-retry":"");
+            +(mixed.usedStableCoordinates()?";fit-method=qr-scaled-retry":"")
+            +(mixed.combinedIdentityVariance()?";identity-pedigree=combined-total-variance":"");
     }
     public static int[] observed(double[] y) {
         return java.util.stream.IntStream.range(0,y.length).filter(i -> {

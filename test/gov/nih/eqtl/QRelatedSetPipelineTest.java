@@ -128,4 +128,28 @@ class QRelatedSetPipelineTest {
             }
         }
     }
+    @Test void unrelatedPedigreeMasksRetainTraitsAndResumeWithExplicitTotalVariance(@TempDir Path root) throws Exception {
+        Fixture f=fixture(root);Path pedigree=root.resolve("founders.tsv");
+        StringBuilder text=new StringBuilder("ID\tSIRE\tDAM\n");
+        for(String row:Files.readAllLines(f.cov()).subList(1,49))text.append(row.split(",")[0]).append("\t0\t0\n");
+        Files.writeString(pedigree,text);
+        Path output=root.resolve("identity.csv");var related=config(f,output,"skat",true);
+        related.set("relationship_matrix",null);related.set("pedigree_file",pedigree.toString());
+        run(f,related);
+        byte[] results=Files.readAllBytes(output),audit=Files.readAllBytes(Path.of(output+".sets.tsv"));
+        var rows=Files.readAllLines(output);assertEquals(7,rows.size());
+        assertEquals(7,Files.readAllLines(Path.of(output+".sets.tsv")).size());
+        assertTrue(rows.stream().skip(1).allMatch(row->row.contains("total-genetic-plus-residual")
+            && row.contains("identity-pedigree=combined-total-variance")));
+        Path fixedOutput=root.resolve("fixed-reference.csv");run(f,config(f,fixedOutput,"skat",false));
+        var fixed=Files.readAllLines(fixedOutput);assertEquals(rows.size(),fixed.size());
+        for(int i=1;i<rows.size();i++) {
+            String[] a=rows.get(i).split(","),b=fixed.get(i).split(",");
+            for(int column:new int[]{0,1,3,4,5,15})assertEquals(b[column],a[column]);
+            double expected=Double.parseDouble(b[10]);
+            assertEquals(expected,Double.parseDouble(a[10]),Math.max(1e-12,expected*3e-6));
+        }
+        related.set("resume","true");run(f,related);
+        assertArrayEquals(results,Files.readAllBytes(output));assertArrayEquals(audit,Files.readAllBytes(Path.of(output+".sets.tsv")));
+    }
 }

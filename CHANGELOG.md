@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retain pedigree-adjusted set-test traits whose observed pedigree covariance is exactly identity by fitting the identifiable total genetic-plus-residual variance. The combined component is explicit in null diagnostics, and its bounds preserve the original covariance family.
+- Bind the new set-null handling to the fitted-model checkpoint signature. Use fresh related-set checkpoints; raw dosage caches remain compatible.
+
 ## [1.9.1.1](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.1) — 2026-11-16
 
 - Resolve difficult SKAT eigenvalue spectra with a tilted characteristic-function integral when the checked positive-gamma series reaches its work or resolution limit. This evaluates the same distribution, retains explicit error/work checks, and supplies the same tail to SKAT-O quantile inversion.

@@ -60,6 +60,20 @@ Related burden uses `(1'U)^2 / (1'C1)` with chi-square(1) inference and reports 
 
 ## Exact transcript sample masks
 
+For a two-component pedigree set model, an observed mask can contain only
+unrelated, noninbred individuals even when the full cohort is related. If its
+pedigree and residual covariance matrices are both **exactly identity**, the
+model estimates their identifiable total variance:
+`V = (sigma_A^2 + sigma_e^2) I`. The total has bounds twice the original
+per-component lower/upper bounds, preserving exactly the same covariance
+family. Its diagnostic name is `total-genetic-plus-residual`, with
+`identity-pedigree=combined-total-variance` appended to results and audits.
+The rule applies after sample subsetting and retains the trait and its observed
+samples. Near-identity matrices, additional covariance terms and ordinary
+single-predictor fits keep their existing fitting/identifiability behavior.
+The fitted-model signature includes this rule; select fresh related-set result
+checkpoints when upgrading. Raw dosage caches remain compatible.
+
 `--trait-missing pattern` is the default. Alignment and selected-covariate missingness are resolved first. Each transcript then selects its ordered observed samples. The engine subsets **every covariance basis on both axes before fitting**, reconstructs the design QR/rank/DF, and fits a new trait null. Subsetting a full-cohort fitted `P` would give a different model and is never used.
 
 Called genotype means and monomorphic/no-call decisions are recomputed in that mask. Mean filling uses only the mask's called samples; zero filling refers to zero copies of the declared effect allele. Set MAF/MAC filtering retains the aligned-cohort default. `--frequency-scope pattern` explicitly applies set MAF/MAC limits within the observed mask, including for CSV set analyses; this changes set membership across transcripts. VCF/BCF global QC and its separate `--min-maf`/`--min-mac` semantics remain upstream. No-call or monomorphic mask-specific members are audited separately.
