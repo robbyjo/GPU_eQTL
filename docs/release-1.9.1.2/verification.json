@@ -1,0 +1,209 @@
+{
+  "version": "1.9.1.2",
+  "merged_pull_request": {
+    "head_sha": "b3d2959beee4993b538fd10a72d14e65f7ec7ff7",
+    "number": 2,
+    "merge_sha": "d4034baad30871ac35971173fd6356bf7526e4f3",
+    "method": "squash",
+    "base_sha": "5065537db1631294e06979d6f02c2ca6a5ced0af",
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/2",
+    "merged_at": "2026-11-17T15:42:01Z"
+  },
+  "release_metadata_pull_request": {
+    "head_sha": "8e2fcd1ad8b7199ddfe75dc063c09888dec1a3e7",
+    "merge_sha": "d63a8370e1d2c2f9e5e275cbcd127b5687ac72e5",
+    "required_check_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/44120272681/job/134169416855",
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/5",
+    "required_check_conclusion": "success",
+    "number": 5,
+    "merged_at": "2026-11-17T16:00:25Z"
+  },
+  "source_commit": "8e2fcd1ad8b7199ddfe75dc063c09888dec1a3e7",
+  "tag_object": "08af24409882fbcf838b534acd51fe78c474728c",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.2",
+  "release_id": 448867107,
+  "published_at": "2026-11-17T16:01:53Z",
+  "verified_utc": "2026-11-17T16:02:42.401468+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "full_suite": {
+      "tests": 195,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 190
+    },
+    "exact_packaged_jar": {
+      "tests": 36,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "passed": 36
+    }
+  },
+  "packaged_licenses_byte_verified": 9,
+  "dependency_namespace_files_byte_verified": {
+    "org/jlinalg/": 1098,
+    "jdistlib/": 933
+  },
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.1.2-universal.jar",
+      "size": 140757776,
+      "sha256": "e18f8030fb1700d94c1bf535852f0a85c33e3738104dddd904d3ff2f004431ce",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.2/gpu-eqtl-1.9.1.2-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 1572,
+      "sha256": "1e3a1e30ba63d17350c027dcaeaf03353e6d8093d33048034538cc38d27f572a",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.2/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "49739ec4faeed611efb6552462fc2f3bf988bb2ed7f80242179676b3b1d75271",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.2/SHA256SUMS"
+    }
+  ],
+  "public_checksum_and_manifest_downloads_verified": true,
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "dirty_worktree": false,
+    "java_target": 17,
+    "build_jdk": 25,
+    "host_os": "Windows x64",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "nvidia_driver": "621.14",
+    "cuda_runtime": "12.6",
+    "cuda_driver_api": "13.5",
+    "opencl": "OpenCL 3.0 CUDA, driver 621.14"
+  },
+  "exact_identity_pedigree_packaged_smoke": {
+    "version": "1.9.1.2",
+    "traits": 3,
+    "sets": 2,
+    "runs": [
+      {
+        "method": "burden",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cuda",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "opencl",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cpu-java",
+        "rows": 6,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cuda",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "opencl",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-java",
+        "rows": 6,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cuda",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "opencl",
+        "rows": 6,
+        "audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-java",
+        "rows": 6,
+        "resume_byte_identical": true
+      }
+    ],
+    "max_relative_p_difference": 6.661338147750939e-16,
+    "association_rows": 72,
+    "all_resumes_zero_products": true
+  },
+  "packaged_cuda_grm_smoke": {
+    "analysis": "related SKAT-O, exact trait deletion",
+    "sample_count": 43,
+    "result_and_audit_resume_byte_identical": true,
+    "resumed_matrix_products": 0
+  },
+  "website": {
+    "workflow_conclusion": "success",
+    "homepage_status": 200,
+    "site_js_status": 200,
+    "source_commit": "d63a8370e1d2c2f9e5e275cbcd127b5687ac72e5",
+    "homepage_release_link_verified": true,
+    "homepage_url": "https://robbyjo.github.io/GPU_eQTL/",
+    "workflow_id": 44120791019,
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/44120791019",
+    "verified_utc": "2026-11-17T16:02:07.0404177+00:00",
+    "site_js_version_verified": true,
+    "workflow_status": "completed"
+  },
+  "compatibility": {
+    "model_signature": "exact-identity-set-null-v1",
+    "related_set_results_require_fresh_checkpoints": true,
+    "set_checkpoint_version": 5,
+    "mixed_checkpoint_version": 3,
+    "raw_dosage_cache_formats_unchanged": true
+  },
+  "limitations": [
+    "Exact identity reduction in two-component pedigree set nulls only",
+    "Synthetic correctness validation, not full-cohort throughput or universal calibration",
+    "General quadrature/rounding errors are estimates; explicit convergence/work limits remain",
+    "Dense relationship/REML/eigen memory limits remain",
+    "Hosted Linux/Java 17 source CI is separate from exact Windows release-JAR validation; no fresh macOS/other-vendor/multi-GPU package validation",
+    "Private Biowulf PR replays were not rerun and production jobs/installed JARs were not changed"
+  ]
+}
