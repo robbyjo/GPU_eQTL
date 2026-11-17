@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.9.1.3](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.3) — 2026-11-17
 
 - Make set-test model-input fingerprints portable across shared-filesystem mounts by signing file contents instead of node-local device/inode keys. Retain local mutation checks and backend/runtime binding. Use fresh set-result checkpoints for the version-6 signature; raw dosage caches remain compatible.
 
