@@ -87,6 +87,17 @@ class QRelatedSetPipelineTest {
             assertThrows(java.io.IOException.class,()->run(f,config)); assertArrayEquals(before,Files.readAllBytes(output));
         }
     }
+    @Test void modelFileReplacementWithIdenticalBytesPreservesResume(@TempDir Path root) throws Exception {
+        Fixture f=fixture(root);Path output=root.resolve("portable.csv");var config=config(f,output,"skat",true);
+        run(f,config);byte[] before=Files.readAllBytes(output),audit=Files.readAllBytes(Path.of(output+".sets.tsv"));
+        for(Path path:List.of(f.cov(),f.grm())) {
+            var time=Files.getLastModifiedTime(path);Path replacement=Files.createTempFile(root,"model-source",".tmp");
+            Files.copy(path,replacement,StandardCopyOption.REPLACE_EXISTING);Files.setLastModifiedTime(replacement,time);
+            Files.move(replacement,path,StandardCopyOption.REPLACE_EXISTING);
+        }
+        config.set("resume","true");run(f,config);
+        assertArrayEquals(before,Files.readAllBytes(output));assertArrayEquals(audit,Files.readAllBytes(Path.of(output+".sets.tsv")));
+    }
     @Test void masksAndGrmContentBindResumeAndValidationDoesNotFit(@TempDir Path root) throws Exception {
         Fixture f = fixture(root); Path output = root.resolve("out.csv"); var config = config(f,output,"burden",true);
         run(f,config); byte[] before = Files.readAllBytes(output); config.set("resume","true");

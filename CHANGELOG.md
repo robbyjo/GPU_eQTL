@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Make set-test model-input fingerprints portable across shared-filesystem mounts by signing file contents instead of node-local device/inode keys. Retain local mutation checks and backend/runtime binding. Use fresh set-result checkpoints for the version-6 signature; raw dosage caches remain compatible.
+
 ## [1.9.1.2](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.2) — 2026-11-17
 
 - Retain pedigree-adjusted set-test traits whose observed pedigree covariance is exactly identity by fitting the identifiable total genetic-plus-residual variance. The combined component is explicit in null diagnostics, and its bounds preserve the original covariance family.

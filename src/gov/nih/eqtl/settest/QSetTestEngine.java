@@ -64,13 +64,16 @@ public final class QSetTestEngine {
         int setBlocks = (definitions.sets().size()+setSize-1)/setSize;
         int traitCount = Math.toIntExact(traits.metadata().rowCount());
         String sourceStamp = QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize);
-        String modelSources = modelSourceStamp(config);
+        QSetModelSourceStamp modelStamps = new QSetModelSourceStamp();
+        Path[] modelFiles = Arrays.stream(new String[]{config.getCovariateFilename(),config.getPedigreeFilename(),config.getRelationshipMatrixFilename()})
+            .filter(Objects::nonNull).map(Path::of).toArray(Path[]::new);
+        String modelSources = modelStamps.capture(modelFiles);
         String modelSignature = mixed == null ? "fixed" : mixed.signature();
         String extra = config.getTraitMissingPolicy()+";"+config.getFrequencyScope()+";"+config.getSkipUnestimableTraits()
             +";"+config.getSkatOMethod()+";"+config.getSkatORelativeTolerance()+";"+config.getSkatOMaxEvaluations();
         try (GpuContextPool ownership = new GpuContextPool(contexts);
             QSetMatrixOperations operations = new QSetMatrixOperations(contexts,config.get("residualization") != null && config.get("residualization").equals("cpu"))) {
-            String signature = hash("set-v5-related-pattern-tilted-tail-stable-null;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature());
+            String signature = hash("set-v6-related-pattern-tilted-tail-stable-null-portable-sources;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature());
             QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(options.checkpointDirectory(),signature,
                 Math.multiplyExact(traitCount,setBlocks),options.resume(),true);
             System.out.println("Set FP64 products: "+operations.executionSignature());
@@ -104,7 +107,7 @@ public final class QSetTestEngine {
                                     writer.write("A"+audit(set,traitId,samples.length,mask,0,0,List.of(),0,"skipped-unestimable-mask","unfitted",definitions,options));
                                 } else analyze(writer,set,selected,model,traitId,mask,definitions,options,config,operations);
                             }
-                            if (!modelSources.equals(modelSourceStamp(config)) || !sourceStamp.equals(QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize)))
+                            if (!modelSources.equals(modelStamps.capture(modelFiles)) || !sourceStamp.equals(QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize)))
                                 throw new IOException("Set input changed before checkpoint commit");
                         });
                     }
@@ -112,7 +115,7 @@ public final class QSetTestEngine {
                 }
                 if (reader.readBlock(1) != null) throw new IOException("Trait source grew during set analysis");
             }
-            if (!modelSources.equals(modelSourceStamp(config)) || !sourceStamp.equals(QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize)))
+            if (!modelSources.equals(modelStamps.capture(modelFiles)) || !sourceStamp.equals(QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize)))
                 throw new IOException("Set input changed before assembly");
             assemble(checkpoint,options);
             System.out.println("Executed set matrix calls by backend/operation: "+operations.executedProducts());
@@ -252,15 +255,5 @@ public final class QSetTestEngine {
     }
     private static String hash(String value) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
-    }
-    private static String modelSourceStamp(QeQTLAnalysisConfig config) throws IOException {
-        StringBuilder result = new StringBuilder();
-        for (String file : new String[]{config.getCovariateFilename(),config.getPedigreeFilename(),config.getRelationshipMatrixFilename()}) {
-            if (file == null) continue;
-            Path path = Path.of(file).toAbsolutePath().normalize();
-            var a = Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
-            result.append(path).append(':').append(a.size()).append(':').append(a.lastModifiedTime()).append(':').append(a.fileKey()).append('\n');
-        }
-        return result.toString();
     }
 }
