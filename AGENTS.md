@@ -20,6 +20,12 @@ The Maven build currently compiles the eQTL application and its supporting NIH u
 
 The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that accepts multiple delimiters. Maven unpacks it as a generated source. Do not replace it with the Maven Central JavaCSV artifact without adding equivalent parsing tests and preserving that behavior.
 
+## GitHub contribution workflow
+
+- Submit changes to GitHub `master` through a topic branch and pull request. The required check is `Maven tests (Java 17)` from `.github/workflows/tests.yml`; keep this job name stable or update the repository ruleset in the same maintenance task.
+- Pull requests require passing tests but no approving reviewer, supporting a single-maintainer workflow. The hosted Linux/Java 17 suite skips unavailable GPU and optional-runtime tests; it does not replace the hardware validation required below.
+- Do not bypass or disable protection, force-push `master`, or delete `master` to complete a code change. Changing those repository settings requires an explicit user request.
+
 ## Compute architecture and rules
 
 - Analysis code depends only on interfaces in `src/gov/nih/gpu`.
