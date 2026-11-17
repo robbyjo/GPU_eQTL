@@ -31,5 +31,10 @@ jobs:
           java-version: '17'
           cache: maven
           cache-dependency-path: pom.xml
+      - name: Install the OpenCL loader for runtime discovery
+        # No GPU driver is installed; hardware tests skip when no device is available.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ocl-icd-libopencl1
       - name: Run the full Maven test suite
         run: sh ./mvnw --batch-mode --no-transfer-progress test
