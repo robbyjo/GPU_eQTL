@@ -20,7 +20,7 @@ Recognition requires correctly sized covariance matrices and exact identity entr
 - New synthetic tests compare total variance, coefficients, likelihood, projection and scores against closed-form REML/OLS/direct GLS. They also cover observed principal submatrices, invalid dimensions, near-identity rejection, ordinary-fit behavior, convergence failures, trait retention and byte-identical checkpoint recovery.
 - Real CUDA/OpenCL checks ran on NVIDIA GeForce RTX 2080, driver 621.14, alongside OpenBLAS and portable Java references. The build uses JDK 25 with Java 17 as its class target. Clean release build and exact packaged-JAR results are recorded in the published manifest and [verification receipt](https://github.com/robbyjo/GPU_eQTL/blob/master/docs/release-1.9.1.2/verification.json).
 
-This fix does not perform general covariance-rank reduction or approximate merging of covariance bases. Dense model/eigendecomposition limits and explicit numerical work/convergence checks remain. This release review uses synthetic inputs; the PR separately records prior bounded Linux/A100 comparisons. No new private-cohort rerun, fresh Linux/macOS runtime validation, other-vendor check or concurrent multi-GPU scaling study is claimed here.
+This fix does not perform general covariance-rank reduction or approximate merging of covariance bases. Dense model/eigendecomposition limits and explicit numerical work/convergence checks remain. This release review uses synthetic inputs; the PR separately records prior bounded Linux/A100 comparisons. No new private-cohort rerun, Linux/macOS execution of the published JAR, other-vendor check or concurrent multi-GPU scaling study is claimed here.
 
 ## Download
 
