@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.9.1.2](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.2) — 2026-11-17
 
 - Retain pedigree-adjusted set-test traits whose observed pedigree covariance is exactly identity by fitting the identifiable total genetic-plus-residual variance. The combined component is explicit in null diagnostics, and its bounds preserve the original covariance family.
 - Bind the new set-null handling to the fitted-model checkpoint signature. Use fresh related-set checkpoints; raw dosage caches remain compatible.
