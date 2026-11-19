@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.9.1.4](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.4) — 2026-11-19
 
 - Add explicit `--set-null-fitter spectral` for continuous pedigree-adjusted set tests. Reuse one bounded exact-mask error-contrast decomposition while fitting each response's original two-component REML objective and preserving genotype score covariance. Include portable/native FP64 references, exact identity handling, actual score diagnostics and signature-incompatible spectral result checkpoints. The default legacy fitter and SKAT tail laws are unchanged. See [spectral set-null documentation](docs/SPECTRAL_SET_NULL.md).
 
