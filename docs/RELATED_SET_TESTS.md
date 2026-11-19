@@ -28,7 +28,7 @@ s3	0	0	1
 
 The matrix must be symmetric and positive semidefinite within the documented numerical checks in `QMixedModel.readRelationship` (symmetry tolerance `1e-12` times the largest diagonal magnitude; eigenvalue tolerance `1e-10` times that magnitude). A residual identity component is fitted alongside it. The pedigree path supplies the numerator relationship matrix, twice kinship. Matrix scale is absorbed by its fitted variance component, so record the supplied matrix's definition in study provenance.
 
-For each trait, REML fits `V = sum_k theta_k K_k` using the existing pinned JLinAlg CPU fitter. With fixed design `X`, the fitted null supplies
+By default, REML fits `V = sum_k theta_k K_k` for each trait using the pinned JLinAlg CPU fitter. For one pedigree covariance plus residual identity, `--set-null-fitter spectral` selects the [spectral CPU fitter](SPECTRAL_SET_NULL.md), retaining per-trait variance fits and the same covariance family. With fixed design `X`, the fitted null supplies
 
 ```text
 P = V^-1 - V^-1 X (X' V^-1 X)^-1 X' V^-1

@@ -308,7 +308,7 @@ public final class QeQTLCommandLine {
               --pedigree-id-column NAME        Observation-to-individual mapping for repeated measurements
               --reml-df {residual|satterthwaite|kenward-roger}  Per-predictor REML Wald inference
               --reml-max-iterations N          Maximum iterations per fit (default: 200)
-              --set-null-fitter legacy|spectral  Pedigree set-null implementation (default: legacy)
+              --set-null-fitter legacy|spectral  Pedigree burden/SKAT/SKAT-O null fitter (default: legacy)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
               --expression-id-column NAME      Covariate column containing expression sample IDs

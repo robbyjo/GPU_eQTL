@@ -25,6 +25,9 @@ final class QSpectralReml {
     private int evaluations;
 
     QSpectralReml(double[][] design,double[] covariance) {
+        this(design,covariance,null);
+    }
+    QSpectralReml(double[][] design,double[] covariance,String expectedEngine) {
         this.design=design;n=design.length;p=design[0].length;d=n-p;
         if(covariance.length!=Math.multiplyExact(n,n))throw new IllegalArgumentException("Spectral covariance dimensions differ");
         k=covariance.clone();boolean same=true;
@@ -47,6 +50,8 @@ final class QSpectralReml {
         int[] pivot=qr.getPivot();for(int i=0;i<p;i++)System.arraycopy(inverse[i],0,transform,pivot[i]*p,p);
         try(var operations=SpectralLinearAlgebra.open()) {
             backendIdentity=operations.identity();
+            if(expectedEngine!=null&&!expectedEngine.equals(backendIdentity))
+                throw new IllegalStateException("Spectral geometry engine changed after checkpoint identity was resolved");
             // Cholesky cheaply verifies the usual positive-definite pedigree. A singular
             // PSD kernel uses a full eigen check rather than being rejected or regularized.
             if(!identity)try{operations.solvePositive(k,n,new double[n],1);}catch(ArithmeticException|IllegalArgumentException error) {
@@ -116,6 +121,8 @@ final class QSpectralReml {
         // RemlResult adapter; no fabricated beta, covariance or residual entries.
         RemlResult fit;
         try(var operations=SpectralLinearAlgebra.open()) {
+            if(!backendIdentity.equals(operations.identity()))
+                throw new IllegalStateException("Spectral geometry engine changed during analysis");
             double[] covariance=k.clone();
             for(int i=0;i<covariance.length;i++)covariance[i]*=identity?0:theta[0];
             for(int i=0;i<n;i++)covariance[i*n+i]+=identity?theta[0]:theta[1];

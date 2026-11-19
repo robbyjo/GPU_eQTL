@@ -8,6 +8,24 @@ import org.jlinalg.reml.VarianceComponent;
 import org.junit.jupiter.api.Test;
 
 class QSpectralRemlTest {
+    @Test void resolvedGeometryEngineBindsSignatureAndCannotChangeDuringFit() {
+        String old=System.getProperty("eqtl.cpu.blas");
+        try {
+            Data data=data(false);System.setProperty("eqtl.cpu.blas","java");
+            var portable=model(data,true);String portableSignature=portable.signature();
+            System.setProperty("eqtl.cpu.blas","openblas");
+            var nativeModel=model(data,true);
+            assertNotEquals(portableSignature,nativeModel.signature());
+            assertThrows(IllegalStateException.class,()->portable.fitSetNull(data.y));
+            System.setProperty("eqtl.cpu.blas","auto");
+            // On this bundled-native test host auto resolves to the same actual engine.
+            assertEquals(nativeModel.signature(),model(data,true).signature());
+            System.setProperty("eqtl.cpu.blas","java");
+            var fitted=portable.fitSetNull(data.y);assertTrue(fitted.usesSpectralSetNull());
+            System.setProperty("eqtl.cpu.blas","openblas");
+            assertThrows(IllegalStateException.class,()->portable.fitSetNull(data.y));
+        } finally {if(old==null)System.clearProperty("eqtl.cpu.blas");else System.setProperty("eqtl.cpu.blas",old);}
+    }
     record Data(double[][] x,double[] k,double[] y) { }
     private Data data(boolean identity) {
         int n=56;double[][] x=new double[n][3];double[] k=new double[n*n],y=new double[n];Random random=new Random(191119);

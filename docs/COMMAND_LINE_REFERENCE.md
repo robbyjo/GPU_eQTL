@@ -172,6 +172,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--set-absent-variant POLICY` | `error` (default), `skip` | `set_absent_variant` | Handling for explicit definitions absent from the aligned source. |
 | `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
 | `--set-block-size N` | `0` automatic | `set_block_size` | Resident set tile size for bounded execution. Omitted/zero selects a heap-aware value from aligned sample count, method workspaces, and the actual set-membership density; a positive value remains an explicit override. |
+| `--set-null-fitter METHOD` | `legacy` (default), `spectral` | `set_null_fitter` | Selects the REML null fitter for continuous pedigree burden/SKAT/SKAT-O. Spectral requires `--pedigree` with score mode and no GRM or additional random kernels; FP64 only. Use separate result/checkpoint directories for the two fitters. See [examples and limits](SPECTRAL_SET_NULL.md). |
 | `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
 | `--skat-o-method METHOD` | `integration` (default), `simulation` | `skat_o_method` | Joint rho-grid tail integration without an event-count floor; optional correlated Gaussian simulation. See [derivation and limits](RELATED_SET_TESTS.md). |
 | `--skat-o-relative-tolerance VALUE` | `0.005`; range `1e-6` to `0.05` | `skat_o_relative_tolerance` | Estimated relative integration error target. |

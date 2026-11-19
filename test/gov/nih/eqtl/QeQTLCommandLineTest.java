@@ -13,6 +13,40 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class QeQTLCommandLineTest {
+    @Test void spectralSetNullCanBeSelectedForEverySupportedSetMethod() throws Exception {
+        for(String method:new String[]{"burden","skat","skat-o"}) {
+            var config=QeQTLCommandLine.parse(new String[]{"--analysis",method,"--pedigree","ped.tsv",
+                "--set-null-fitter","spectral"}).config();
+            assertEquals("spectral",config.getSetNullFitter());assertEquals("score",config.getMixedModel());
+        }
+        assertEquals("legacy",QeQTLCommandLine.parse(new String[]{"--analysis","skat","--pedigree","ped.tsv"})
+            .config().getSetNullFitter());
+        assertTrue(QeQTLCommandLine.usage().contains("--set-null-fitter"));
+    }
+    @Test void spectralSetNullSupportsLegacyIniAndExplicitOverrides(@TempDir Path directory) throws Exception {
+        Path ini=directory.resolve("spectral.ini");
+        Files.writeString(ini,"analysis = skat\npedigree_file = pedigree.tsv\nset_null_fitter = spectral\n");
+        var config=QeQTLCommandLine.parse(new String[]{ini.toString()}).config();
+        assertEquals("spectral",config.getSetNullFitter());
+        assertEquals(directory.resolve("pedigree.tsv").toString(),config.getPedigreeFilename());
+        assertEquals("legacy",QeQTLCommandLine.parse(new String[]{"--config",ini.toString(),"--set-null-fitter","legacy"})
+            .config().getSetNullFitter());
+        Files.writeString(ini,"analysis = skat\npedigree_file = pedigree.tsv\n");
+        assertEquals("spectral",QeQTLCommandLine.parse(new String[]{"--config",ini.toString(),"--set-null-fitter","spectral"})
+            .config().getSetNullFitter());
+    }
+    @Test void invalidSpectralCliRequestsFailBeforeInputsAreOpened() {
+        for(String[] args:new String[][] {
+            {"--analysis","skat","--pedigree","ped.tsv","--set-null-fitter","unknown"},
+            {"--analysis","skat","--set-null-fitter","spectral"},
+            {"--pedigree","ped.tsv","--set-null-fitter","spectral"},
+            {"--analysis","skat","--relationship-matrix","grm.tsv","--set-null-fitter","spectral"},
+            {"--analysis","skat","--pedigree","ped.tsv","--mixed-model","reml","--set-null-fitter","spectral"},
+            {"--analysis","skat","--pedigree","ped.tsv","--covariates","cov.csv","--random-covariates","family","--set-null-fitter","spectral"},
+            {"--analysis","skat","--pedigree","ped.tsv","--precision","fp32","--set-null-fitter","spectral"},
+            {"--set-null-fitter"}
+        })assertThrows(IllegalArgumentException.class,()->QeQTLCommandLine.parse(args));
+    }
     @Test void relatedSetIntegrationOptionsRoundTripThroughIni(@TempDir Path directory) throws Exception {
         Path ini = directory.resolve("sets.ini");
         Files.writeString(ini,"analysis = skat-o\nrelationship_matrix = grm.tsv\ntrait_missing = pattern\n"
