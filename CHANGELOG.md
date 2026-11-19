@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.9.1.5](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.5) — 2026-11-19
 
 - Stabilize spectral REML profile comparisons and score accumulation across trait units; retain the strict convergence check and use a new spectral checkpoint identity.
 
