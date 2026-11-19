@@ -45,6 +45,7 @@ public class QeQTLAnalysisConfig {
 
     /** Do not silently run a different statistical model than the one requested. */
     public void requireSupportedAnalysisModel() {
+        getSetNullFitter();
         if (getAnalysisMethod().isSetTest()) {
             getSkatOMethod(); getSkatORelativeTolerance(); getSkatOMaxEvaluations();
         }
@@ -88,6 +89,14 @@ public class QeQTLAnalysisConfig {
         return value.toLowerCase(Locale.ROOT).equals("genesis") ? "score" : value.toLowerCase(Locale.ROOT);
     }
     public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
+    public String getSetNullFitter() {
+        String value=mIni.getOrDefault("set_null_fitter","legacy").toLowerCase(Locale.ROOT);
+        if(!java.util.Set.of("legacy","spectral").contains(value))throw new IllegalArgumentException("--set-null-fitter must be legacy or spectral");
+        if(value.equals("spectral")&&(!getAnalysisMethod().isSetTest()||!getMixedModel().equals("score")
+            ||getPedigreeFilename()==null||getRelationshipMatrixFilename()!=null||getRandomCovariates()!=null))
+            throw new IllegalArgumentException("--set-null-fitter spectral requires pedigree set tests with --mixed-model score and no additional random kernels");
+        return value;
+    }
     public String getRelationshipMatrixFilename() { return expandPath(mIni.get("relationship_matrix"), getIniPath()); }
     public String getSkatOMethod() {
         String value = mIni.getOrDefault("skat_o_method", "integration");

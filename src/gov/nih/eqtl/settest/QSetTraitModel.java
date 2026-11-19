@@ -11,6 +11,7 @@ public final class QSetTraitModel {
     public record Scores(double[] u,double[][] covariance) { }
     private final int[] samples;
     private final double[][] q, projection;
+    private double[][] spectralFactor;
     private final double[] response;
     private final QMixedModel.NullState mixed;
     private final double sigma;
@@ -26,10 +27,13 @@ public final class QSetTraitModel {
         double[] values = new double[samples.length];
         for (int i = 0; i < samples.length; i++) values[i] = y[samples[i]];
         if (fullModel != null) {
-            mixed = fullModel.subset(samples).fitSetNull(values);
+            mixed = fullModel.fitSetNull(values,samples);
             response = mixed.projectedResponse(); sigma = 1;
-            double[] p = mixed.projection(); projection = new double[samples.length][samples.length];
-            for (int i = 0; i < samples.length; i++) System.arraycopy(p,i*samples.length,projection[i],0,samples.length);
+            if(mixed.usesSpectralSetNull()){projection=null;spectralFactor=QSetMatrixOperations.transpose(mixed.spectralFactor());}
+            else {
+                double[] p = mixed.projection(); projection = new double[samples.length][samples.length];
+                for (int i = 0; i < samples.length; i++) System.arraycopy(p,i*samples.length,projection[i],0,samples.length);
+            }
         } else {
             mixed = null; projection = null; response = values.clone();
             for (int a = 0; a < q[0].length; a++) {
@@ -54,11 +58,14 @@ public final class QSetTraitModel {
             for (int i = 0; i < rows.length; i++) centered[i] = mixed.center(rows[i]);
             rows = centered;
         } else rows = operations.residualize(rows,q);
-        double[][] projected = mixed == null ? rows : operations.cross(rows,projection,"fitted-P-times-genotypes");
+        double[][] projected = mixed == null ? rows : spectralFactor!=null
+            ? operations.cross(rows,spectralFactor,"spectral-whiten-genotypes")
+            : operations.cross(rows,projection,"fitted-P-times-genotypes");
         double[][] products = operations.cross(rows,new double[][]{response},"genotype-scores");
         double[] u = new double[rows.length];
         for (int i = 0; i < u.length; i++) u[i] = products[i][0];
-        double[][] covariance = operations.cross(rows,projected,"score-covariance");
+        double[][] covariance = spectralFactor==null ? operations.cross(rows,projected,"score-covariance")
+            : operations.cross(projected,projected,"score-covariance");
         for (int i = 0; i < covariance.length; i++) for (int j = 0; j < i; j++)
             covariance[i][j] = covariance[j][i] = .5*covariance[i][j]+.5*covariance[j][i];
         return new Scores(u,covariance);
@@ -77,6 +84,7 @@ public final class QSetTraitModel {
             +";logLik="+mixed.fit().restrictedLogLikelihood()+";iterations="+mixed.fit().iterations()
             +";converged="+mixed.fit().converged()+";singular="+mixed.fit().isSingular(1e-8)
             +(mixed.usedStableCoordinates()?";fit-method=qr-scaled-retry":"")
+            +(mixed.usesSpectralSetNull()?";fit-method=spectral-reml;maximum-projected-score="+mixed.spectralMaximumProjectedScore():"")
             +(mixed.combinedIdentityVariance()?";identity-pedigree=combined-total-variance":"");
     }
     public static int[] observed(double[] y) {

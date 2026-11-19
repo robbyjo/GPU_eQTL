@@ -19,6 +19,10 @@ public final class QMixedModel {
     private final List<VarianceComponent> components;
     private final RemlOptions options;
     private final String dfMethod;
+    private boolean spectralSetNull;
+    private QSpectralReml spectralGeometry;
+    private int[] cachedSetSamples;
+    private QMixedModel cachedSetSubset;
 
     public record Association(double beta, double standardError, double statistic,
         double df, double log10P, String test, String status, RemlResult fit) { }
@@ -82,7 +86,9 @@ public final class QMixedModel {
                     Arrays.asList(covariates.columnValues(column, selected))));
         components.add(VarianceComponent.identity("residual", n));
         if (design == null) { design = new double[n][1]; for (double[] row : design) row[0] = 1; }
-        return new QMixedModel(design, components, config.getRemlMaximumIterations(), config.getRemlDf());
+        QMixedModel model=new QMixedModel(design, components, config.getRemlMaximumIterations(), config.getRemlDf());
+        model.spectralSetNull=config.getSetNullFitter().equals("spectral");
+        return model;
     }
 
     /** Principal submatrices of covariance bases, never a subset of an already fitted P. */
@@ -101,7 +107,28 @@ public final class QMixedModel {
                 part[i*samples.length+j] = full[samples[i]*design.length+samples[j]];
             bases.add(new VarianceComponent(component.name(), samples.length, part));
         }
-        return new QMixedModel(x, bases, options.maximumIterations(), dfMethod);
+        QMixedModel result=new QMixedModel(x, bases, options.maximumIterations(), dfMethod);
+        result.spectralSetNull=spectralSetNull;
+        return result;
+    }
+
+    /** Opt-in API, also used by deterministic scalar/native reference tests. */
+    public QMixedModel withSpectralSetNull() {
+        if(components.size()!=2||!components.get(0).name().equals("additive-genetic")
+            ||!components.get(1).name().equals("residual")||!exactIdentity(components.get(1)))
+            throw new IllegalArgumentException("Spectral set null requires one pedigree covariance plus residual identity");
+        QMixedModel result=new QMixedModel(design,components,options.maximumIterations(),dfMethod);
+        result.spectralSetNull=true;return result;
+    }
+
+    /** One bounded geometry cache; response/variance estimates are never shared across traits. */
+    public NullState fitSetNull(double[] y,int[] samples) {
+        if(!spectralSetNull)return subset(samples).fitSetNull(y);
+        if(!Arrays.equals(samples,cachedSetSamples)) {
+            QMixedModel selected=subset(samples);
+            cachedSetSamples=samples.clone();cachedSetSubset=selected;
+        }
+        return cachedSetSubset.fitSetNull(y);
     }
 
     /** All resolved model state participates in set checkpoint identity. */
@@ -110,6 +137,8 @@ public final class QMixedModel {
             var digest = java.security.MessageDigest.getInstance("SHA-256");
             digest.update(("exact-identity-set-null-v1;qr-scaled-null-retry-v1;jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if(spectralSetNull)digest.update((";spectral-error-contrast-reml-v1;whitened-set-covariance-v1;"
+                +System.getProperty("eqtl.cpu.blas","auto")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             var buffer = java.nio.ByteBuffer.allocate(8);
             for (double[] row : design) for (double value : row) {
                 buffer.clear(); buffer.putDouble(value); digest.update(buffer.array());
@@ -218,6 +247,13 @@ public final class QMixedModel {
      * Ordinary single-predictor fitting/refits retain their existing policy.
      */
     public NullState fitSetNull(double[] y) {
+        if(spectralSetNull) {
+            if(components.size()!=2||!components.get(0).name().equals("additive-genetic")
+                ||!components.get(1).name().equals("residual")||!exactIdentity(components.get(1)))
+                throw new IllegalArgumentException("Spectral set null requires one pedigree covariance plus residual identity");
+            if(spectralGeometry==null)spectralGeometry=new QSpectralReml(design,components.get(0).covariance());
+            return new NullState(spectralGeometry.fit(y),design);
+        }
         if (components.size() == 2 && components.get(0).name().equals("additive-genetic")
                 && components.get(1).name().equals("residual")
                 && components.get(0).dimension() == design.length && components.get(1).dimension() == design.length
@@ -417,12 +453,16 @@ public final class QMixedModel {
     }
     public static final class NullState {
         private final RemlResult fit;
-        private final double[] projection, projectedResponse;
-        private final double norm;
+        private double[] projection;
+        private final double[] projectedResponse;
+        private double norm;
         private final double minimumVariance, maximumVariance;
         private final boolean stableCoordinates;
         private final boolean combinedIdentity;
         private final double[][] q;
+        private double[] spectralFactor;
+        private int spectralColumns;
+        private double spectralMaximumScore=Double.NaN;
         NullState(RemlResult fit, double[] projection, double[] response, double[][] design, double minimumVariance, double maximumVariance,boolean stableCoordinates) {
             this.fit = fit; this.projection = projection; this.projectedResponse = response;
             this.minimumVariance = minimumVariance; this.maximumVariance = maximumVariance;
@@ -439,11 +479,35 @@ public final class QMixedModel {
             norm=total.norm;minimumVariance=total.minimumVariance;maximumVariance=total.maximumVariance;
             stableCoordinates=total.stableCoordinates;q=total.q;combinedIdentity=true;
         }
+        private NullState(QSpectralReml.Fitted fitted,double[][] design) {
+            fit=fitted.fit();projection=null;projectedResponse=fitted.response();norm=Double.NaN;
+            minimumVariance=fitted.lower();maximumVariance=fitted.upper();stableCoordinates=false;
+            combinedIdentity=fitted.combinedIdentity();q=new QRDecomposition(design).getQArray();
+            spectralFactor=fitted.factor();spectralColumns=fitted.columns();spectralMaximumScore=fitted.maximumProjectedScore();
+        }
         /** Original-unit fit; coefficient-space recovery reports unavailable log-variance scores as zero. */
         public RemlResult fit() { return fit; }
         public boolean usedStableCoordinates() { return stableCoordinates; }
         public boolean combinedIdentityVariance() { return combinedIdentity; }
-        public double[] projection() { return projection.clone(); }
+        public boolean usesSpectralSetNull() { return spectralFactor!=null; }
+        public double spectralMaximumProjectedScore() { return spectralMaximumScore; }
+        public double[][] spectralFactor() {
+            if(spectralFactor==null)throw new IllegalStateException("Not a spectral set null");
+            double[][] copy=new double[projectedResponse.length][spectralColumns];
+            for(int i=0;i<copy.length;i++)System.arraycopy(spectralFactor,i*spectralColumns,copy[i],0,spectralColumns);
+            return copy;
+        }
+        public double[] projection() {
+            ensureProjection();return projection.clone();
+        }
+        private void ensureProjection() {
+            if(projection!=null)return;
+            int n=projectedResponse.length;
+            try(var operations=gov.nih.gpu.SpectralLinearAlgebra.open()) {
+                projection=operations.multiply(spectralFactor,false,spectralFactor,true,n,n,spectralColumns);
+            }
+            norm=0;for(int i=0;i<n;i++){double sum=0;for(int j=0;j<n;j++)sum+=Math.abs(projection[i*n+j]);norm=Math.max(norm,sum);}
+        }
         public double[] projectedResponse() { return projectedResponse.clone(); }
         /** Remove fixed-effect span before products to avoid offset cancellation. */
         public double[] center(double[] g) {
@@ -462,11 +526,13 @@ public final class QMixedModel {
             return result;
         }
         public double[] project(double[] g) {
+            ensureProjection();
             int n = g.length; double[] result = new double[n];
             for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) result[i] += projection[i*n+j]*g[j];
             return result;
         }
         boolean estimable(double[] g, double[] pg) {
+            ensureProjection();
             double information = dot(g,pg), tolerance = 1e-12*norm*dot(g,g);
             if (!Double.isFinite(information) || !Double.isFinite(tolerance) || information < -tolerance)
                 throw new IllegalArgumentException("Invalid mixed-model score information");

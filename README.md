@@ -1,5 +1,7 @@
 # GPU eQTL
 
+Pedigree-adjusted continuous set tests can explicitly select the [spectral REML null fitter](docs/SPECTRAL_SET_NULL.md) with `--set-null-fitter spectral`. It retains the two-component covariance model and reuses geometry across identical ordered sample masks. The default remains the legacy fitter; spectral results require separate checkpoint directories.
+
 The [September 2026 numerical and performance audit](docs/AUDIT_2026-09-09.md)
 records independent R comparisons, fixes, and matched benchmarks. The subsequent
 [fitted mixed-model implementation](docs/MIXED_MODELS.md) selectively adopts
