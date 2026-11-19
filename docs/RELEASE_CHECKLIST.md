@@ -2,6 +2,12 @@
 
 GPU eQTL requires Java 17 or newer and retains FP64 as the scientific default. A release is not complete until the shaded jar has passed the hardware-independent Maven suite, its packaged notices have been checked, and the artifact has printed backend information on its target host.
 
+## Release documentation
+
+Keep the [README](../README.md) as a short orientation page. Put release news and upgrade instructions on the website's [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html), maintained in `docs/updates.html`.
+
+For each release, add a dated summary to that page with links to the GitHub release and detailed release notes. Include any checkpoint/cache migration requirements, keep the latest release first, and retain older entries. Update [CHANGELOG.md](../CHANGELOG.md), the detailed release notes and verification receipt, plus versioned examples in the [user guide](USER_GUIDE.md), command-line reference, and `docs/site.js`. Link method-specific details to their dedicated guides instead of expanding the README. After merging, verify the GitHub Pages deployment and the live home and Updates pages.
+
 ## Artifacts
 
 Build and verify the universal OpenBLAS jar on Windows PowerShell:

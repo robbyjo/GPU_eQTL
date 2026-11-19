@@ -1,6 +1,6 @@
 # GPU eQTL command-line reference
 
-This page is the reference for the command-line interface in GPU eQTL 2.0. It lists every option accepted by the current parser, its default, the corresponding legacy INI key where one exists, and important interactions. For background on input formats, missingness, caches, numerical precision, and backends, see the [main README](../README.md).
+This page is the reference for the current GPU eQTL command-line interface. It lists every option accepted by the current parser, its default, the corresponding legacy INI key where one exists, and important interactions. For background on input formats, missingness, caches, numerical precision, and backends, see the [user guide](USER_GUIDE.md).
 
 ## Invocation
 
