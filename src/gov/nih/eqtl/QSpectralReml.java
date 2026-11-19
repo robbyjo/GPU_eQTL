@@ -103,7 +103,7 @@ final class QSpectralReml {
             theta=new double[]{total};Arrays.fill(v,total);double score=0;for(double value:z2)score+=.5*(value/total-1);
             maximumScore=Math.abs(score);evaluations=1;
         } else {
-            Evaluation optimum=optimize(z2,lo,hi);
+            Evaluation optimum=optimize(z2,lo,hi,pilot);
             theta=new double[]{optimum.genetic,optimum.residual};
             for(int j=0;j<d;j++)v[j]=theta[0]*eigen[j]+theta[1];
             double sg=optimum.scoreG,se=optimum.scoreE;
@@ -149,44 +149,47 @@ final class QSpectralReml {
         }
         return new Fitted(fit,factor,d,response,lo,hi,maximumScore,identity);
     }
-    private Evaluation evaluate(double t,double[] z2,double lo,double hi) {
+    private Evaluation evaluate(double t,double[] z2,double lo,double hi,double pilot) {
         if(++evaluations>65536)throw new ArithmeticException("Spectral REML exceeded 65536 profile evaluations");
-        double ratio=Math.exp(t),sum=0;
-        for(int j=0;j<d;j++){double shape=1+ratio*eigen[j];if(!(shape>0))return new Evaluation(t,Double.POSITIVE_INFINITY,0,0,0,0,Double.NaN);sum+=z2[j]/shape;}
+        double ratio=Math.exp(t),sum=0,sumCorrection=0;
+        for(int j=0;j<d;j++){double shape=1+ratio*eigen[j];if(!(shape>0))return new Evaluation(t,Double.POSITIVE_INFINITY,0,0,0,0,Double.NaN);double term=z2[j]/shape-sumCorrection,next=sum+term;sumCorrection=(next-sum)-term;sum=next;}
         double lower=Math.max(lo,lo/ratio),upper=Math.min(hi,hi/ratio),raw=sum/d;
         if(lower>upper*(1+1e-12))return new Evaluation(t,Double.POSITIVE_INFINITY,0,0,0,0,Double.NaN);
-        double e=Math.max(lower,Math.min(upper,raw)),g=e*ratio,objective=0,sg=0,se=0;
+        double e=Math.max(lower,Math.min(upper,raw)),g=e*ratio,objective=0,sg=0,se=0,oc=0,gc=0,ec=0;
         for(int j=0;j<d;j++) {
             double v=e*(1+ratio*eigen[j]),difference=z2[j]/v-1;
-            objective+=.5*(Math.log(v)+z2[j]/v);
-            sg+=.5*(g*eigen[j]/v)*difference;se+=.5*(e/v)*difference;
+            // Remove the response-unit constant before comparing profile candidates.
+            // Compensated sums keep a stationary root competitive with a rounded minimum.
+            double term=.5*(Math.log(v/pilot)+z2[j]/v)-oc,next=objective+term;oc=(next-objective)-term;objective=next;
+            term=.5*(g*eigen[j]/v)*difference-gc;next=sg+term;gc=(next-sg)-term;sg=next;
+            term=.5*(e/v)*difference-ec;next=se+term;ec=(next-se)-term;se=next;
         }
         double derivative=-sg;
         if((raw<lower||raw>upper)&&(e==lo/ratio||e==hi/ratio))derivative=se;
         return new Evaluation(t,objective,g,e,sg,se,derivative);
     }
-    private Evaluation optimize(double[] z2,double lo,double hi) {
+    private Evaluation optimize(double[] z2,double lo,double hi,double pilot) {
         double bound=Math.log(hi)-Math.log(lo),step=2*bound/1024;
         Evaluation[] grid=new Evaluation[1025];List<Evaluation> candidates=new ArrayList<>();
-        for(int i=0;i<grid.length;i++)grid[i]=evaluate(-bound+i*step,z2,lo,hi);
+        for(int i=0;i<grid.length;i++)grid[i]=evaluate(-bound+i*step,z2,lo,hi,pilot);
         candidates.add(grid[0]);candidates.add(grid[1024]);
         for(int i=1;i<1024;i++)if(grid[i].objective<=grid[i-1].objective&&grid[i].objective<=grid[i+1].objective) {
             double a=grid[i-1].t,b=grid[i+1].t,ratio=(Math.sqrt(5)-1)/2;
             double left=b-ratio*(b-a),right=a+ratio*(b-a);
-            Evaluation fl=evaluate(left,z2,lo,hi),fr=evaluate(right,z2,lo,hi);
+            Evaluation fl=evaluate(left,z2,lo,hi,pilot),fr=evaluate(right,z2,lo,hi,pilot);
             for(int iteration=0;iteration<100&&b-a>1e-12;iteration++) {
-                if(fl.objective<fr.objective){b=right;right=left;fr=fl;left=b-ratio*(b-a);fl=evaluate(left,z2,lo,hi);}
-                else{a=left;left=right;fl=fr;right=a+ratio*(b-a);fr=evaluate(right,z2,lo,hi);}
+                if(fl.objective<fr.objective){b=right;right=left;fr=fl;left=b-ratio*(b-a);fl=evaluate(left,z2,lo,hi,pilot);}
+                else{a=left;left=right;fl=fr;right=a+ratio*(b-a);fr=evaluate(right,z2,lo,hi,pilot);}
             }
             candidates.add(fl.objective<fr.objective?fl:fr);
             a=grid[i-1].t;b=grid[i+1].t;
             Evaluation fa=grid[i-1],fb=grid[i+1];
             if(fa.derivative*fb.derivative<0) {
                 for(int iteration=0;iteration<100&&b-a>1e-13;iteration++) {
-                    double mid=.5*a+.5*b;Evaluation fm=evaluate(mid,z2,lo,hi);
+                    double mid=.5*a+.5*b;Evaluation fm=evaluate(mid,z2,lo,hi,pilot);
                     if(fa.derivative*fm.derivative<=0){b=mid;fb=fm;}else{a=mid;fa=fm;}
                 }
-                candidates.add(evaluate(.5*a+.5*b,z2,lo,hi));
+                candidates.add(evaluate(.5*a+.5*b,z2,lo,hi,pilot));
             }
         }
         double minimum=candidates.stream().mapToDouble(Evaluation::objective).min().orElseThrow();
