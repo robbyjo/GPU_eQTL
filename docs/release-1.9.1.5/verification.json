@@ -1,0 +1,242 @@
+{
+  "version": "1.9.1.5",
+  "merged_pull_request": {
+    "required_check_conclusion": "success",
+    "number": 13,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/13",
+    "merged_at": "2026-11-19T17:33:53Z",
+    "required_check_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/44576797602/job/135746336033",
+    "merge_sha": "3b623020a91b687242abc2f87f6013a65dc1d17a",
+    "head_sha": "cde6f79854676d0bcc5e34b0a80c21d12ffde473",
+    "method": "squash"
+  },
+  "release_metadata_pull_request": {
+    "required_check_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/44578654279/job/135754811863",
+    "ci_attempt": 2,
+    "head_sha": "4c796ee2fc2c38966282c34c8de78063f890a3a2",
+    "number": 14,
+    "merge_sha": "d0d0f911e08dc644c2c89f5830ff97c523a8a82c",
+    "required_check_conclusion": "success",
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/14",
+    "merged_at": "2026-11-19T17:40:02Z",
+    "initial_ci_failure": "Maven plugin resolution before tests"
+  },
+  "source_commit": "4c796ee2fc2c38966282c34c8de78063f890a3a2",
+  "tag_object": "7940e5481312e73cd241a43b1473c425e743ac24",
+  "release_url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.5",
+  "release_id": 451698895,
+  "published_at": "2026-11-19T17:40:36Z",
+  "verified_utc": "2026-11-19T17:41:18.245639+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tests": {
+    "full_suite": {
+      "tests": 213,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 208
+    },
+    "exact_packaged_jar": {
+      "tests": 66,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "passed": 66
+    }
+  },
+  "scale_regression": {
+    "samples": 512,
+    "trait_scales": [
+      1e-100,
+      1e-50,
+      1e+50,
+      1e+100
+    ],
+    "released_1_9_1_4_failure_reproduced": true,
+    "old_projected_score": 6.370094266155979e-06,
+    "previous_public_jar_sha256": "d1e826b8f7dd285c888dcb06f3f791b646640a4673f4438ee48d8f5ee129c567",
+    "corrected_scale_fits_below_projected_score": 1e-08,
+    "production_projected_score_limit_unchanged": 1e-06,
+    "variance_scaling_and_original_likelihood_transformation_verified": true
+  },
+  "packaged_licenses_byte_verified": 9,
+  "dependency_namespace_files_byte_verified": {
+    "org/jlinalg/": 1098,
+    "jdistlib/": 933
+  },
+  "release_assets": [
+    {
+      "name": "gpu-eqtl-1.9.1.5-universal.jar",
+      "size": 140780413,
+      "sha256": "9596f53ee278ecd8c93aafa5de54fa086620fbd1a319d41bbb29efa152feeeef",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.5/gpu-eqtl-1.9.1.5-universal.jar"
+    },
+    {
+      "name": "RELEASE-MANIFEST.txt",
+      "size": 401,
+      "sha256": "14ebb85e1503a3d91ffb2011396ea859e86668de79f6653bfcb064de87205656",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.5/RELEASE-MANIFEST.txt"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 97,
+      "sha256": "1d5a133be0f1986021275efc015b8a1302ea4759c8b686ba503058efdeba6785",
+      "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.1.5/SHA256SUMS"
+    }
+  ],
+  "all_public_asset_downloads_sha256_verified": true,
+  "release_build": {
+    "command": ".\\scripts\\verify-release.ps1 -Platform universal",
+    "dirty_worktree": false,
+    "java_target": 17,
+    "build_jdk": 25,
+    "host_os": "Windows x64",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "nvidia_driver": "621.14",
+    "cuda_runtime": "12.6",
+    "cuda_driver_api": "13.5",
+    "opencl": "OpenCL 3.0 CUDA, driver 621.14"
+  },
+  "spectral_packaged_cli": {
+    "version": "1.9.1.5",
+    "traits": 3,
+    "sets": 2,
+    "runs": [
+      {
+        "method": "burden",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      }
+    ],
+    "max_relative_p_difference": 5.10702591327572e-15,
+    "native_vs_java_tolerance": {
+      "relative": 3e-08,
+      "absolute": 1e-10
+    },
+    "legacy_tolerance": {
+      "relative": 2e-05,
+      "absolute": 0.0001
+    },
+    "spectral_association_rows": 72,
+    "legacy_reference_rows": 18,
+    "all_resumes_zero_products": true,
+    "legacy_1_9_1_4_checkpoint_compatible": true,
+    "spectral_1_9_1_4_checkpoint_rejected": true
+  },
+  "legacy_packaged_cuda_grm_smoke": {
+    "analysis": "related SKAT-O, exact trait deletion",
+    "sample_count": 43,
+    "model_files_replaced_with_identical_bytes_and_mtime": true,
+    "result_and_audit_resume_byte_identical": true,
+    "resumed_matrix_products": 0
+  },
+  "website": {
+    "homepage_status": 200,
+    "workflow_status": "completed",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/44579632735",
+    "site_js_version_verified": true,
+    "homepage_release_link_verified": true,
+    "homepage_url": "https://robbyjo.github.io/GPU_eQTL/",
+    "workflow_conclusion": "success",
+    "site_js_status": 200,
+    "source_commit": "d0d0f911e08dc644c2c89f5830ff97c523a8a82c",
+    "verified_utc": "2026-11-19T17:41:17.2006822+00:00",
+    "workflow_id": 44579632735
+  },
+  "compatibility": {
+    "set_checkpoint_version": 6,
+    "mixed_checkpoint_version": 3,
+    "spectral_model_signature": "spectral-error-contrast-reml-v3-scaled-compensated-profile-resolved-engine",
+    "spectral_results_require_fresh_checkpoints_after_1_9_1_4": true,
+    "legacy_signature_unchanged": true,
+    "legacy_1_9_1_4_resume_verified": true,
+    "raw_dosage_cache_formats_unchanged": true
+  },
+  "limitations": [
+    "Spectral mode remains opt-in FP64 continuous pedigree set tests with one additive kernel and residual identity",
+    "Synthetic correctness checks, not full-cohort throughput or production deployment validation",
+    "Dense-memory, projected-score and numerical work/convergence limits remain",
+    "No private production analysis, remote diagnostic or fresh multi-node/macOS/other-vendor/multi-GPU validation in this task"
+  ]
+}
