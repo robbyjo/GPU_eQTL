@@ -61,6 +61,7 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--pedigree-id-column", "pedigree_id_column");
         VALUE_OPTIONS.put("--reml-df", "reml_df");
         VALUE_OPTIONS.put("--reml-max-iterations", "reml_max_iterations");
+        VALUE_OPTIONS.put("--set-null-fitter", "set_null_fitter");
         VALUE_OPTIONS.put("--genotype-format", "genotype_format");
         VALUE_OPTIONS.put("--expression-format", "expression_format");
         VALUE_OPTIONS.put("--genotype-model", "genotype_model");
@@ -307,6 +308,7 @@ public final class QeQTLCommandLine {
               --pedigree-id-column NAME        Observation-to-individual mapping for repeated measurements
               --reml-df {residual|satterthwaite|kenward-roger}  Per-predictor REML Wald inference
               --reml-max-iterations N          Maximum iterations per fit (default: 200)
+              --set-null-fitter legacy|spectral  Pedigree burden/SKAT/SKAT-O null fitter (default: legacy)
               --factor-covariates LIST         Force numeric-looking variables to be categorical
               --genotype-id-column NAME        Covariate column containing genotype sample IDs
               --expression-id-column NAME      Covariate column containing expression sample IDs
