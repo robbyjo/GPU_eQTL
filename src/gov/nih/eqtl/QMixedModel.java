@@ -145,7 +145,7 @@ public final class QMixedModel {
             var digest = java.security.MessageDigest.getInstance("SHA-256");
             digest.update(("exact-identity-set-null-v1;qr-scaled-null-retry-v1;jlinalg-0.3.6;jdistlib-0.10.2;" + options.maximumIterations() + ";" + dfMethod)
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            if(spectralSetNull)digest.update((";spectral-error-contrast-reml-v2-resolved-engine;whitened-set-covariance-v1;"
+            if(spectralSetNull)digest.update((";spectral-error-contrast-reml-v3-scaled-compensated-profile-resolved-engine;whitened-set-covariance-v1;"
                 +spectralEngineIdentity).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             var buffer = java.nio.ByteBuffer.allocate(8);
             for (double[] row : design) for (double value : row) {
