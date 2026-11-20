@@ -887,6 +887,7 @@ public class QeQTLAnalysis implements IJobOwner
 				if (missingnessTerms != null) java.util.Collections.addAll(terms, missingnessTerms);
 				if (config.getRandomCovariates() != null) java.util.Collections.addAll(terms, config.getRandomCovariates());
 				if (config.get("pedigree_id_column") != null) terms.add(config.get("pedigree_id_column"));
+				if (config.get("residual_group_column") != null) terms.add(config.get("residual_group_column"));
 				missingnessTerms = terms.toArray(String[]::new);
 			}
 			covariateMissingness = covariates.inspectMissingness(missingnessTerms);
@@ -1061,6 +1062,12 @@ public class QeQTLAnalysis implements IJobOwner
 			covariateModel = modelValues;
 		}
 		if (!config.getMixedModel().equals("none") && !preprocessOnly && !config.getAnalysisMethod().isSetTest()) {
+			if(config.getMixedNullFitter().equals("pedigree-block")) {
+				QPooledPedigreeModel pooled=QPooledPedigreeModel.create(config,covariateModel,covariates,retainedCovariateRows,canonicalSampleIds);
+				if(config.getValidateOnly()){System.out.println("Pooled pedigree-block alignment, pedigree and fixed design validated; no fit or scan.");return;}
+				QPooledScoreRunner.run(config,pooled,unfilledPredictorSource,predictorColumnOrder,expressionSource,alignment.expressionColumnOrder(),mContexts);
+				return;
+			}
 			if (dynamicTraitPatterns)
 				throw new IllegalArgumentException("Fitted mixed models currently require complete, explicitly filled, or excluded traits; exact trait-pattern REML is not supported");
 			QMixedModel mixed = QMixedModel.create(config, covariateModel, covariates,

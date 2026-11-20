@@ -217,6 +217,31 @@ public final class QRawMatrixCache implements QMatrixRowSource, AutoCloseable {
             persistentIndexReused);
     }
 
+    /** Source-ordered IDs, available without reading dosage rows. */
+    public String[] indexedRowIds() throws IOException { return rowIndex().ids().clone(); }
+
+    /** Direct source-ordered row selection; avoids scanning all variant IDs for each cis trait. */
+    public Block readRows(int[] rows, int[] columnOrder) throws IOException {
+        int[] selected=validateColumns(columnOrder);RowIndex index=rowIndex();
+        String[] ids=new String[rows.length];double[][] values=new double[rows.length][selected.length];
+        byte[] numericBytes=new byte[Math.multiplyExact(metadata.columnCount(),Double.BYTES)];
+        try(RandomAccessFile input=new RandomAccessFile(path.toFile(),"r")) {
+            int previous=-1;
+            for(int a=0;a<rows.length;a++) {
+                int row=rows[a];if(row<=previous||row>=index.ids().length)throw new IllegalArgumentException("Raw row indexes must be unique, increasing and in range");previous=row;
+                input.seek(index.offsets()[row]);byte[] idBytes=readBytes(input);ids[a]=new String(idBytes,StandardCharsets.UTF_8);
+                if(!ids[a].equals(index.ids()[row]))throw new IOException("Raw row index identity changed");
+                CRC32 checksum=new CRC32();checksum.update(idBytes);input.readFully(numericBytes);checksum.update(numericBytes);
+                if(input.readInt()!=(int)checksum.getValue())throw new IOException("Raw row checksum failure: "+ids[a]);
+                ByteBuffer numeric=ByteBuffer.wrap(numericBytes);
+                for(int j=0;j<selected.length;j++)values[a][j]=Double.longBitsToDouble(numeric.getLong(selected[j]*Double.BYTES));
+            }
+        }
+        indexedSelectionCalls.incrementAndGet();indexedRowsRead.addAndGet(rows.length);
+        indexedNumericBytesRead.addAndGet(Math.multiplyExact((long)rows.length,Math.multiplyExact((long)metadata.columnCount(),Double.BYTES)));
+        return new Block(rows.length==0?0:rows[0],ids,values);
+    }
+
     private int[] validateColumns(int[] columnOrder) {
         int[] selected = columnOrder == null ? identity(metadata.columnCount()) : columnOrder.clone();
         boolean[] seen = new boolean[metadata.columnCount()];
