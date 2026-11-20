@@ -5,6 +5,45 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 class QQuadraticFormDistributionTest {
+    @Test void weakEigenvaluesDoNotForceAnUnresolvableExtremeTailIntegral() throws Exception {
+        // Independent positive convolution of chi-square(1) and epsilon times
+        // chi-square(rank-1), evaluated at 70 and 110 decimal digits. The old
+        // rank-only truncation bound fails its relative-error check here.
+        var lines=java.nio.file.Files.readAllLines(java.nio.file.Path.of("test/resources/tail-remainder-reference.csv"));
+        assertEquals(5,lines.size());
+        for(String row:lines.subList(1,lines.size())) {
+            String[] fields=row.split(",");
+            double q=Double.parseDouble(fields[0]),epsilon=Double.parseDouble(fields[1]);
+            int rank=Integer.parseInt(fields[2]);double expected=Double.parseDouble(fields[3]);
+            double[] lambda=new double[rank];java.util.Arrays.fill(lambda,epsilon);lambda[rank-1]=1;
+            var direct=QTiltedQuadraticForm.probability(q,lambda,false);
+            assertTrue(direct.estimatedRelativeError()<=2e-11,row);
+            assertEquals(expected,direct.probability(),expected*2e-11,row);
+            assertEquals(expected,QQuadraticFormDistribution.survival(q,lambda).pValue(),expected*2e-11,row);
+            assertEquals(q,QQuadraticFormDistribution.critical(lambda,expected),q*3e-10,row);
+            for(double scale:new double[]{1e-100,1e100}) {
+                double[] scaled=java.util.Arrays.stream(lambda).map(x->x*scale).toArray();
+                assertEquals(expected,QQuadraticFormDistribution.survival(q*scale,scaled).pValue(),expected*2e-11,row);
+            }
+        }
+    }
+
+    @Test void spectrumBoundRetainsTheLawForTwoDominantEigenvalues() {
+        double epsilon=1e-6;int rank=160;
+        double[] lambda=new double[rank];java.util.Arrays.fill(lambda,epsilon);
+        lambda[rank-1]=lambda[rank-2]=1;
+        for(double q:new double[]{1,10,100,500,1100}) {
+            // Condition on epsilon*chi-square(rank-2); the remaining pair is
+            // exponential, giving an independent closed-form convolution.
+            double expected=Math.exp(-q/2-(rank-2)/2.0*Math.log1p(-epsilon))
+                *jdistlib.ChiSquare.cumulative((1-epsilon)*q/epsilon,rank-2,true,false)
+                +jdistlib.ChiSquare.cumulative(q/epsilon,rank-2,false,false);
+            var actual=QTiltedQuadraticForm.probability(q,lambda,false);
+            assertEquals(expected,actual.probability(),expected*2e-11,"q="+q);
+            assertTrue(actual.estimatedRelativeError()<=2e-11);
+        }
+    }
+
     @Test void broadSpectraMatchIndependentDaviesAndImhofReferences() throws Exception {
         var lines=java.nio.file.Files.readAllLines(java.nio.file.Path.of("test/resources/difficult-tail-reference.csv"));
         assertTrue(lines.size()>10);
