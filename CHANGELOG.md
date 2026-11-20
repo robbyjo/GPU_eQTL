@@ -2,6 +2,11 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## [1.9.1.6](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.6) — 2026-11-20
+
+- Resolve extreme SKAT tail accuracy failures for spectra with many weak eigenvalues using a spectrum-aware integration-by-parts remainder bound. Retain every positive eigenvalue, the same weighted chi-square law and SKAT-O inversion, the `2e-11` relative target, work limits and explicit unresolved-case failures. Accepted version-6 checkpoints and aligned raw dosage caches remain compatible under the existing input/model/backend checks.
+- Add independent high-precision synthetic tail references down to approximately `2.12e-306`, a closed-form convolution check, scale-invariance tests and extreme-tail quantile inversion. See the [release notes](docs/RELEASE_NOTES_1.9.1.6.md) and [numerical method](docs/SET_TEST_FOUNDATION.md).
+
 ## [1.9.1.5](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.1.5) — 2026-11-19
 
 - Stabilize spectral REML profile comparisons and score accumulation across trait units; retain the strict convergence check and use a new spectral checkpoint identity.
