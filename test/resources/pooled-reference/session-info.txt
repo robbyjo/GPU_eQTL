@@ -13,7 +13,7 @@ time zone: America/New_York
 tzcode source: internal
 
 attached base packages:
-[1] stats     graphics  grDevices utils     datasets  methods   base     
+[1] stats     graphics  grDevices utils     datasets  methods   base
 
 loaded via a namespace (and not attached):
 [1] compiler_4.6.1

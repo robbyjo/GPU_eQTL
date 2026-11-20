@@ -42,4 +42,4 @@ for(case in c('full','missing')) {
  Effect=U/info,SE=1/sqrt(info),Statistic=stat,log10P=pchisq(stat,1,lower.tail=FALSE,log.p=TRUE)/log(10),REMLLogLik=-state$value)
 }
 write.table(do.call(rbind,results),file.path(out,'expected.csv'),sep=',',row.names=FALSE,col.names=TRUE,quote=FALSE)
-capture.output(sessionInfo(),file=file.path(out,'session-info.txt'))
+writeLines(sub('[[:space:]]+$','',capture.output(sessionInfo())),file.path(out,'session-info.txt'))
