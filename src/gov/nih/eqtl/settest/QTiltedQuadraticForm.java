@@ -135,12 +135,44 @@ final class QTiltedQuadraticForm {
      * After m integrations by parts the remaining integral is therefore at
      * most (rank/2+1)_m * |phi(U)| / (m*U^m). This is a truncation bound;
      * Gauss-Kronrod and FP64 rounding errors are estimated separately.
+     *
+     * A second bound retains r_j=b_j*U/hypot(1,b_j*U). For u>=U, the
+     * absolute k-th logarithmic derivative of H is bounded by
+     * (k-1)!*(1+sum(r_j^k)/2)/U^k. Exponentiating these positive Taylor
+     * coefficients bounds |H^(m)(u)| by m!*c_m*|phi(u)|/(U^m*u).
+     * Also -d(log|phi(u)|)/d(log u)>=nu=sum(r_j^2)/2, so integrating
+     * |phi(u)|/u gives at most |phi(U)|/nu. Both bounds apply to the
+     * same unmodified spectrum; taking their minimum is safe and avoids
+     * treating every weak eigenvalue as a full 1/u derivative at U.
      */
     private static double remainder(double end,double[] b) {
         double log = -Math.log(ORDER)-ORDER*Math.log(end);
         for (int k=0;k<ORDER;k++) log += Math.log(b.length/2.0+1+k);
         for (double value:b) log -= .25*Math.log1p(value*end*value*end);
-        return Math.exp(log);
+        double rankBound = Math.exp(log);
+        // A nominal rank can be much larger than the number of eigenvalues
+        // that affect this endpoint. Bound the logarithmic derivatives using
+        // their actual denominators, rather than replacing every one by 1/u.
+        double[] logarithm = new double[ORDER+1];
+        Arrays.fill(logarithm,1); // the pole 1/(tau+i*u) is bounded by 1/u
+        double logAmplitude=0, decay=0;
+        for (double value:b) {
+            double x=value*end, ratio=Math.abs(x)/Math.hypot(1,x), power=ratio;
+            logAmplitude -= .25*Math.log1p(x*x);
+            decay += .5*ratio*ratio;
+            for (int k=1;k<=ORDER;k++,power*=ratio) logarithm[k] += .5*power;
+        }
+        if (!(decay > 0)) return rankBound;
+        double[] coefficients = new double[ORDER+1];
+        coefficients[0]=1;
+        double logFactorial=0;
+        for (int k=1;k<=ORDER;k++) {
+            for (int j=1;j<=k;j++) coefficients[k] += logarithm[j]*coefficients[k-j]/k;
+            logFactorial += Math.log(k);
+        }
+        double spectrumBound=Math.exp(logAmplitude+logFactorial+Math.log(coefficients[ORDER])
+            -ORDER*Math.log(end)-Math.log(decay));
+        return Math.min(rankBound,spectrumBound);
     }
 
     /** Endpoint terms of integration by parts, using Taylor coefficients of H. */

@@ -72,13 +72,30 @@ tilted characteristic-function integral evaluates the same distribution. The
 tilt changes the integration contour; it is not a saddlepoint approximation.
 Upper and lower tails use their own contours to avoid catastrophic subtraction.
 Twelve integration-by-parts endpoint terms and a derivative remainder bound
-control truncation. Adaptive Gauss-Kronrod quadrature and FP64 rounding estimates
+control truncation. The remainder uses the smaller of a rank-only bound and a
+spectrum-aware logarithmic-derivative bound. Weak eigenvalues remain in the
+distribution, but need not contribute a full `1/u` derivative at the integration
+endpoint. This prevents an unnecessarily distant endpoint from exhausting the
+rounding-error budget for highly significant, nearly rank-one mixtures.
+Adaptive Gauss-Kronrod quadrature and FP64 rounding estimates
 must meet a relative target of `2e-11`, within 262,144 integrand evaluations.
 `P_value_method` identifies this path and its estimated relative error.
 Unresolvable spectra or quadrature nonconvergence still stop execution; no
 moment-matched fallback is substituted. The truncation bounds and numerical
 error estimates are not interval-arithmetic guarantees. Subnormal/underflow tails
 remain limited by FP64 and the existing minimum-positive-probability floor.
+
+For the sharper bound, write `r_j = b_j U / hypot(1, b_j U)` and
+`nu = sum(r_j^2)/2`. On `u >= U`, the absolute logarithmic derivative of order
+`k` is at most `(k-1)! (1 + sum(r_j^k)/2) / U^k`. Positive Taylor-coefficient
+recursion gives `|H^(m)(u)| <= m! c_m |phi(u)| / (U^m u)`. Since the logarithmic
+decay of `|phi|` is at least `nu`, the remaining integral is bounded by
+`m! c_m |phi(U)| / (U^m nu)`. The original bound remains available when tighter.
+Neither the weighted chi-square law, the `2e-11` relative target nor the work
+limit changes, so already accepted version-6 checkpoint parts remain valid.
+Synthetic references down to approximately `2e-306` use an independent positive
+chi-square convolution at 70 and 110 decimal digits; their generator is
+[`generate-tail-remainder-reference.py`](../scripts/generate-tail-remainder-reference.py).
 
 The [September 2026 audit](AUDIT_2026-09-09.md) found 16 fallback cases in a
 30-case independent Davies grid, with maximum absolute p-value error 0.0526
