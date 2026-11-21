@@ -1,0 +1,15 @@
+# GPU eQTL 1.9.2
+
+This release adds [PR #20](https://github.com/robbyjo/GPU_eQTL/pull/20): opt-in pooled single-variant Gaussian score analysis with pedigree covariance in one cohort and a fitted residual variance for each cohort. Select `--mixed-model score --mixed-null-fitter pedigree-block`, plus `--residual-group-column` and `--pedigree-group`. The [pooled guide](https://github.com/robbyjo/GPU_eQTL/blob/master/docs/POOLED_PEDIGREE_SCORE.md) includes a complete example and model restrictions.
+
+The runner fits one null per trait on its exact observed-sample mask, uses FP64 products and chi-square(1) inference, and reports variance components and convergence in a paired audit. Optional `--trait-positions` and `--mixed-cis-window` select variants from the indexed aligned raw cache using exact trait IDs and inclusive coordinates. Connected pedigree covariance blocks are prepared once per run. The default legacy mixed fitter and spectral related-set mode retain their separate behavior.
+
+Release review corrected unit-dependent degeneracy, projected covariance confounding, exact-identity component bounds, an extreme-coordinate cis endpoint, and incomplete validation-only checks. Regression tests reproduce the original failures, retain independent dense base-R REML/GLS references, cover response scaling from `1e-100` to `1e100`, verify indexed-cache integrity, and compare actual CUDA/OpenCL/native CPU products with scalar FP64 calculations.
+
+**Checkpoint compatibility:** pooled signature version 2 requires fresh result directories for users of the unreleased draft version-1 path. Existing legacy/spectral checkpoint signatures and aligned raw-cache formats are unchanged, with all input/model/backend checks still enforced. Earlier upgrade requirements in the [updates page](https://robbyjo.github.io/GPU_eQTL/updates.html) still apply. Retain earlier outputs and diagnostics.
+
+The full local suite passes 224 tests: 219 passed and five optional-runtime skips, with zero failures/errors. Windows verification uses JDK 25 targeting Java 17 and an NVIDIA GeForce RTX 2080, driver 621.14; CUDA, OpenCL, OpenBLAS and portable Java reference paths run. Required hosted Linux/Java 17 CI, the clean universal package, exact packaged regressions, public asset hashes and website deployment are recorded in the [verification receipt](https://github.com/robbyjo/GPU_eQTL/blob/master/docs/release-1.9.2/verification.json).
+
+The pooled model has synthetic validation. It does not persist null fits across chromosome jobs, and repeated distinct masks still require fitting and block eigendecomposition. Memory is quadratic in each connected pedigree block. Representative full-cohort time/memory, production analyses, fresh macOS, other GPU vendors and concurrent multi-GPU validation are not claimed. FP32, extra random kernels, GRMs and set tests are unsupported in the pooled path; see the guide for bounds, identifiability and explicit failure policies.
+
+Download `gpu-eqtl-1.9.2-universal.jar`, `SHA256SUMS` and `RELEASE-MANIFEST.txt` from this release. Java 17 or newer is required.
