@@ -3,7 +3,7 @@
 `--set-null-fitter spectral` selects an FP64 spectral REML null for continuous burden, SKAT and SKAT-O analyses with one pedigree covariance and an independent residual component. The default remains `legacy`. Other random-effect combinations and ordinary single-predictor mixed analyses retain their existing fitter.
 
 ```powershell
-java -Xmx12g --enable-native-access=ALL-UNNAMED -jar target/gpu-eqtl-1.9.2-all.jar `
+java -Xmx12g --enable-native-access=ALL-UNNAMED -jar target/gpu-eqtl-1.9.2.1-all.jar `
   --genotype genotype.csv --expression traits.csv --covariates covariates.csv `
   --fixed-covariates Age,Sex --genotype-id-column ID --expression-id-column ID `
   --analysis skat --variant-sets sets.tsv --pedigree pedigree.tsv --mixed-model score `
