@@ -132,7 +132,7 @@ public final class QMixedModelRunner {
         for (int i = 0; i < values.length; i++) joiner.add(fit.componentNames().get(i)+"="+values[i]);
         return joiner.toString();
     }
-    private static String signature(QeQTLAnalysisConfig config, int[] genotypeColumns, int[] traitColumns, String execution) throws Exception {
+    static String signature(QeQTLAnalysisConfig config, int[] genotypeColumns, int[] traitColumns, String execution) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         digest.update("mixed-v3-qr-scaled-null-retry-jlinalg-0.3.6-jdistlib-0.10.2-fp64".getBytes(StandardCharsets.UTF_8));
         digest.update(execution.getBytes(StandardCharsets.UTF_8));
@@ -142,7 +142,7 @@ public final class QMixedModelRunner {
         digest.update(Arrays.toString(genotypeColumns).getBytes(StandardCharsets.UTF_8));
         digest.update(Arrays.toString(traitColumns).getBytes(StandardCharsets.UTF_8));
         for (String filename : new String[]{config.getGenotypeFilename(), config.getExpressionFilename(),
-                config.getCovariateFilename(), config.getPedigreeFilename(), config.getRelationshipMatrixFilename(), config.getVariantIndexFilename(), config.getRegionsFilename()}) {
+                config.getCovariateFilename(), config.getPedigreeFilename(), config.getRelationshipMatrixFilename(), config.getVariantIndexFilename(), config.getRegionsFilename(), config.getTraitPositionsFilename()}) {
             if (filename == null) continue;
             Path path = Path.of(filename).toAbsolutePath().normalize();
             digest.update(path.toString().getBytes(StandardCharsets.UTF_8));
@@ -150,7 +150,7 @@ public final class QMixedModelRunner {
         }
         return HexFormat.of().formatHex(digest.digest());
     }
-    private static String execution(GpuContext[] contexts) {
+    static String execution(GpuContext[] contexts) {
         StringBuilder value = new StringBuilder("cpu-blas=").append(System.getProperty("eqtl.cpu.blas","auto"))
             .append(";threads=").append(System.getProperty("eqtl.cpu.threads","auto"));
         if (contexts != null) for (GpuContext context : contexts) {
@@ -160,14 +160,14 @@ public final class QMixedModelRunner {
         }
         return value.toString();
     }
-    private static void requireUnchanged(QeQTLAnalysisConfig config, String stamp) throws IOException {
+    static void requireUnchanged(QeQTLAnalysisConfig config, String stamp) throws IOException {
         if (!stamp.equals(sourceStamp(config)))
             throw new IOException("Mixed-model input changed before checkpoint completion");
     }
-    private static String sourceStamp(QeQTLAnalysisConfig config) throws IOException {
+    static String sourceStamp(QeQTLAnalysisConfig config) throws IOException {
         StringBuilder stamp = new StringBuilder();
         for (String filename : new String[]{config.getGenotypeFilename(),config.getExpressionFilename(),
-                config.getCovariateFilename(),config.getPedigreeFilename(),config.getRelationshipMatrixFilename(),config.getVariantIndexFilename(),config.getRegionsFilename()}) {
+                config.getCovariateFilename(),config.getPedigreeFilename(),config.getRelationshipMatrixFilename(),config.getVariantIndexFilename(),config.getRegionsFilename(),config.getTraitPositionsFilename()}) {
             if (filename == null) continue;
             var attrs = Files.readAttributes(Path.of(filename),java.nio.file.attribute.BasicFileAttributes.class);
             stamp.append(filename).append(':').append(attrs.fileKey()).append(':').append(attrs.size())

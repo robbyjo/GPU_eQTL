@@ -46,6 +46,20 @@ public class QeQTLAnalysisConfig {
     /** Do not silently run a different statistical model than the one requested. */
     public void requireSupportedAnalysisModel() {
         getSetNullFitter();
+        String fitter=getMixedNullFitter();
+        boolean block=fitter.equals("pedigree-block");
+        if(block) {
+            if(!getMixedModel().equals("score")||getAnalysisMethod().isSetTest()||getPedigreeFilename()==null
+                ||getRelationshipMatrixFilename()!=null||getRandomCovariates()!=null||getCovariateFilename()==null
+                ||get("residual_group_column")==null||get("pedigree_group")==null)
+                throw new IllegalArgumentException("pedigree-block requires single-SNP mixed-model score, pedigree, covariates, residual-group-column and pedigree-group; no GRM or extra random kernels");
+            if(!java.util.Set.of(QMissingValuePolicy.ERROR,QMissingValuePolicy.MEAN,QMissingValuePolicy.ZERO).contains(getPredictorMissingPolicy()))
+                throw new IllegalArgumentException("pedigree-block predictor missingness must be error, mean or zero");
+            if(!getFrequencyScope().equals("aligned"))throw new IllegalArgumentException("pedigree-block currently requires aligned-cohort frequency QC");
+            if((get("trait_positions")==null)!=(get("mixed_cis_window")==null))throw new IllegalArgumentException("trait-positions and mixed-cis-window must be specified together");
+            if(get("mixed_cis_window")!=null&&Long.parseLong(get("mixed_cis_window"))<0)throw new IllegalArgumentException("Negative cis window");
+        } else if(get("residual_group_column")!=null||get("pedigree_group")!=null||get("trait_positions")!=null||get("mixed_cis_window")!=null)
+            throw new IllegalArgumentException("Pooled grouping/cis options require mixed-null-fitter pedigree-block");
         if (getAnalysisMethod().isSetTest()) {
             getSkatOMethod(); getSkatORelativeTolerance(); getSkatOMaxEvaluations();
         }
@@ -88,6 +102,12 @@ public class QeQTLAnalysisConfig {
         if (value == null) return getPedigreeFilename() != null || getRelationshipMatrixFilename() != null || getRandomCovariates() != null ? "score" : "none";
         return value.toLowerCase(Locale.ROOT).equals("genesis") ? "score" : value.toLowerCase(Locale.ROOT);
     }
+    public String getMixedNullFitter() {
+        String value=mIni.getOrDefault("mixed_null_fitter","legacy").toLowerCase(Locale.ROOT);
+        if(!java.util.Set.of("legacy","pedigree-block").contains(value))throw new IllegalArgumentException("mixed-null-fitter must be legacy or pedigree-block");
+        return value;
+    }
+    public String getTraitPositionsFilename() { return expandPath(get("trait_positions"),getIniPath()); }
     public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
     public String getSetNullFitter() {
         String value=mIni.getOrDefault("set_null_fitter","legacy").toLowerCase(Locale.ROOT);
