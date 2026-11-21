@@ -46,8 +46,9 @@ final class QPooledScoreRunner {
         int traitCount=Math.toIntExact(traits.metadata().rowCount());int block=config.getGenotypeBlockRows()>0?config.getGenotypeBlockRows():256;
         Path cacheDir=config.getCacheDirectory()==null?Path.of(out+".pooled-cache"):Path.of(config.getCacheDirectory());
         Path nullCache=config.getMixedNullCacheDirectory()==null?cacheDir.resolve("pooled-nulls"):Path.of(config.getMixedNullCacheDirectory());
+        Path retainedAudits=checkpointDir.resolveSibling(checkpointDir.getFileName()+".uncommitted").resolve("audit");
         try(QPooledResultCheckpoint results=QPooledResultCheckpoint.open(checkpointDir,signature,traitCount,config.getResume());
-            QPooledResultCheckpoint audits=QPooledResultCheckpoint.open(checkpointDir.resolve("audit"),"pooled-audit-v2;"+signature,traitCount,config.getResume())) {
+            QPooledResultCheckpoint audits=QPooledResultCheckpoint.open(checkpointDir.resolve("audit"),"pooled-audit-v2;"+signature,traitCount,config.getResume(),retainedAudits)) {
         QMixedModelRunner.requireUnchanged(config,stamp);
         try(QRawMatrixCache raw=QRawMatrixCache.openOrBuild(cacheDir.resolve("aligned-raw"),QRawMatrixCache.signature(genotypes,genotypeColumns),genotypes,genotypeColumns,block,config.getRebuildCache());
             GpuContextPool pool=new GpuContextPool(contexts);var traitReader=traits.open(traitColumns)) {

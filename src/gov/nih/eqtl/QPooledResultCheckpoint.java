@@ -13,14 +13,24 @@ import java.util.Arrays;
 final class QPooledResultCheckpoint implements AutoCloseable {
     private final QAnalysisCheckpoint parts;
     private final FileChannel digests;
-    private final Path index;
+    private final Path index,retainedDirectory;
     private final int count,headerLength;
     private final String signature;
-    private QPooledResultCheckpoint(QAnalysisCheckpoint parts,FileChannel digests,Path index,int count,int headerLength,String signature){this.parts=parts;this.digests=digests;this.index=index;this.count=count;this.headerLength=headerLength;this.signature=signature;}
+    private QPooledResultCheckpoint(QAnalysisCheckpoint parts,FileChannel digests,Path index,int count,int headerLength,String signature,Path retainedDirectory){this.parts=parts;this.digests=digests;this.index=index;this.count=count;this.headerLength=headerLength;this.signature=signature;this.retainedDirectory=retainedDirectory;}
     static QPooledResultCheckpoint open(Path directory,String signature,int count,boolean resume)throws IOException {
+        Path normalized=directory.toAbsolutePath().normalize();
+        return open(normalized,signature,count,resume,normalized.resolveSibling(normalized.getFileName()+".uncommitted"));
+    }
+    static QPooledResultCheckpoint open(Path directory,String signature,int count,boolean resume,Path retainedDirectory)throws IOException {
+        boolean existingDirectory=Files.exists(directory);
+        retainedDirectory=retainedDirectory.toAbsolutePath().normalize();
+        if(retainedDirectory.startsWith(directory.toAbsolutePath().normalize()))throw new IllegalArgumentException("Retained parts must be outside the cleaned checkpoint");
         QAnalysisCheckpoint parts=QAnalysisCheckpoint.open(directory,signature,count,resume,true);
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(DataOutputStream out=new DataOutputStream(bytes)){out.writeInt(0x51504331);out.writeUTF(signature);out.writeInt(count);}
         byte[] header=bytes.toByteArray();Path index=parts.directory().resolve("trait-digests.bin");boolean existing=Files.exists(index);
+        // A missing index cannot distinguish uncommitted parts from committed
+        // parts whose integrity records were lost. Never recreate that knowledge.
+        if(existingDirectory&&!existing)throw new IOException("Pooled checkpoint digest index is missing: "+index);
         FileChannel channel=FileChannel.open(index,StandardOpenOption.CREATE,StandardOpenOption.READ,StandardOpenOption.WRITE);
         try {
             long size=Math.addExact(header.length,Math.multiplyExact((long)count,32));
@@ -34,7 +44,7 @@ final class QPooledResultCheckpoint implements AutoCloseable {
                 if(size>header.length)channel.write(ByteBuffer.wrap(new byte[]{0}),size-1);
                 channel.force(true);
             }
-            return new QPooledResultCheckpoint(parts,channel,index,count,header.length,signature);
+            return new QPooledResultCheckpoint(parts,channel,index,count,header.length,signature,retainedDirectory);
         }catch(Throwable error){channel.close();throw error;}
     }
     boolean isComplete(int block)throws IOException {
@@ -62,8 +72,8 @@ final class QPooledResultCheckpoint implements AutoCloseable {
     public void close()throws IOException {if(digests.isOpen()){digests.force(false);digests.close();}}
     private void retainUncommitted(Path path)throws IOException {
         if(!Files.isRegularFile(path))return;
-        Path retained=parts.directory().resolveSibling(parts.directory().getFileName()+".uncommitted");Files.createDirectories(retained);
-        String hash=hexFile(path);Path target=retained.resolve(path.getFileName()+"."+hash);
+        Files.createDirectories(retainedDirectory);
+        String hash=hexFile(path);Path target=retainedDirectory.resolve(path.getFileName()+"."+hash);
         if(Files.exists(target)){if(!hexFile(target).equals(hash))throw new IOException("Retained uncommitted part changed");}
         else Files.copy(path,target);
     }

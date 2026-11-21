@@ -34,4 +34,24 @@ class QPooledResultCheckpointTest {
         }
         Files.write(dir.resolve("trait-digests.bin"),new byte[]{1,2});assertThrows(java.io.IOException.class,()->QPooledResultCheckpoint.open(dir,"signature",1,true));
     }
+    @Test void missingDigestIndexCannotEraseCommitKnowledge(@TempDir Path root)throws Exception {
+        Path dir=root.resolve("checkpoint");
+        try(var parts=QPooledResultCheckpoint.open(dir,"signature",1,false)){parts.writeBlock(0,w->w.write("committed\n"));}
+        Files.delete(dir.resolve("trait-digests.bin"));
+        assertThrows(java.io.IOException.class,()->{try(var ignored=QPooledResultCheckpoint.open(dir,"signature",1,true)){};});
+        assertEquals("committed\n",Files.readString(dir.resolve("block-00000000.part")));
+        assertFalse(Files.exists(dir.resolve("trait-digests.bin")));
+    }
+    @Test void nestedAuditRecoveryRetainsEvidenceOutsideCleanedCheckpoint(@TempDir Path root)throws Exception {
+        Path dir=root.resolve("checkpoint");
+        try(var results=QPooledResultCheckpoint.open(dir,"result-signature",1,false);
+            var audits=QPooledResultCheckpoint.open(dir.resolve("audit"),"audit-signature",1,false,root.resolve("checkpoint.uncommitted/audit"))) {
+            Files.writeString(dir.resolve("audit/block-00000000.partial"),"interrupted audit\n");
+            results.writeBlock(0,w->w.write("valid result\n"));audits.writeBlock(0,w->w.write("valid audit\n"));
+            audits.assemble(root.resolve("audit.tsv"),"header");results.assemble(root.resolve("result.csv"),"header");
+            audits.removeCompleted();results.removeCompleted();
+        }
+        assertFalse(Files.exists(dir));
+        try(var files=Files.walk(root.resolve("checkpoint.uncommitted"))){assertTrue(files.filter(Files::isRegularFile).anyMatch(p->{try{return Files.readString(p).equals("interrupted audit\n");}catch(Exception e){throw new RuntimeException(e);}}));}
+    }
 }

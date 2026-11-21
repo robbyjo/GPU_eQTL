@@ -91,9 +91,11 @@ constructed to validate a shared null, so this cache does not eliminate all
 per-mask eigendecomposition work.
 
 Result and audit parts carry separate model-bound SHA-256 records. Resume rejects
-missing/modified committed parts and incompatible inputs/model/backend, including
-trait-position changes. Uncommitted parts are retained in a sibling
-`.uncommitted` directory before recomputation. One OS lock owns the checkpoint.
+missing digest indexes, missing/modified committed parts and incompatible
+inputs/model/backend, including trait-position changes. Uncommitted parts are
+retained outside the checkpoint in its sibling `.uncommitted` directory before
+recomputation; retained audits use that directory's `audit` subdirectory, so
+cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
 This implementation uses pooled result signature version 3, distinct from
