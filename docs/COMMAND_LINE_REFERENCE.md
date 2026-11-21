@@ -207,6 +207,12 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--factor-covariates LIST` | Comma-separated; none | `covariate_factor` | Forces named numeric-looking covariates to categorical factors. Text covariates are categorical automatically; the lexicographically first level is the reference. |
 | `--random-covariates LIST` | Optional grouping columns | `covariate_random` | Fit independent random-intercept variance components; may accompany pedigree covariance. |
 | `--mixed-model MODE` | `score`/`genesis`, `reml`, `none` | `mixed_model` | Null REML plus score tests, per-predictor REML refits, or ordinary analysis. Defaults to score when random/pedigree terms exist; otherwise none. |
+| `--mixed-null-fitter MODE` | `legacy` (default), `pedigree-block` | `mixed_null_fitter` | Opt-in exact-mask pooled single-SNP score model; see [pooled guide](POOLED_PEDIGREE_SCORE.md). |
+| `--residual-group-column NAME` | Required for `pedigree-block` | `residual_group_column` | Covariate column defining separately fitted residual variances. |
+| `--pedigree-group VALUE` | Required for `pedigree-block` | `pedigree_group` | Exact group value receiving additive pedigree covariance; other groups are independent. |
+| `--mixed-null-cache-dir DIR` | Output cache's `pooled-nulls` subdirectory | `mixed_null_cache_dir` | Shared immutable, checksummed trait nulls across chromosome jobs; pooled fitter only. |
+| `--trait-positions FILE` | None | `trait_positions` | Exact-ID ID/CHROM/POS TSV with 1-based positions; paired with mixed cis window, pooled fitter only. |
+| `--mixed-cis-window BP` | None; nonnegative integer | `mixed_cis_window` | Inclusive cis radius; requires trait positions and CHROM:POS predictor IDs, pooled fitter only. |
 | `--pedigree-id-column NAME` | Optional | `pedigree_id_column` | Covariate observation-to-pedigree-individual mapping for repeated measurements. |
 | `--reml-df METHOD` | `residual` (default), `satterthwaite`, `kenward-roger` | `reml_df` | Wald denominator DF/inference for per-predictor REML only. Score tests use chi-square(1). |
 | `--reml-max-iterations N` | Positive integer; 200 | `reml_max_iterations` | Maximum optimizer iterations per fit; nonconvergence is fatal. |

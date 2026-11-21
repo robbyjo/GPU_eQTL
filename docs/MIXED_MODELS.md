@@ -4,6 +4,12 @@ GPU eQTL now supports two fitted mixed-model modes. Both estimate variance
 components by REML using the pinned JLinAlg 0.3.6 library and JDistlib 0.10.2.
 The supplied-covariance `--cohort-model` GLS path remains a separate option.
 
+An opt-in [pooled pedigree-block score fitter](POOLED_PEDIGREE_SCORE.md) uses its
+own bounded optimizer and block eigendecomposition, with one pedigree group,
+cohort-specific residual variances, exact trait masks and shared per-trait null
+caches. Select `--mixed-model score --mixed-null-fitter pedigree-block`; the
+default `legacy` fitter described below is unchanged.
+
 | Mode | Fitting and test | Intended use |
 | --- | --- | --- |
 | `--mixed-model score` (alias `genesis`) | Fit one REML null per trait; reuse its covariance for all predictor score tests; chi-square(1) inference | Association scans |

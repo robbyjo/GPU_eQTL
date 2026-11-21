@@ -66,6 +66,12 @@ class QRawMatrixCacheTest {
         assertArrayEquals(new String[] {"v2"},
             rebuiltIndex.readSelected(Set.of("v2"), null).rowIds());
         assertTrue(!rebuiltIndex.indexedReadStatistics().persistentIndexReused());
+        assertArrayEquals(new String[]{"v1","v2"},rebuiltIndex.indexedRowIds());
+        var exact=rebuiltIndex.readRows(new int[]{1},new int[]{1,0});
+        assertArrayEquals(new String[]{"v2"},exact.rowIds());
+        assertArrayEquals(new double[]{2,0},exact.values()[0]);
+        assertThrows(IllegalArgumentException.class,()->rebuiltIndex.readRows(new int[]{1,0},null));
+        assertThrows(IllegalArgumentException.class,()->rebuiltIndex.readRows(new int[]{0,0},null));
 
         try (RandomAccessFile file = new RandomAccessFile(cache.path().toFile(), "rw")) {
             long position = file.length() - 6;
@@ -73,6 +79,7 @@ class QRawMatrixCacheTest {
             file.writeByte(file.readByte() ^ 1);
         }
         QRawMatrixCache corrupt = QRawMatrixCache.open(cache.path(), signature);
+        assertThrows(IOException.class,()->corrupt.readRows(new int[]{1},null));
         try (QMatrixRowSource.BlockReader reader = corrupt.open(null)) {
             assertThrows(IOException.class, () -> reader.readBlock(10));
         }

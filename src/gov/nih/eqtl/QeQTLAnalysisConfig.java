@@ -58,7 +58,7 @@ public class QeQTLAnalysisConfig {
             if(!getFrequencyScope().equals("aligned"))throw new IllegalArgumentException("pedigree-block currently requires aligned-cohort frequency QC");
             if((get("trait_positions")==null)!=(get("mixed_cis_window")==null))throw new IllegalArgumentException("trait-positions and mixed-cis-window must be specified together");
             if(get("mixed_cis_window")!=null&&Long.parseLong(get("mixed_cis_window"))<0)throw new IllegalArgumentException("Negative cis window");
-        } else if(get("residual_group_column")!=null||get("pedigree_group")!=null||get("trait_positions")!=null||get("mixed_cis_window")!=null)
+        } else if(get("residual_group_column")!=null||get("pedigree_group")!=null||get("trait_positions")!=null||get("mixed_cis_window")!=null||get("mixed_null_cache_dir")!=null)
             throw new IllegalArgumentException("Pooled grouping/cis options require mixed-null-fitter pedigree-block");
         if (getAnalysisMethod().isSetTest()) {
             getSkatOMethod(); getSkatORelativeTolerance(); getSkatOMaxEvaluations();
@@ -108,6 +108,7 @@ public class QeQTLAnalysisConfig {
         return value;
     }
     public String getTraitPositionsFilename() { return expandPath(get("trait_positions"),getIniPath()); }
+    public String getMixedNullCacheDirectory() { return expandPath(get("mixed_null_cache_dir"),getIniPath()); }
     public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
     public String getSetNullFitter() {
         String value=mIni.getOrDefault("set_null_fitter","legacy").toLowerCase(Locale.ROOT);

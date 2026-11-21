@@ -18,7 +18,7 @@ class QPooledPedigreeModelTest {
     @Test void independentDenseRReferencesMatchWithExactObservedMasks()throws Exception {
         String old=System.getProperty("eqtl.cpu.blas");System.setProperty("eqtl.cpu.blas","java");
         try {
-            Data d=data();var model=model(d);
+            Data d=data();var model=model(d);long relationships=model.relationshipEvaluations();
             for(String line:Files.readAllLines(ROOT.resolve("expected.csv")).subList(1,3)) {
                 String[] v=line.split(",");Set<Integer> missing=v[0].equals("missing")?Set.of(2,7,18,41,52,80,93):Set.of();
                 int[] mask=java.util.stream.IntStream.range(0,d.y.length).filter(i->!missing.contains(i)).toArray();
@@ -31,6 +31,8 @@ class QPooledPedigreeModelTest {
                 assertSame(geometry,model.geometry(mask));
             }
             assertEquals(2,model.geometryBuilds());
+            assertEquals(relationships,model.relationshipEvaluations(),"Masks must reuse cached pedigree covariances");
+            assertEquals(12,model.pedigreeBlockCount());assertEquals(4,model.largestPedigreeBlock());
         }finally{if(old==null)System.clearProperty("eqtl.cpu.blas");else System.setProperty("eqtl.cpu.blas",old);}
     }
     @Test void exactIdentityReductionRankAndResponseScalingAreExplicit()throws Exception {
@@ -39,11 +41,12 @@ class QPooledPedigreeModelTest {
         double[] y=Arrays.stream(mask).mapToDouble(i->d.y[i]).toArray();var fit=geometry.fit(y);
         assertEquals(0,fit.variance[0]);
         double[] g=geometry.rotate(Arrays.stream(mask).mapToDouble(i->d.g[i]).toArray());var score=fit.score(g,fit.products(g));
-        for(double scale:new double[]{1e-6,1e6}) {
+        for(double scale:new double[]{1e-12,1e-6,1e6,1e12}) {
             double[] yy=Arrays.stream(y).map(v->v*scale).toArray();var scaled=geometry.fit(yy);var actual=scaled.score(g,scaled.products(g));
             assertEquals(score.log10P(),actual.log10P(),2e-6);assertEquals(score.beta(),actual.beta()/scale,2e-6);
         }
         var subset=model.geometry(java.util.stream.IntStream.range(48,96).toArray());assertTrue(subset.p<7);
         assertThrows(QPooledPedigreeModel.Unestimable.class,()->model.geometry(new int[]{1,2}));
+        assertThrows(QPooledPedigreeModel.Unestimable.class,()->geometry.fit(new double[mask.length]));
     }
 }
