@@ -29,6 +29,7 @@ Add the covariates and model settings appropriate to your analysis, then repeat 
 - [Run an analysis](#run-an-analysis), [missing values](#matrix-roles-and-missing-values), and [sample alignment](#sample-id-alignment-and-covariates)
 - [VCF/BCF input](#vcfgz-and-bcf-genotype-input), [streaming and caches](#bounded-ram-matrix-mode), [profiling](#performance-profiling), and [resume](#checkpoint-and-resume)
 - [Rare-variant set tests](SET_TEST_FOUNDATION.md), [related set tests](RELATED_SET_TESTS.md), [spectral REML](SPECTRAL_SET_NULL.md), and [mixed models](MIXED_MODELS.md)
+- [Pooled pedigree-block score analysis](POOLED_PEDIGREE_SCORE.md): cohort residual variances, exact observed masks and optional cis windows
 
 ## Backend and analysis overview
 

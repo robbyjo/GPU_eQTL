@@ -50,6 +50,12 @@ class QRawMatrixCacheTest {
         assertEquals(1, cache.indexedReadStatistics().selectedRows());
         assertEquals(2, cache.indexedReadStatistics().indexedRows());
         assertEquals(16, cache.indexedReadStatistics().numericBytesRead());
+        assertArrayEquals(new String[]{"v1","v2"},cache.indexedRowIds());
+        assertArrayEquals(new double[]{2,0},cache.readRows(new int[]{1},new int[]{1,0}).values()[0]);
+        assertEquals(0,cache.readRows(new int[0],null).rowCount());
+        for(int[] invalid:new int[][]{{-1},{2},{1,0},{0,0}})
+            assertThrows(IllegalArgumentException.class,()->cache.readRows(invalid,null));
+        assertThrows(IllegalArgumentException.class,()->cache.readRows(new int[]{0},new int[]{0,0}));
         Path indexPath = cache.path().resolveSibling(
             cache.path().getFileName().toString() + ".idx");
         assertTrue(Files.isRegularFile(indexPath));
@@ -73,6 +79,7 @@ class QRawMatrixCacheTest {
             file.writeByte(file.readByte() ^ 1);
         }
         QRawMatrixCache corrupt = QRawMatrixCache.open(cache.path(), signature);
+        assertThrows(IOException.class,()->corrupt.readRows(new int[]{1},null));
         try (QMatrixRowSource.BlockReader reader = corrupt.open(null)) {
             assertThrows(IOException.class, () -> reader.readBlock(10));
         }

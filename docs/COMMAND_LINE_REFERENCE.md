@@ -173,6 +173,11 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
 | `--set-block-size N` | `0` automatic | `set_block_size` | Resident set tile size for bounded execution. Omitted/zero selects a heap-aware value from aligned sample count, method workspaces, and the actual set-membership density; a positive value remains an explicit override. |
 | `--set-null-fitter METHOD` | `legacy` (default), `spectral` | `set_null_fitter` | Selects the REML null fitter for continuous pedigree burden/SKAT/SKAT-O. Spectral requires `--pedigree` with score mode and no GRM or additional random kernels; FP64 only. Use separate result/checkpoint directories for the two fitters. See [examples and limits](SPECTRAL_SET_NULL.md). |
+| `--mixed-null-fitter METHOD` | `legacy` (default), `pedigree-block` | `mixed_null_fitter` | Opt-in pooled single-variant score null with pedigree covariance in one cohort and fitted cohort residual variances; FP64 only. See [pooled model and limits](POOLED_PEDIGREE_SCORE.md). |
+| `--residual-group-column NAME` | Covariate column | `residual_group_column` | Cohort/group column defining pooled residual variances; requires `pedigree-block`. |
+| `--pedigree-group LABEL` | Exact group label | `pedigree_group` | The one residual group whose participants have pedigree covariance. |
+| `--trait-positions FILE` | Exact-ID TSV | `trait_positions` | `ID`, `CHROM`, `POS` columns with 1-based intended TSS; requires the paired cis-window option. |
+| `--mixed-cis-window BASES` | Nonnegative integer | `mixed_cis_window` | Inclusive distance from trait position; requires pooled mode and `CHROM:POS:` variant IDs. Omit both cis options to test all variants. |
 | `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
 | `--skat-o-method METHOD` | `integration` (default), `simulation` | `skat_o_method` | Joint rho-grid tail integration without an event-count floor; optional correlated Gaussian simulation. See [derivation and limits](RELATED_SET_TESTS.md). |
 | `--skat-o-relative-tolerance VALUE` | `0.005`; range `1e-6` to `0.05` | `skat_o_relative_tolerance` | Estimated relative integration error target. |

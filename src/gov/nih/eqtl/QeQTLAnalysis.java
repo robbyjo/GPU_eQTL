@@ -1064,7 +1064,7 @@ public class QeQTLAnalysis implements IJobOwner
 		if (!config.getMixedModel().equals("none") && !preprocessOnly && !config.getAnalysisMethod().isSetTest()) {
 			if(config.getMixedNullFitter().equals("pedigree-block")) {
 				QPooledPedigreeModel pooled=QPooledPedigreeModel.create(config,covariateModel,covariates,retainedCovariateRows,canonicalSampleIds);
-				if(config.getValidateOnly()){System.out.println("Pooled pedigree-block alignment, pedigree and fixed design validated; no fit or scan.");return;}
+				if(config.getValidateOnly()){QPooledScoreRunner.validate(config,pooled,unfilledPredictorSource,predictorColumnOrder,expressionSource,alignment.expressionColumnOrder());return;}
 				QPooledScoreRunner.run(config,pooled,unfilledPredictorSource,predictorColumnOrder,expressionSource,alignment.expressionColumnOrder(),mContexts);
 				return;
 			}

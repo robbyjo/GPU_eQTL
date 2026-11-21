@@ -16,6 +16,9 @@ final class QPooledPedigreeModel {
     private final String pedigreeGroup,engine;
     private final org.jlinalg.pedigree.Pedigree pedigree;
     private final int maxIterations;
+    private final int[] pedigreeBlock,pedigreeRow;
+    private final List<double[]> relationships=new ArrayList<>();
+    private final List<Integer> relationshipSizes=new ArrayList<>();
     private int[] cachedMask;
     private Geometry cachedGeometry;
     private int geometryBuilds;
@@ -29,6 +32,7 @@ final class QPooledPedigreeModel {
         boolean found=false;Set<String> seen=new HashSet<>();
         for(int i=0;i<groups.length;i++) {
             if(groups[i]==null||groups[i].isBlank())throw new IllegalArgumentException("Missing residual group");
+            if(groups[i].chars().anyMatch(c->c=='\t'||c=='\r'||c=='\n'||c==';'||c=='='))throw new IllegalArgumentException("Residual group contains an audit delimiter");
             if(groups[i].equals(pedigreeGroup)) {
                 found=true;if(!seen.add(individuals[i]))throw new IllegalArgumentException("Pooled score requires one observation per pedigree individual");
                 double v=pedigree.relationship(individuals[i],individuals[i]);
@@ -36,6 +40,23 @@ final class QPooledPedigreeModel {
             }
         }
         if(!found)throw new IllegalArgumentException("Pedigree group is absent from aligned participants");
+        // Discover the participant graph once. Store only its connected blocks,
+        // then subset those blocks for every observed-trait mask.
+        int[] parent=new int[groups.length];for(int i=0;i<parent.length;i++)parent[i]=i;
+        for(int i=0;i<groups.length;i++)if(groups[i].equals(pedigreeGroup))for(int j=0;j<i;j++)if(groups[j].equals(pedigreeGroup)) {
+            double a=pedigree.relationship(individuals[i],individuals[j]);
+            if(!Double.isFinite(a))throw new IllegalArgumentException("Nonfinite pedigree covariance");
+            if(a!=0)parent[find(parent,i)]=find(parent,j);
+        }
+        Map<Integer,List<Integer>> blocks=new LinkedHashMap<>();
+        for(int i=0;i<groups.length;i++)if(groups[i].equals(pedigreeGroup))blocks.computeIfAbsent(find(parent,i),unused->new ArrayList<>()).add(i);
+        pedigreeBlock=new int[groups.length];pedigreeRow=new int[groups.length];Arrays.fill(pedigreeBlock,-1);
+        for(var block:blocks.values()) {
+            int m=block.size(),b=relationships.size();double[] a=new double[Math.multiplyExact(m,m)];
+            for(int i=0;i<m;i++){pedigreeBlock[block.get(i)]=b;pedigreeRow[block.get(i)]=i;
+                for(int j=0;j<m;j++)a[i*m+j]=pedigree.relationship(individuals[block.get(i)],individuals[block.get(j)]);}
+            relationships.add(a);relationshipSizes.add(m);
+        }
         try(var algebra=SpectralLinearAlgebra.open()){engine=algebra.identity();}
     }
     static QPooledPedigreeModel create(QeQTLAnalysisConfig config,double[][] x,QCovariateTable cov,
@@ -59,6 +80,7 @@ final class QPooledPedigreeModel {
         return cachedGeometry;
     }
     private record Rotation(int[] rows,double[] vectors) { }
+    private double relationship(int i,int j){int b=pedigreeBlock[i];return b<0||b!=pedigreeBlock[j]?0:relationships.get(b)[pedigreeRow[i]*relationshipSizes.get(b)+pedigreeRow[j]];}
     final class Geometry {
         final int[] mask;
         final int n,p;
@@ -92,26 +114,16 @@ final class QPooledPedigreeModel {
             List<String> sorted=new ArrayList<>(levels);names=new ArrayList<>();names.add("additive:"+pedigreeGroup);
             for(String level:sorted)names.add("residual:"+level);
             for(int i=0;i<n;i++)residual[i]=1+sorted.indexOf(groups[mask[i]]);
-            int[] parent=new int[n];for(int i=0;i<n;i++)parent[i]=i;
             boolean nonidentity=false;
-            for(int i=0;i<n;i++)if(groups[mask[i]].equals(pedigreeGroup)) {
-                if(pedigree.relationship(individuals[mask[i]],individuals[mask[i]])!=1)nonidentity=true;
-                for(int j=0;j<i;j++)if(groups[mask[j]].equals(pedigreeGroup)) {
-                    double a=pedigree.relationship(individuals[mask[i]],individuals[mask[j]]);
-                    if(!Double.isFinite(a))throw new IllegalArgumentException("Nonfinite pedigree covariance");
-                    if(a!=0){parent[find(parent,i)]=find(parent,j);nonidentity=true;}
-                }
-            }
-            combinedIdentity=!nonidentity;
             Map<Integer,List<Integer>> blocks=new LinkedHashMap<>();
-            for(int i=0;i<n;i++)if(groups[mask[i]].equals(pedigreeGroup))blocks.computeIfAbsent(find(parent,i),unused->new ArrayList<>()).add(i);
+            for(int i=0;i<n;i++)if(pedigreeBlock[mask[i]]>=0)blocks.computeIfAbsent(pedigreeBlock[mask[i]],unused->new ArrayList<>()).add(i);
             try(var algebra=SpectralLinearAlgebra.open()) {
                 if(!engine.equals(algebra.identity()))throw new IllegalStateException("Pooled geometry engine changed");
                 for(var block:blocks.values()) {
                     int m=block.size();int[] rows=block.stream().mapToInt(Integer::intValue).toArray();
-                    if(m==1){eigen[rows[0]]=pedigree.relationship(individuals[mask[rows[0]]],individuals[mask[rows[0]]]);continue;}
+                    if(m==1){eigen[rows[0]]=relationship(mask[rows[0]],mask[rows[0]]);if(eigen[rows[0]]!=1)nonidentity=true;continue;}
                     double[] a=new double[Math.multiplyExact(m,m)];
-                    for(int i=0;i<m;i++)for(int j=0;j<m;j++)a[i*m+j]=pedigree.relationship(individuals[mask[rows[i]]],individuals[mask[rows[j]]]);
+                    for(int i=0;i<m;i++)for(int j=0;j<m;j++){a[i*m+j]=relationship(mask[rows[i]],mask[rows[j]]);if(a[i*m+j]!=(i==j?1:0))nonidentity=true;}
                     var decomp=algebra.eigen(a,m);double scale=1;
                     for(double v:decomp.values())scale=Math.max(scale,Math.abs(v));
                     for(int i=0;i<m;i++) {
@@ -121,7 +133,44 @@ final class QPooledPedigreeModel {
                     rotations.add(new Rotation(rows,decomp.vectors()));
                 }
             }
+            combinedIdentity=!nonidentity;
             for(int j=0;j<p;j++){double[] column=new double[n];for(int i=0;i<n;i++)column[i]=q[i][j];column=rotate(column);for(int i=0;i<n;i++)q[i][j]=column[i];}
+            requireIdentifiable();
+        }
+        // tr(M Da M Db), M=I-QQ', without constructing an N*N projector.
+        // A zero or dependent projected kernel has no separately estimable REML variance.
+        private void requireIdentifiable() {
+            int first=combinedIdentity?1:0,k=names.size()-first;
+            double[][] gram=new double[k][k],diagonal=new double[k][n];
+            double[][][] small=new double[k][p][p];double[] leverage=new double[n];
+            for(int i=0;i<n;i++)for(int j=0;j<p;j++)leverage[i]+=q[i][j]*q[i][j];
+            for(int a=0;a<k;a++)for(int i=0;i<n;i++) {
+                double d=a+first==0?eigen[i]:(residual[i]==a+first?1:0);diagonal[a][i]=d;
+                for(int j=0;j<p;j++)for(int l=0;l<p;l++)small[a][j][l]+=d*q[i][j]*q[i][l];
+            }
+            for(int a=0;a<k;a++)for(int b=0;b<=a;b++) {
+                double value=0;for(int i=0;i<n;i++)value+=diagonal[a][i]*diagonal[b][i]*(1-2*leverage[i]);
+                for(int j=0;j<p;j++)for(int l=0;l<p;l++)value+=small[a][j][l]*small[b][j][l];
+                gram[a][b]=gram[b][a]=value;
+            }
+            double[] norm=new double[k];
+            for(int a=0;a<k;a++) {
+                if(!(gram[a][a]>1e-10*dot(diagonal[a],diagonal[a])))
+                    throw new Unestimable("Residual design removes covariance component "+names.get(a+first));
+                norm[a]=Math.sqrt(gram[a][a]);
+            }
+            double[] correlation=new double[k*k];for(int a=0;a<k;a++)for(int b=0;b<k;b++)correlation[a*k+b]=gram[a][b]/norm[a]/norm[b];
+            try(var algebra=SpectralLinearAlgebra.open()) {
+                for(double value:algebra.eigen(correlation,k).values())if(!Double.isFinite(value)||value<=1e-10)
+                    throw new Unestimable("Covariance components are confounded after fixed-effect projection");
+            }
+        }
+        private double lower(int component){return LOWER+identityBoundShift(component);}
+        private double upper(int component){return UPPER+identityBoundShift(component);}
+        private double identityBoundShift(int component){return combinedIdentity&&names.get(component).equals("residual:"+pedigreeGroup)?Math.log(2):0;}
+        private double projected(double gradient,double theta,boolean active,int component){
+            if(!active||(theta<=lower(component)+1e-9&&gradient>0)||(theta>=upper(component)-1e-9&&gradient<0))return 0;
+            return gradient;
         }
         double[] rotate(double[] input) {
             if(input.length!=n)throw new IllegalArgumentException("Rotation dimensions differ");
@@ -132,12 +181,16 @@ final class QPooledPedigreeModel {
         }
         Fit fit(double[] response) {
             if(response.length!=n)throw new IllegalArgumentException("Response/mask dimensions differ");
-            double[] y=rotate(response);double[] beta=new double[p];
+            double magnitude=0;for(double value:response){if(!Double.isFinite(value))throw new IllegalArgumentException("Nonfinite response");magnitude=Math.max(magnitude,Math.abs(value));}
+            if(magnitude==0)throw new Unestimable("Constant or fixed-effect-explained response");
+            double[] normalized=response.clone();for(int i=0;i<n;i++)normalized[i]/=magnitude;
+            double[] y=rotate(normalized);double[] beta=new double[p];
             for(int j=0;j<p;j++)for(int i=0;i<n;i++)beta[j]+=q[i][j]*y[i];
             double sum=0;for(int i=0;i<n;i++){double v=y[i];for(int j=0;j<p;j++)v-=q[i][j]*beta[j];sum+=v*v;}
             double scale=sum/(n-p);
             if(!Double.isFinite(scale)||scale<=Math.ulp(1.0)*Math.ulp(1.0))throw new Unestimable("Constant or fixed-effect-explained response");
             double sd=Math.sqrt(scale);for(int i=0;i<n;i++)y[i]/=sd;
+            double responseScale=magnitude*sd;
             int count=names.size();boolean[] active=new boolean[count];Arrays.fill(active,true);active[0]=!combinedIdentity;
             Evaluation best=null;int iterations=0;
             // Distinct deterministic initial variance allocations; no shared fit between responses.
@@ -150,15 +203,15 @@ final class QPooledPedigreeModel {
                     if(current.maximumScore<=SCORE_TOLERANCE)break;
                     double[] direction=new double[count];double norm=n-p;
                     for(int a=0;a<count;a++)for(int b=0;b<count;b++)direction[a]-=inverse[a][b]*current.gradient[b]/norm;
-                    for(int a=0;a<count;a++)if(!active[a]||(theta[a]<=LOWER+1e-12&&direction[a]<0)||(theta[a]>=UPPER-1e-12&&direction[a]>0))direction[a]=0;
+                    for(int a=0;a<count;a++)if(!active[a]||(theta[a]<=lower(a)+1e-12&&direction[a]<0)||(theta[a]>=upper(a)-1e-12&&direction[a]>0))direction[a]=0;
                     double descent=dot(current.gradient,direction);
-                    if(!(descent<0)){inverse=identity(count);for(int a=0;a<count;a++)direction[a]=-projected(current.gradient[a],theta[a],active[a])/norm;descent=dot(current.gradient,direction);}
+                    if(!(descent<0)){inverse=identity(count);for(int a=0;a<count;a++)direction[a]=-projected(current.gradient[a],theta[a],active[a],a)/norm;descent=dot(current.gradient,direction);}
                     double largest=0;for(double value:direction)largest=Math.max(largest,Math.abs(value));
                     if(largest>4){for(int a=0;a<count;a++)direction[a]*=4/largest;descent=dot(current.gradient,direction);}
                     Evaluation next=null;double[] candidate=null;
                     for(int step=0;step<45;step++) {
                         double alpha=Math.scalb(1.0,-step);candidate=theta.clone();
-                        for(int a=0;a<count;a++)candidate[a]=Math.max(LOWER,Math.min(UPPER,theta[a]+alpha*direction[a]));
+                        for(int a=0;a<count;a++)candidate[a]=Math.max(lower(a),Math.min(upper(a),theta[a]+alpha*direction[a]));
                         Evaluation trial=evaluate(candidate,y,active);
                         double actualDescent=0;for(int a=0;a<count;a++)actualDescent+=current.gradient[a]*(candidate[a]-theta[a]);
                         if(trial.objective<=current.objective+1e-4*actualDescent+2e-14*Math.max(1,Math.abs(current.objective))){next=trial;break;}
@@ -177,14 +230,14 @@ final class QPooledPedigreeModel {
                 if(best==null||current.objective<best.objective)best=current;
                 if(best.maximumScore<=SCORE_TOLERANCE)break;
             }
-            if(best.maximumScore>SCORE_TOLERANCE)throw new ArithmeticException("Pooled REML did not converge: projected log-variance score="+best.maximumScore);
-            double[] variance=best.variance.clone();for(int a=0;a<variance.length;a++)variance[a]*=scale;
+            if(!Double.isFinite(best.maximumScore)||best.maximumScore>SCORE_TOLERANCE)throw new ArithmeticException("Pooled REML did not converge: projected log-variance score="+best.maximumScore);
+            double[] variance=best.variance.clone();for(int a=0;a<variance.length;a++){variance[a]=(variance[a]*responseScale)*responseScale;if(!Double.isFinite(variance[a])||(active[a]&&variance[a]==0))throw new ArithmeticException("Pooled variance exceeds FP64 range");}
             if(!active[0])variance[0]=0;
             double[] weights=best.weights.clone(),py=best.py.clone();double[][] inverse=copy(best.inverse);
-            for(int i=0;i<n;i++){weights[i]/=scale;py[i]/=sd;}
-            for(int a=0;a<p;a++)for(int b=0;b<p;b++)inverse[a][b]*=scale;
-            double logLik=-best.objective-.5*(n-p)*Math.log(scale);
-            return new Fit(this,variance,weights,py,inverse,logLik,best.maximumScore,iterations);
+            // Keep score products in response-normalized coordinates. Converting
+            // information to physical units here can underflow or overflow.
+            double logLik=-best.objective-(n-p)*Math.log(responseScale);
+            return new Fit(this,variance,weights,py,inverse,responseScale,logLik,best.maximumScore,iterations);
         }
         private Evaluation evaluate(double[] theta,double[] y,boolean[] active) {
             int count=theta.length;double[] variance=new double[count];
@@ -204,27 +257,32 @@ final class QPooledPedigreeModel {
                 double term=w[i]-w[i]*w[i]*leverage-py[i]*py[i];
                 gradient[0]+=.5*variance[0]*eigen[i]*term;gradient[residual[i]]+=.5*variance[residual[i]]*term;
             }
-            double maximum=0;for(int a=0;a<count;a++)maximum=Math.max(maximum,Math.abs(projected(gradient[a],theta[a],active[a])));
-            return new Evaluation(.5*((n-p)*Math.log(2*Math.PI)+logdet+ch.logDeterminant()+2*logR+quadratic),gradient,variance,w,py,inverse,maximum);
+            double maximum=0;for(int a=0;a<count;a++)maximum=Math.max(maximum,Math.abs(projected(gradient[a],theta[a],active[a],a)));
+            double objective=.5*((n-p)*Math.log(2*Math.PI)+logdet+ch.logDeterminant()+2*logR+quadratic);
+            if(!Double.isFinite(objective)||!Double.isFinite(maximum))throw new ArithmeticException("Nonfinite pooled REML objective or score");
+            return new Evaluation(objective,gradient,variance,w,py,inverse,maximum);
         }
     }
     static final class Fit {
         final Geometry geometry;
         final double[] variance,weights,py;
         final double[][] inverse;
-        final double logLik,maximumScore;
+        final double responseScale,logLik,maximumScore;
         final int iterations;
-        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double logLik,double maximumScore,int iterations){this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;}
+        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations){this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.responseScale=responseScale;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;}
         double[][] scoreColumns(){int n=geometry.n,p=geometry.p;double[][] result=new double[n][p+1];for(int i=0;i<n;i++){result[i][0]=py[i];for(int a=0;a<p;a++)result[i][a+1]=weights[i]*geometry.q[i][a];}return result;}
         double[] products(double[] rotated){double[] result=new double[geometry.p+1];for(int i=0;i<rotated.length;i++){result[0]+=rotated[i]*py[i];for(int a=0;a<geometry.p;a++)result[a+1]+=rotated[i]*weights[i]*geometry.q[i][a];}return result;}
         Association score(double[] rotated,double[] products){
             double raw=0;for(int i=0;i<rotated.length;i++)raw+=rotated[i]*rotated[i]*weights[i];
             double correction=0;for(int a=0;a<geometry.p;a++)for(int b=0;b<geometry.p;b++)correction+=products[a+1]*inverse[a][b]*products[b+1];
             double info=raw-correction;
-            if(!Double.isFinite(info)||info < -1e-9*Math.max(1,raw))throw new ArithmeticException("Invalid pooled score information");
-            if(info<=1e-12*Math.max(raw,1))return new Association(Double.NaN,Double.NaN,0,0,"monomorphic-or-collinear");
-            double statistic=products[0]*products[0]/info;
-            return new Association(products[0]/info,1/Math.sqrt(info),statistic,jdistlib.ChiSquare.cumulative(statistic,1,false,true)/Math.log(10),"ok");
+            if(!Double.isFinite(info)||info < -1e-9*raw)throw new ArithmeticException("Invalid pooled score information");
+            if(info<=1e-12*raw)return new Association(Double.NaN,Double.NaN,0,0,"monomorphic-or-collinear");
+            double z=products[0]/Math.sqrt(info),statistic=z*z;
+            if(!Double.isFinite(statistic))throw new ArithmeticException("Nonfinite pooled score statistic");
+            double beta=(products[0]/info)*responseScale,se=responseScale/Math.sqrt(info);
+            if(!Double.isFinite(beta)||!Double.isFinite(se)||se<=0)throw new ArithmeticException("Pooled effect or SE exceeds FP64 range");
+            return new Association(beta,se,statistic,jdistlib.ChiSquare.cumulative(statistic,1,false,true)/Math.log(10),"ok");
         }
         String variances(){StringJoiner result=new StringJoiner(";");for(int j=0;j<variance.length;j++)result.add(geometry.names.get(j)+"="+variance[j]);return result.toString();}
     }
@@ -239,7 +297,6 @@ final class QPooledPedigreeModel {
         double logDeterminant(){double value=0;for(int i=0;i<l.length;i++)value+=2*Math.log(l[i][i]);return value;}
     }
     private static int find(int[] parent,int i){while(parent[i]!=i){parent[i]=parent[parent[i]];i=parent[i];}return i;}
-    private static double projected(double g,double theta,boolean active){if(!active||(theta<=LOWER+1e-9&&g>0)||(theta>=UPPER-1e-9&&g<0))return 0;return g;}
     private static double dot(double[] a,double[] b){double v=0;for(int i=0;i<a.length;i++)v+=a[i]*b[i];return v;}
     private static double[][] identity(int n){double[][] v=new double[n][n];for(int i=0;i<n;i++)v[i][i]=1;return v;}
     private static double[][] copy(double[][] v){return Arrays.stream(v).map(double[]::clone).toArray(double[][]::new);}

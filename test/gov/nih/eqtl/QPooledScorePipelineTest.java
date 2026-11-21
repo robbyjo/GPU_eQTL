@@ -30,7 +30,13 @@ class QPooledScorePipelineTest {
             "--pedigree",QPooledPedigreeModelTest.ROOT.resolve("pedigree.tsv").toAbsolutePath().toString(),"--mixed-model","score","--mixed-null-fitter","pedigree-block",
             "--residual-group-column","Group","--pedigree-group","FHS","--trait-missing","pattern","--predictor-missing","error","--reml-max-iterations","1000",
             "--trait-positions",root.resolve("positions.tsv").toString(),"--mixed-cis-window","5","--keep-checkpoints","--genotype-block-rows","1"));
-        var config=QeQTLCommandLine.parse(args.toArray(String[]::new)).config();run(config);
+        var config=QeQTLCommandLine.parse(args.toArray(String[]::new)).config();
+        config.set("validate_only","true");run(config);
+        assertFalse(Files.exists(root.resolve("out.csv")));assertFalse(Files.exists(root.resolve("out.csv.pooled-checkpoint")));
+        Files.writeString(root.resolve("positions.tsv"),"ID\tCHROM\tPOS\nfull\t1\t105\n");
+        assertThrows(java.io.IOException.class,()->run(config));
+        Files.writeString(root.resolve("positions.tsv"),"ID\tCHROM\tPOS\nfull\tchr1\t105\nmissing\t1\t105\n");
+        config.set("validate_only","false");run(config);
         Path output=root.resolve("out.csv"),audit=Path.of(output+".pooled.tsv");byte[] original=Files.readAllBytes(output),originalAudit=Files.readAllBytes(audit);
         var lines=Files.readAllLines(output);assertEquals(5,lines.size());
         assertTrue(lines.get(1).contains("\"full\",96,"));assertTrue(lines.get(3).contains("\"missing\",89,"));
@@ -52,6 +58,13 @@ class QPooledScorePipelineTest {
     @Test void unsafeOrIgnoredCombinationsAreRejected()throws Exception {
         for(String[] args:List.of(new String[]{"--mixed-null-fitter","pedigree-block"},new String[]{"--residual-group-column","Group"},new String[]{"--mixed-null-fitter","unknown"}))
             assertThrows(IllegalArgumentException.class,()->QeQTLCommandLine.parse(args));
+    }
+    @Test void cisWindowsIncludeBothEndpointsAndRejectMissingExactIds(@TempDir Path root)throws Exception {
+        Path positions=root.resolve("positions.tsv");
+        Files.writeString(positions,"ID\tCHROM\tPOS\nt.1\tchr1\t9223372036854775806\n");
+        var index=new QPooledScoreRunner.CisIndex(positions,new String[]{"1:9223372036854775807:A:C","1:9223372036854775805:A:T","2:10:A:G"},1);
+        assertArrayEquals(new int[]{0,1},index.rows("t.1"));
+        assertThrows(java.io.IOException.class,()->index.rows("t"));
     }
     @Test void cudaProductsMatchScalar()throws Exception{check(new CudaGpuBackend());}
     @Test void openClProductsMatchScalar()throws Exception{check(new JoclGpuBackend());}
