@@ -2,6 +2,12 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## [1.9.2.1](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.1) — 2026-11-20
+
+- Reuse immutable, checksummed pooled null fits across chromosome processes with `--mixed-null-cache-dir`; per-key process locks avoid duplicate fits. Native weighted-design and large-family products preserve FP64 scalar/dense-R references.
+- Verify pooled result/audit parts with model-bound SHA-256 records and checkpoint ownership. Preserve interrupted parts outside cleanup directories and reject lost digest indexes. Proportional inbred-identity reductions retain summed bounds, and deterministic starts share the requested iteration budget.
+- Pooled signature version 3 requires fresh result/checkpoint directories when upgrading from v1.9.2. Legacy/spectral signatures and aligned raw-cache formats remain unchanged. See the [release notes](docs/RELEASE_NOTES_1.9.2.1.md) and [pooled guide](docs/POOLED_PEDIGREE_SCORE.md).
+
 ## [1.9.2](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2) — 2026-11-20
 
 - Add opt-in pooled pedigree-block single-variant score analysis: one pedigree cohort, fitted residual variances by cohort, exact observed masks, FP64 score products and optional indexed cis windows.
