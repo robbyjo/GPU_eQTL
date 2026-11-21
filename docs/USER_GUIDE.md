@@ -483,3 +483,15 @@ See [the contributor guide](../AGENTS.md) for contributor constraints and the or
 GPU eQTL is distributed under the GNU General Public License version 3. See [`LICENSE`](../LICENSE) for the complete license text. The copyright holder grants the narrow oneMKL linking permission in [`LICENSE_EXCEPTION`](../LICENSE_EXCEPTION) for Roby Joehanes-owned portions of the program.
 
 The default release does not contain Intel oneMKL native binaries. The platform-specific oneMKL artifacts also contain Intel-licensed components governed by the reproduced [`Intel and incorporated-code terms`](../THIRD_PARTY_LICENSES). The exception permits conveying the combined work; it does not relicense or permit modification of Intel's binaries.
+
+
+## Pooled pedigree score scans
+
+For pooled Gaussian single-SNP analysis with one related cohort and distinct
+cohort residual variances, use the opt-in
+[pedigree-block score fitter](POOLED_PEDIGREE_SCORE.md). Include cohort, nested
+batch indicators and every prespecified expression/genotype PC in the fixed
+design. The fitter preserves each trait's exact observed sample mask, reuses
+checksummed null fits across chromosomes, and performs FP64 tiled score products
+on CUDA/OpenCL/native CPU. PC reconstruction and full-cohort HWE annotation are
+preparation steps supplied by the analysis workflow.

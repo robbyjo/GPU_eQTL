@@ -20,7 +20,7 @@ write.csv(data,file.path(out,'data.csv'),row.names=FALSE,quote=FALSE)
 ped <- c('ID\tSIRE\tDAM',unlist(lapply(0:11,function(f)c(paste0('f',f,'\t0\t0'),paste0('m',f,'\t0\t0'),
  sapply(0:3,function(k)paste0('s',f*4+k,'\tf',f,'\tm',f))))))
 writeLines(ped,file.path(out,'pedigree.tsv'))
-results <- list()
+results <- list();diagnostics <- list()
 for(case in c('full','missing')) {
  keep <- if(case=='full') seq_len(n) else setdiff(seq_len(n),c(3,8,19,42,53,81,94))
  xx<-X[keep,,drop=FALSE]; yy<-y[keep];gg<-g[keep];nn<-length(keep)
@@ -36,10 +36,13 @@ for(case in c('full','missing')) {
   if(gradient)grad else value
  }
  fits<-lapply(c(.02,.2,.7),function(a)nlminb(log(scale*c(a,.08,.4,.8)),evaluate,function(t)evaluate(t,TRUE),lower=rep(lo,4),upper=rep(hi,4),control=list(eval.max=2000,iter.max=1000,rel.tol=1e-13,x.tol=1e-11)))
+ point<-log(c(.2,.03,.15,.34));grad<-evaluate(point,TRUE)
+ diagnostics[[case]]<-data.frame(Case=case,Objective=evaluate(point),Genetic=grad[1],CARDIA=grad[2],FHS=grad[3],WHI=grad[4])
  fit<-fits[[which.min(sapply(fits,`[[`,'objective'))]];state<-evaluate(fit$par,return_state=TRUE)
  U<-sum(gg*state$py);info<-as.numeric(crossprod(gg,state$p%*%gg));stat<-U^2/info
  results[[case]]<-data.frame(Case=case,N=nn,Genetic=exp(fit$par[1]),CARDIA=exp(fit$par[2]),FHS=exp(fit$par[3]),WHI=exp(fit$par[4]),
  Effect=U/info,SE=1/sqrt(info),Statistic=stat,log10P=pchisq(stat,1,lower.tail=FALSE,log.p=TRUE)/log(10),REMLLogLik=-state$value)
 }
 write.table(do.call(rbind,results),file.path(out,'expected.csv'),sep=',',row.names=FALSE,col.names=TRUE,quote=FALSE)
+write.table(do.call(rbind,diagnostics),file.path(out,'diagnostics.csv'),sep=',',row.names=FALSE,col.names=TRUE,quote=FALSE)
 writeLines(sub('[[:space:]]+$','',capture.output(sessionInfo())),file.path(out,'session-info.txt'))

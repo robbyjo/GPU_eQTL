@@ -16,7 +16,9 @@ java -Xmx32g -jar gpu-eqtl.jar \
   --mixed-model score --mixed-null-fitter pedigree-block \
   --residual-group-column Cohort --pedigree-group FHS \
   --trait-missing pattern --predictor-missing mean \
+  --unestimable-trait-patterns skip \
   --trait-positions transcript-tss.tsv --mixed-cis-window 1000000 \
+  --mixed-null-cache-dir shared-pooled-nulls \
   --reml-max-iterations 1000 --backend cuda --precision fp64 \
   --keep-checkpoints --output pooled-score.csv
 ```
@@ -35,11 +37,11 @@ needs individuals in the selected pedigree group and their required ancestors.
 All analysis sample IDs remain unique. Other cohorts are modeled as independent;
 their duplicates/close relatives must be resolved before selecting this model.
 
-The participant pedigree graph and its connected covariance blocks are built
-once. Each observed mask subsets and diagonalizes those blocks without a pooled
-dense projection. Storage is quadratic in each connected pedigree block;
-one large connected pedigree can still require substantial memory. The most
-recent mask geometry is cached, with no unbounded cache of distinct masks.
+Pedigree relationships and covariance blocks are constructed once. Per-mask
+submatrices are diagonalized without a pooled dense projection; one exact mask
+geometry is held in memory. Large-family rotations and repeated weighted design
+calculations use the resolved native CPU algebra when available. No eigenvalues
+are truncated to approximate the model; roundoff-sized negatives may be clamped.
 Each trait receives its own variance fit. Score information includes the full
 fixed-effect correction, and missing genotype means use the trait's observed
 participants. Zero and one are observed trait values. Missing parser sentinels
@@ -48,46 +50,95 @@ remaining design column space with its actual rank. Unestimable traits fail
 unless explicitly skipped; the paired `.pooled.tsv` audit records their status,
 observed cohort counts, rank, variance components and convergence diagnostic.
 
-Each component is bounded between `1e-10` and `1e10` times the trait's
-fixed-effect residual mean square. If the observed pedigree kernel is exactly
-identity, only its sum with that cohort's residual variance is estimable; the
-sum retains bounds `2e-10` to `2e10`, and additive variance is reported as zero.
-Other zero or dependent covariance components after fixed-effect projection
-are explicitly unestimable (normalized Gram eigenvalue tolerance `1e-10`).
-Convergence requires maximum projected log-variance score at most `1e-6`.
-Score products use normalized response units; effects, standard errors,
-variance components and likelihoods are converted back to the supplied units.
-Unrepresentable FP64 values and numerical convergence failures stop the run.
-
 The raw aligned genotype cache is indexed. With cis options, variant identifiers
 must have a `CHROM:POS:` prefix. Trait positions are an exact-ID TSV headed
 `ID`, `CHROM`, `POS`, with 1-based coordinates; callers must provide the intended
 strand-aware TSS. No transcript-version matching is inferred. Without the cis
 options, all supplied variants are tested. Atomic result/audit trait parts and
 input/model/backend signatures protect compatible restarts. This mode has a
-distinct checkpoint identity from existing mixed results. Release v1.9.2 uses
-pooled signature version 2; draft PR #20 version-1 result directories must not
-be reused. Aligned raw genotype caches and existing legacy/spectral signatures
-are unchanged. `--validate-only` checks exact cis IDs, observed-mask rank/DF and
-covariance identifiability without fitting nulls or writing association results.
+distinct checkpoint identity from existing mixed results.
 
-## Validation and practical limits
+## Identifiability and convergence
 
-Tests compare complete and incomplete masks with independent base-R dense
-REML/GLS references, response scaling from `1e-100` to `1e100`, identity
-reduction, projected covariance confounding, partial FP64 product tiles, inclusive
-cis selection, indexed-cache integrity and byte-identical result/audit resume.
-Native CPU, NVIDIA CUDA and OpenCL products are compared with scalar references.
-Release-wide and packaged validation is recorded in the v1.9.2 release receipt.
+The response is projected onto the fixed-design residual space and normalized
+by its residual sample SD. Component bounds are 1e-10 to 1e10 in these normalized
+variance units. At most two deterministic starts share the total
+`--reml-max-iterations` budget. Acceptance requires the maximum absolute projected
+log-variance score to be at most 1e-6. Estimates and likelihood are returned in
+original response units. This optimizer and its bounds are separate from the
+legacy fitter. Numerical nonconvergence is fatal even when unestimable traits
+are explicitly skipped.
 
-This opt-in model has synthetic validation; no full-cohort speedup or production
-analysis is claimed. Null fits are not persisted for reuse across chromosome
-jobs. Many distinct masks require repeated eigendecompositions and fits; measure
-time and memory on a representative subset before scheduling a large analysis.
-Only one cohort can carry pedigree covariance; other cohorts must be independent.
-FP32, GRMs, extra random kernels, set tests and per-predictor REML are unsupported
-in this path. Existing mixed and spectral set-test modes remain available.
+If a selected pedigree covariance is exactly `c I`, its additive and residual
+components are not separately identifiable. The fitter uses their identifiable
+total with the exact summed original bounds and labels it `total:FHS`.
+`unidentified-additive:FHS=0` is bookkeeping, not evidence of absent genetic
+variance. Masks without FHS use the corresponding exact reduction. Other
+covariance dependencies after fixed-effect projection fail explicitly.
+
+## Shared nulls and restart integrity
+
+Use distinct output/checkpoint paths for chromosome jobs and the same explicit
+`--mixed-null-cache-dir` to share compatible nulls. By default this directory is
+the output's cache directory plus `pooled-nulls`. Each immutable null has a
+SHA-256 payload checksum and a key covering the trait ID, response bits, ordered
+sample/pedigree/group identities, exact mask, fixed-design geometry, rotations,
+bounds, algorithm, iteration budget and resolved CPU algebra. Predictor data are
+absent because the null contains no predictor. Stable OS locks prevent duplicate
+cross-process fitting/writing. Corruption fails visibly. `--rebuild-cache`
+recomputes without overwriting a prior immutable fit. Geometry must still be
+constructed to validate a shared null, so this cache does not eliminate all
+per-mask eigendecomposition work.
+
+Result and audit parts carry separate model-bound SHA-256 records. Resume rejects
+missing digest indexes, missing/modified committed parts and incompatible
+inputs/model/backend, including trait-position changes. Uncommitted parts are
+retained outside the checkpoint in its sibling `.uncommitted` directory before
+recomputation; retained audits use that directory's `audit` subdirectory, so
+cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
+Both final outputs must assemble before default cleanup; `--keep-checkpoints`
+retains committed parts. Output order is trait then original predictor order.
+This implementation uses pooled result signature version 3, distinct from
+v1.9.2 pooled version 2 and the initial draft. Use fresh pooled result directories.
+Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
+The released validation-only checks for exact IDs, observed-mask rank/DF and
+covariance identifiability remain available without fitting nulls.
+
+The VCF/BCF reader's aligned-sample `hwe_p` diagnostic is distinct from an external
+full-cohort `P_HWE` annotation. Join that independently prepared annotation using
+the exact allele-aware variant key and retain its reference sample definition.
+This fitter does not recalculate HWE per transcript or introduce an HWE filter.
+
+## Validation and limits
+
+Synthetic tests compare complete/incomplete masks, likelihoods, gradients and
+scores against independent base-R dense covariance Cholesky and finite
+differences. They cover response scaling, inbred proportional-identity bounds,
+covariance confounding, native/scalar large-family rotations, inclusive cis
+boundaries, null reuse/corruption, raw-row CRC validation and result/audit
+resume/corruption. Actual CUDA, NVIDIA OpenCL and native CPU product checks
+include partial tiles. These checks do not establish full-cohort throughput or
+production-server performance.
+
+Supported combinations are single-SNP Gaussian score tests, one observation per
+pedigree individual, one pedigree group and FP64; no GRM/additional random kernels
+or supplied-covariance cohort mode. Predictor missing policies are error/mean/zero;
+frequency filters use aligned participants, with pattern frequency filtering
+rejected. Trait-pattern scheduling is handled by this runner. Null fits and
+mask geometry remain CPU work. Many distinct masks or one large connected
+pedigree can remain expensive. PC reconstruction, cohort-wide HWE annotation and
+scientific calibration are analysis-workflow responsibilities.
 
 The independent reference generator is `scripts/generate-pooled-reference.R`.
 It uses base R dense covariance Cholesky, rather than the production block
 eigendecomposition, and commits synthetic fixtures only.
+
+The standalone `test/gov/nih/eqtl/PooledSyntheticBenchmark.java` is an optional
+engineering benchmark, excluded from ordinary JUnit execution. Compile it with
+`javac -cp target/gpu-eqtl-1.9.2-all.jar -d target/benchmark-classes test/gov/nih/eqtl/PooledSyntheticBenchmark.java`
+and run `gov.nih.eqtl.PooledSyntheticBenchmark FRESH_OUTPUT_DIRECTORY` with
+`target/benchmark-classes` plus the shaded JAR on the Java classpath, native CPU
+algebra selected, and an available CUDA runtime. It uses 8,955 synthetic samples,
+55 design columns, a 512-person synthetic pedigree component, complete/incomplete
+masks, a shared-null hit and a scalar/CUDA product comparison. It reports its
+observed timings as JSON; those timings are not an end-to-end cohort estimate.

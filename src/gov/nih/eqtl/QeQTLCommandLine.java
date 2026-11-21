@@ -63,6 +63,7 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--reml-max-iterations", "reml_max_iterations");
         VALUE_OPTIONS.put("--set-null-fitter", "set_null_fitter");
         VALUE_OPTIONS.put("--mixed-null-fitter", "mixed_null_fitter");
+        VALUE_OPTIONS.put("--mixed-null-cache-dir", "mixed_null_cache_dir");
         VALUE_OPTIONS.put("--residual-group-column", "residual_group_column");
         VALUE_OPTIONS.put("--pedigree-group", "pedigree_group");
         VALUE_OPTIONS.put("--trait-positions", "trait_positions");
@@ -123,7 +124,7 @@ public final class QeQTLCommandLine {
         "genotype_file", "expression_file", "covariate_file", "cohort_model", "output_file", "family_file", "pedigree_file", "relationship_matrix",
         "cache_dir", "cache_report", "checkpoint_dir", "profile_output", "variant_qc_output",
         "variant_qc_checkpoint", "variant_index", "regions_file", "missingness_qc_output",
-        "variant_sets", "set_audit_output", "trait_positions");
+        "variant_sets", "set_audit_output", "trait_positions", "mixed_null_cache_dir");
 
     private QeQTLCommandLine() { }
 
@@ -315,6 +316,7 @@ public final class QeQTLCommandLine {
               --reml-max-iterations N          Maximum iterations per fit (default: 200)
               --set-null-fitter legacy|spectral  Pedigree burden/SKAT/SKAT-O null fitter (default: legacy)
               --mixed-null-fitter legacy|pedigree-block  Opt-in pooled single-SNP score fitter
+              --mixed-null-cache-dir DIR       Checksummed per-trait nulls reusable across chromosomes
               --residual-group-column NAME     Separate fitted residual variance per group
               --pedigree-group VALUE           Group with pedigree covariance (others independent)
               --trait-positions FILE           ID/CHROM/POS TSV, positions are 1-based
