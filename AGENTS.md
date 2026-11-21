@@ -12,8 +12,8 @@ This is a Java application for GPU-accelerated eQTL and related QTL analyses. Th
 - Use the checked-in Maven wrapper: `./mvnw test` on POSIX systems or `.\mvnw.cmd test` on Windows.
 - In Eclipse, use Maven Integration for Eclipse (m2e), import as an Existing Maven Project, and run Maven → Update Project after pom.xml changes.
 - Build the runnable jar with `./mvnw clean package` or `.\mvnw.cmd clean package`.
-- The packaged application is `target/gpu-eqtl-1.9.1.6-all.jar`.
-- Print detected compute-backend information with `java -jar target/gpu-eqtl-1.9.1.6-all.jar --printbackendinfo` (`--printgpuinfo` remains an alias).
+- The packaged application is `target/gpu-eqtl-1.9.2-all.jar`.
+- Print detected compute-backend information with `java -jar target/gpu-eqtl-1.9.2-all.jar --printbackendinfo` (`--printgpuinfo` remains an alias).
 - Do not commit `target/`, `bin/`, downloaded dependencies, GPU drivers, or vendor SDKs.
 
 The Maven build currently compiles the eQTL application and its supporting NIH utility packages. `src/gov/nih/exon` is deliberately outside the build because it depends on the absent QGeneric/qstats/qplugin projects. Do not silently add it to the build; either restore those dependencies or extract and test that code first.
@@ -44,6 +44,7 @@ The tracked `lib/javacsv-src.zip` contains a project-specific JavaCSV fork that 
 
 ## Scientific verification
 
+- Opt-in `--mixed-null-fitter pedigree-block` is the pooled single-variant Gaussian score path. Preserve exact observed masks, one pedigree group plus cohort residual variances, per-run connected pedigree blocks, response-normalized FP64 score products, projected covariance identifiability checks, component bounds and identity sum bounds. Pooled signature version 2 is distinct from draft version 1 and all legacy/set checkpoints. See `docs/POOLED_PEDIGREE_SCORE.md`; cross-chromosome null persistence and full-cohort performance remain unvalidated.
 - General fitted Gaussian mixed modes use JLinAlg for CPU REML/pedigree construction. Explicit `--set-null-fitter spectral` uses the separately score-checked two-component pedigree error-contrast fitter and bounded mask geometry cache; preserve its original variance bounds, exact identity reduction and full genotype score covariance. `score`/`genesis` reuses one null per trait with full score variance and chi-square(1) inference; `reml` refits each predictor and reports the selected Wald DF policy. Keep their schemas, dependency/device-bound trait checkpoints, explicit convergence failures, and scalar/GPU projection references separate from ordinary fixed-effect caches. See `docs/MIXED_MODELS.md` and `docs/SPECTRAL_SET_NULL.md` for supported combinations and dense-memory limits.
 - SKAT quadratic-form tails must not silently substitute moment matching. Preserve exact special cases, rank-two relative-tail quadrature, the positive-series remainder check and work limit, scale invariance, and inversion of the same distribution for SKAT-O. Unresolved spectra must stop explicitly. Changing the tail law requires a set-checkpoint signature version change.
 

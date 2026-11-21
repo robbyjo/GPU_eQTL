@@ -1,14 +1,14 @@
 # Fitted Gaussian mixed models and pedigree analyses
 
-GPU eQTL now supports two fitted mixed-model modes. Both estimate variance
-components by REML using the pinned JLinAlg 0.3.6 library and JDistlib 0.10.2.
+GPU eQTL supports two fitted mixed-model modes. The default legacy fitter estimates
+variance components by REML using JLinAlg 0.3.6, with JDistlib 0.10.2 inference.
 The supplied-covariance `--cohort-model` GLS path remains a separate option.
 
-An opt-in [pooled pedigree-block score fitter](POOLED_PEDIGREE_SCORE.md) uses its
-own bounded optimizer and block eigendecomposition, with one pedigree group,
-cohort-specific residual variances, exact trait masks and shared per-trait null
-caches. Select `--mixed-model score --mixed-null-fitter pedigree-block`; the
-default `legacy` fitter described below is unchanged.
+For single-variant pooled scans with pedigree covariance in one cohort and a
+separate residual variance per cohort, select `--mixed-model score
+--mixed-null-fitter pedigree-block`. This opt-in block fitter has its own
+[configuration, numerical bounds, checkpoints and limits](POOLED_PEDIGREE_SCORE.md).
+The legacy fitter described below remains the default.
 
 | Mode | Fitting and test | Intended use |
 | --- | --- | --- |
@@ -87,12 +87,12 @@ otherwise. Grouping terms may accompany a pedigree. Redundant or confounded
 variance components fail the fitter's identifiability checks.
 
 ```sh
-java -Xmx8g -jar target/gpu-eqtl-1.9.1.6-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.2-all.jar \
   --genotype genotypes.csv --expression traits.csv --output score.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model score --backend auto
 
-java -Xmx8g -jar target/gpu-eqtl-1.9.1.6-all.jar \
+java -Xmx8g -jar target/gpu-eqtl-1.9.2-all.jar \
   --genotype genotypes.csv --expression traits.csv --output reml.csv \
   --covariates covariates.csv --fixed-covariates Age,Sex \
   --pedigree pedigree.tsv --mixed-model reml --reml-df satterthwaite

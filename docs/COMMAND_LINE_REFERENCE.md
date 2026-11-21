@@ -4,13 +4,13 @@ This page is the reference for the current GPU eQTL command-line interface. It l
 
 ## Invocation
 
-The runnable artifact is `target/gpu-eqtl-1.9.1.6-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
+The runnable artifact is `target/gpu-eqtl-1.9.2-all.jar`. On recent Java versions, put `--enable-native-access=ALL-UNNAMED` before `-jar` to suppress native-library access warnings.
 
 ```text
-java [JVM options] -jar gpu-eqtl-1.9.1.6-all.jar legacy.ini
-java [JVM options] -jar gpu-eqtl-1.9.1.6-all.jar --config legacy.ini [overrides]
-java [JVM options] -jar gpu-eqtl-1.9.1.6-all.jar --genotype FILE --expression FILE [options]
-java [JVM options] -jar gpu-eqtl-1.9.1.6-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
+java [JVM options] -jar gpu-eqtl-1.9.2-all.jar legacy.ini
+java [JVM options] -jar gpu-eqtl-1.9.2-all.jar --config legacy.ini [overrides]
+java [JVM options] -jar gpu-eqtl-1.9.2-all.jar --genotype FILE --expression FILE [options]
+java [JVM options] -jar gpu-eqtl-1.9.2-all.jar --predictor FILE --predictor-type TYPE --traits FILE --trait-type TYPE [options]
 ```
 
 An association run requires predictor/genotype and trait/expression inputs plus `--output`. `--validate-only` and `--inspect-missingness` do not run association. `--preprocess-only` requires VCF/BCF plus the trait matrix and any selected covariates, but does not require `--output`.
@@ -25,7 +25,7 @@ PowerShell:
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -56,7 +56,7 @@ First create alignment-specific QC and the raw FP64 dosage cache without initial
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -76,7 +76,7 @@ Then run association with the same source, alignment, regions, field, frequency 
 
 ```powershell
 java -Xmx12g --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --genotype-field auto `
@@ -100,7 +100,7 @@ The matching QC checkpoint avoids repeating aligned MAF/MAC/HWE calculations. Th
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --genotype cohort.vcf.gz `
   --genotype-format vcf `
   --variant-index cohort.vcf.gz.tbi `
@@ -117,7 +117,7 @@ Inline coordinates are one-based inclusive. For a file of regions, use `--region
 ### Inspect missingness without association
 
 ```powershell
-java -jar target\gpu-eqtl-1.9.1.6-all.jar `
+java -jar target\gpu-eqtl-1.9.2-all.jar `
   --genotype predictors.csv `
   --predictor-type methylation `
   --expression proteins.csv `
@@ -134,7 +134,7 @@ Generic `--predictor` and `--traits` spellings require their corresponding type 
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --backend cpu `
   --genotype predictors.csv `
   --expression traits.csv `
@@ -173,6 +173,11 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--set-degenerate POLICY` | `error` (default), `skip` | `set_degenerate` | Handling for empty or post-projection monomorphic sets. |
 | `--set-block-size N` | `0` automatic | `set_block_size` | Resident set tile size for bounded execution. Omitted/zero selects a heap-aware value from aligned sample count, method workspaces, and the actual set-membership density; a positive value remains an explicit override. |
 | `--set-null-fitter METHOD` | `legacy` (default), `spectral` | `set_null_fitter` | Selects the REML null fitter for continuous pedigree burden/SKAT/SKAT-O. Spectral requires `--pedigree` with score mode and no GRM or additional random kernels; FP64 only. Use separate result/checkpoint directories for the two fitters. See [examples and limits](SPECTRAL_SET_NULL.md). |
+| `--mixed-null-fitter METHOD` | `legacy` (default), `pedigree-block` | `mixed_null_fitter` | Opt-in pooled single-variant score null with pedigree covariance in one cohort and fitted cohort residual variances; FP64 only. See [pooled model and limits](POOLED_PEDIGREE_SCORE.md). |
+| `--residual-group-column NAME` | Covariate column | `residual_group_column` | Cohort/group column defining pooled residual variances; requires `pedigree-block`. |
+| `--pedigree-group LABEL` | Exact group label | `pedigree_group` | The one residual group whose participants have pedigree covariance. |
+| `--trait-positions FILE` | Exact-ID TSV | `trait_positions` | `ID`, `CHROM`, `POS` columns with 1-based intended TSS; requires the paired cis-window option. |
+| `--mixed-cis-window BASES` | Nonnegative integer | `mixed_cis_window` | Inclusive distance from trait position; requires pooled mode and `CHROM:POS:` variant IDs. Omit both cis options to test all variants. |
 | `--skat-o-rho-grid LIST` | `0,0.25,0.5,0.75,1` | `skat_o_rho_grid` | Strictly increasing rho grid beginning at zero and ending at one. |
 | `--skat-o-method METHOD` | `integration` (default), `simulation` | `skat_o_method` | Joint rho-grid tail integration without an event-count floor; optional correlated Gaussian simulation. See [derivation and limits](RELATED_SET_TESTS.md). |
 | `--skat-o-relative-tolerance VALUE` | `0.005`; range `1e-6` to `0.05` | `skat_o_relative_tolerance` | Estimated relative integration error target. |
@@ -207,12 +212,7 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 | `--factor-covariates LIST` | Comma-separated; none | `covariate_factor` | Forces named numeric-looking covariates to categorical factors. Text covariates are categorical automatically; the lexicographically first level is the reference. |
 | `--random-covariates LIST` | Optional grouping columns | `covariate_random` | Fit independent random-intercept variance components; may accompany pedigree covariance. |
 | `--mixed-model MODE` | `score`/`genesis`, `reml`, `none` | `mixed_model` | Null REML plus score tests, per-predictor REML refits, or ordinary analysis. Defaults to score when random/pedigree terms exist; otherwise none. |
-| `--mixed-null-fitter MODE` | `legacy` (default), `pedigree-block` | `mixed_null_fitter` | Opt-in exact-mask pooled single-SNP score model; see [pooled guide](POOLED_PEDIGREE_SCORE.md). |
-| `--residual-group-column NAME` | Required for `pedigree-block` | `residual_group_column` | Covariate column defining separately fitted residual variances. |
-| `--pedigree-group VALUE` | Required for `pedigree-block` | `pedigree_group` | Exact group value receiving additive pedigree covariance; other groups are independent. |
 | `--mixed-null-cache-dir DIR` | Output cache's `pooled-nulls` subdirectory | `mixed_null_cache_dir` | Shared immutable, checksummed trait nulls across chromosome jobs; pooled fitter only. |
-| `--trait-positions FILE` | None | `trait_positions` | Exact-ID ID/CHROM/POS TSV with 1-based positions; paired with mixed cis window, pooled fitter only. |
-| `--mixed-cis-window BP` | None; nonnegative integer | `mixed_cis_window` | Inclusive cis radius; requires trait positions and CHROM:POS predictor IDs, pooled fitter only. |
 | `--pedigree-id-column NAME` | Optional | `pedigree_id_column` | Covariate observation-to-pedigree-individual mapping for repeated measurements. |
 | `--reml-df METHOD` | `residual` (default), `satterthwaite`, `kenward-roger` | `reml_df` | Wald denominator DF/inference for per-predictor REML only. Score tests use chi-square(1). |
 | `--reml-max-iterations N` | Positive integer; 200 | `reml_max_iterations` | Maximum optimizer iterations per fit; nonconvergence is fatal. |
@@ -300,7 +300,7 @@ For example, in PowerShell the `-D` argument should be quoted:
 ```powershell
 java '-Deqtl.cpu.blas=openblas' '-Deqtl.cpu.threads=8' `
   --enable-native-access=ALL-UNNAMED `
-  -jar target\gpu-eqtl-1.9.1.6-all.jar `
+  -jar target\gpu-eqtl-1.9.2-all.jar `
   --backend cpu --printbackendinfo
 ```
 

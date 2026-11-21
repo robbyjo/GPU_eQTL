@@ -9,7 +9,7 @@ import java.util.Arrays;
 
 /** Immutable, checksummed per-trait nulls shared safely across chromosome processes. */
 final class QPooledNullCache {
-    private static final int MAGIC=0x51504e32;
+    private static final int MAGIC=0x51504e33;
     private QPooledNullCache(){ }
     static synchronized QPooledPedigreeModel.Fit fit(QPooledPedigreeModel.Geometry geometry,double[] response,
         String trait,Path directory,boolean rebuild)throws Exception {
@@ -38,7 +38,7 @@ final class QPooledNullCache {
             out.writeInt(MAGIC);out.writeUTF(key);out.writeInt(fit.geometry.n);out.writeInt(fit.geometry.p);out.writeInt(fit.variance.length);
             for(double value:fit.variance)out.writeDouble(value);for(double value:fit.weights)out.writeDouble(value);for(double value:fit.py)out.writeDouble(value);
             for(double[] row:fit.inverse)for(double value:row)out.writeDouble(value);
-            out.writeDouble(fit.logLik);out.writeDouble(fit.maximumScore);out.writeInt(fit.iterations);
+            out.writeDouble(fit.responseScale);out.writeDouble(fit.logLik);out.writeDouble(fit.maximumScore);out.writeInt(fit.iterations);
         }
         byte[] payload=bytes.toByteArray(),checksum=MessageDigest.getInstance("SHA-256").digest(payload);
         byte[] result=Arrays.copyOf(payload,payload.length+checksum.length);System.arraycopy(checksum,0,result,payload.length,checksum.length);return result;
@@ -52,12 +52,12 @@ final class QPooledNullCache {
             if(in.readInt()!=MAGIC||!in.readUTF().equals(key)||in.readInt()!=geometry.n||in.readInt()!=geometry.p||in.readInt()!=geometry.names.size())throw new IOException("Pooled null-cache model mismatch");
             double[] variance=values(in,geometry.names.size()),weights=values(in,geometry.n),py=values(in,geometry.n);double[][] inverse=new double[geometry.p][];
             for(int i=0;i<inverse.length;i++)inverse[i]=values(in,geometry.p);
-            double logLik=in.readDouble(),score=in.readDouble();int iterations=in.readInt();
-            if(in.available()!=0||!Double.isFinite(logLik)||!Double.isFinite(score)||score<0||score>QPooledPedigreeModel.SCORE_TOLERANCE||iterations<1)
+            double responseScale=in.readDouble(),logLik=in.readDouble(),score=in.readDouble();int iterations=in.readInt();
+            if(in.available()!=0||!Double.isFinite(responseScale)||responseScale<=0||!Double.isFinite(logLik)||!Double.isFinite(score)||score<0||score>QPooledPedigreeModel.SCORE_TOLERANCE||iterations<1)
                 throw new IOException("Invalid pooled null-cache convergence record");
             for(double value:variance)if(value<0)throw new IOException("Negative cached variance");
             for(double value:weights)if(value<=0)throw new IOException("Nonpositive cached covariance weight");
-            return new QPooledPedigreeModel.Fit(geometry,variance,weights,py,inverse,logLik,score,iterations,true);
+            return new QPooledPedigreeModel.Fit(geometry,variance,weights,py,inverse,responseScale,logLik,score,iterations,true);
         }
     }
     private static double[] values(DataInputStream input,int n)throws IOException {

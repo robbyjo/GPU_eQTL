@@ -10,9 +10,30 @@ import gov.nih.gpu.*;
 
 /** Opt-in pooled score scan; bounded SNP tiles, raw indexed cache and atomic trait parts. */
 final class QPooledScoreRunner {
-    private static final String ALGORITHM="pooled-pedigree-block-v2-cached-graph-identified-bounds";
+    private static final String ALGORITHM="pooled-pedigree-block-v3-normalized-null-integrity";
     private static final String HEADER="SNP,Probe,N,DF,Effect,SE,Statistic,log10P,Test,Status,VarianceComponents,REMLLogLik,Iterations,MaxProjectedScore,Rank";
     private static final String AUDIT="Trait\tN\tRank\tCohortN\tTestedVariants\tDegenerateVariants\tStatus\tVarianceComponents\tREMLLogLik\tMaxProjectedScore\tIdentityReduction";
+    static void validate(QeQTLAnalysisConfig config,QPooledPedigreeModel model,QMatrixRowSource genotypes,int[] genotypeColumns,
+        QMatrixRowSource traits,int[] traitColumns)throws Exception {
+        CisIndex cis=null;
+        if(config.getTraitPositionsFilename()!=null) {
+            List<String> ids=new ArrayList<>();
+            try(var reader=genotypes.open(new int[]{genotypeColumns[0]})) {QMatrixRowSource.Block tile;while((tile=reader.readBlock(4096))!=null)Collections.addAll(ids,tile.rowIds());}
+            cis=new CisIndex(Path.of(config.getTraitPositionsFilename()),ids.toArray(String[]::new),Long.parseLong(config.get("mixed_cis_window")));
+        }
+        try(var reader=traits.open(traitColumns)) {
+            QMatrixRowSource.Block row;while((row=reader.readBlock(1))!=null) {
+                String id=row.rowIds()[0];requireTsv(id);if(cis!=null)cis.rows(id);
+                int[] mask=observedMask(row.values()[0],id);
+                try{model.geometry(mask);}catch(QPooledPedigreeModel.Unestimable error){if(!config.getSkipUnestimableTraits())throw error;}
+            }
+        }
+        System.out.println("Pooled alignment, pedigree, observed-mask rank/DF, covariance identifiability and cis metadata validated; no fit or scan.");
+    }
+    private static int[] observedMask(double[] complete,String id) {
+        for(double v:complete)if(Double.isInfinite(v))throw new IllegalArgumentException("Infinite trait value: "+id);
+        return java.util.stream.IntStream.range(0,complete.length).filter(i->!QMissingnessScan.isMissing(complete[i])).toArray();
+    }
     static void run(QeQTLAnalysisConfig config,QPooledPedigreeModel model,QMatrixRowSource genotypes,int[] genotypeColumns,
         QMatrixRowSource traits,int[] traitColumns,GpuContext[] contexts)throws Exception {
         String stamp=QMixedModelRunner.sourceStamp(config);
@@ -37,8 +58,8 @@ final class QPooledScoreRunner {
                 if(results.isComplete(t)&&audits.isComplete(t))continue;
                 QMixedModelRunner.requireUnchanged(config,stamp);
                 String id=row.rowIds()[0];requireTsv(id);double[] complete=row.values()[0];
-                int[] mask=java.util.stream.IntStream.range(0,complete.length).filter(i->!QMissingnessScan.isMissing(complete[i])).toArray();
-                for(double v:complete)if(Double.isInfinite(v))throw new IllegalArgumentException("Infinite trait value: "+id);
+                int[] mask=observedMask(complete,id);
+                int[] cisRows=cis==null?null:cis.rows(id);
                 double[] y=Arrays.stream(mask).mapToDouble(i->complete[i]).toArray();
                 QPooledPedigreeModel.Geometry geometry;
                 QPooledPedigreeModel.Fit fit;
@@ -48,7 +69,7 @@ final class QPooledScoreRunner {
                     if(!audits.isComplete(t))audits.writeBlock(t,writer->writer.write(id+"\t"+mask.length+"\tNA\t"+model.cohortCounts(mask)+"\t0\t0\tskipped:"+error.getMessage()+"\tNA\tNA\tNA\tNA\n"));
                     continue;
                 }
-                int[] cisRows=cis==null?null:cis.rows(id);long[] counts=new long[2];
+                long[] counts=new long[2];
                 if(!results.isComplete(t))results.writeBlock(t,writer->{
                     if(cisRows!=null) {
                         for(int start=0;start<cisRows.length;start+=block) {

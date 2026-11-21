@@ -96,8 +96,11 @@ trait-position changes. Uncommitted parts are retained in a sibling
 `.uncommitted` directory before recomputation. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
-The algorithm namespace differs from the initial draft and from other mixed
-modes. Existing legacy signatures remain unchanged.
+This implementation uses pooled result signature version 3, distinct from
+v1.9.2 pooled version 2 and the initial draft. Use fresh pooled result directories.
+Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
+The released validation-only checks for exact IDs, observed-mask rank/DF and
+covariance identifiability remain available without fitting nulls.
 
 The VCF/BCF reader's aligned-sample `hwe_p` diagnostic is distinct from an external
 full-cohort `P_HWE` annotation. Join that independently prepared annotation using
@@ -130,7 +133,7 @@ eigendecomposition, and commits synthetic fixtures only.
 
 The standalone `test/gov/nih/eqtl/PooledSyntheticBenchmark.java` is an optional
 engineering benchmark, excluded from ordinary JUnit execution. Compile it with
-`javac -cp target/gpu-eqtl-1.9.1.6-all.jar -d target/benchmark-classes test/gov/nih/eqtl/PooledSyntheticBenchmark.java`
+`javac -cp target/gpu-eqtl-1.9.2-all.jar -d target/benchmark-classes test/gov/nih/eqtl/PooledSyntheticBenchmark.java`
 and run `gov.nih.eqtl.PooledSyntheticBenchmark FRESH_OUTPUT_DIRECTORY` with
 `target/benchmark-classes` plus the shaded JAR on the Java classpath, native CPU
 algebra selected, and an available CUDA runtime. It uses 8,955 synthetic samples,

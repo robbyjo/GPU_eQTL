@@ -36,6 +36,7 @@ final class QPooledPedigreeModel {
         boolean found=false;Set<String> seen=new HashSet<>();
         for(int i=0;i<groups.length;i++) {
             if(groups[i]==null||groups[i].isBlank())throw new IllegalArgumentException("Missing residual group");
+            if(groups[i].chars().anyMatch(c->c=='\t'||c=='\r'||c=='\n'||c==';'||c=='='))throw new IllegalArgumentException("Residual group contains an audit delimiter");
             if(groups[i].equals(pedigreeGroup)) {
                 found=true;if(!seen.add(individuals[i]))throw new IllegalArgumentException("Pooled score requires one observation per pedigree individual");
                 double v=pedigree.relationship(individuals[i],individuals[i]);
@@ -225,7 +226,7 @@ final class QPooledPedigreeModel {
             try {
                 MessageDigest digest=MessageDigest.getInstance("SHA-256");
                 try(DataOutputStream out=new DataOutputStream(new DigestOutputStream(OutputStream.nullOutputStream(),digest))) {
-                    out.writeUTF("pooled-null-v2-cached-pedigree-identified-bounds-scaled-score");out.writeUTF(engine);out.writeUTF(trait);
+                    out.writeUTF("pooled-null-v3-normalized-null-integrity");out.writeUTF(engine);out.writeUTF(trait);
                     out.writeInt(maxIterations);out.writeInt(n);out.writeInt(p);out.writeDouble(logR);out.writeBoolean(combinedIdentity);
                     for(int i:mask){out.writeInt(i);out.writeUTF(cacheSampleIds[i]);out.writeUTF(groups[i]);out.writeUTF(individuals[i]);}
                     for(String name:names)out.writeUTF(name);
@@ -247,13 +248,16 @@ final class QPooledPedigreeModel {
         }
         private Fit fitWithAlgebra(double[] response,SpectralLinearAlgebra algebra) {
             if(response.length!=n)throw new IllegalArgumentException("Response/mask dimensions differ");
-            double[] y=rotate(response);double[] beta=new double[p];
+            double magnitude=0;for(double value:response){if(!Double.isFinite(value))throw new IllegalArgumentException("Nonfinite response");magnitude=Math.max(magnitude,Math.abs(value));}
+            if(magnitude==0)throw new Unestimable("Constant or fixed-effect-explained response");
+            double[] normalized=response.clone();for(int i=0;i<n;i++)normalized[i]/=magnitude;
+            double[] y=rotate(normalized);double[] beta=new double[p];
             for(int j=0;j<p;j++)for(int i=0;i<n;i++)beta[j]+=q[i][j]*y[i];
             double sum=0,maximumResponse=0;for(int i=0;i<n;i++){if(!Double.isFinite(y[i]))throw new IllegalArgumentException("Nonfinite pooled response");maximumResponse=Math.max(maximumResponse,Math.abs(y[i]));double v=y[i];for(int j=0;j<p;j++)v-=q[i][j]*beta[j];y[i]=v;sum+=v*v;}
             double scale=sum/(n-p);
-            double roundoff=64*Math.ulp(maximumResponse);
-            if(!Double.isFinite(scale)||scale<=0||sum<=n*roundoff*roundoff)throw new Unestimable("Constant or fixed-effect-explained response");
+            if(!Double.isFinite(scale)||scale<=Math.ulp(1.0)*Math.ulp(1.0))throw new Unestimable("Constant or fixed-effect-explained response");
             double sd=Math.sqrt(scale);for(int i=0;i<n;i++)y[i]/=sd;
+            double responseScale=magnitude*sd;
             int count=names.size();boolean[] active=new boolean[count];Arrays.fill(active,true);active[0]=!combinedIdentity;
             Evaluation best=null;int iterations=0;
             // Distinct deterministic initial variance allocations; no shared fit between responses.
@@ -295,14 +299,13 @@ final class QPooledPedigreeModel {
                 if(best==null||current.objective<best.objective)best=current;
                 if(best.maximumScore<=SCORE_TOLERANCE)break;
             }
-            if(best.maximumScore>SCORE_TOLERANCE)throw new ArithmeticException("Pooled REML did not converge: projected log-variance score="+best.maximumScore);
-            double[] variance=best.variance.clone();for(int a=0;a<variance.length;a++)variance[a]*=scale;
+            if(!Double.isFinite(best.maximumScore)||best.maximumScore>SCORE_TOLERANCE)throw new ArithmeticException("Pooled REML did not converge: projected log-variance score="+best.maximumScore);
+            double[] variance=best.variance.clone();for(int a=0;a<variance.length;a++){variance[a]=(variance[a]*responseScale)*responseScale;if(!Double.isFinite(variance[a])||(active[a]&&variance[a]==0))throw new ArithmeticException("Pooled variance exceeds FP64 range");}
             if(!active[0])variance[0]=0;
             double[] weights=best.weights.clone(),py=best.py.clone();double[][] inverse=copy(best.inverse);
-            for(int i=0;i<n;i++){weights[i]/=scale;py[i]/=sd;}
-            for(int a=0;a<p;a++)for(int b=0;b<p;b++)inverse[a][b]*=scale;
-            double logLik=-best.objective-.5*(n-p)*Math.log(scale);
-            return new Fit(this,variance,weights,py,inverse,logLik,best.maximumScore,iterations);
+            // Preserve v1.9.2 normalized score state; convert only reported effects/SE.
+            double logLik=-best.objective-(n-p)*Math.log(responseScale);
+            return new Fit(this,variance,weights,py,inverse,responseScale,logLik,best.maximumScore,iterations);
         }
         Objective objective(double[] logVariances,double[] response) {
             if(logVariances.length!=names.size()||response.length!=n)throw new IllegalArgumentException("Diagnostic dimensions differ");
@@ -334,29 +337,33 @@ final class QPooledPedigreeModel {
                 gradient[0]+=.5*variance[0]*eigen[i]*term;gradient[residual[i]]+=.5*variance[residual[i]]*term;
             }
             double maximum=0;for(int a=0;a<count;a++)maximum=Math.max(maximum,Math.abs(projected(gradient[a],theta[a],active[a],lowerBounds[a],upperBounds[a])));
-            return new Evaluation(.5*((n-p)*Math.log(2*Math.PI)+logdet+ch.logDeterminant()+2*logR+quadratic),gradient,variance,w,py,inverse,maximum);
+            double objective=.5*((n-p)*Math.log(2*Math.PI)+logdet+ch.logDeterminant()+2*logR+quadratic);
+            if(!Double.isFinite(objective)||!Double.isFinite(maximum))throw new ArithmeticException("Nonfinite pooled REML objective or score");
+            return new Evaluation(objective,gradient,variance,w,py,inverse,maximum);
         }
     }
     static final class Fit {
         final Geometry geometry;
         final double[] variance,weights,py;
         final double[][] inverse;
-        final double logLik,maximumScore;
+        final double responseScale,logLik,maximumScore;
         final int iterations;
         final boolean reused;
-        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double logLik,double maximumScore,int iterations){this(geometry,variance,weights,py,inverse,logLik,maximumScore,iterations,false);}
-        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double logLik,double maximumScore,int iterations,boolean reused){this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;this.reused=reused;}
+        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations){this(geometry,variance,weights,py,inverse,responseScale,logLik,maximumScore,iterations,false);}
+        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations,boolean reused){this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.responseScale=responseScale;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;this.reused=reused;}
         double[][] scoreColumns(){int n=geometry.n,p=geometry.p;double[][] result=new double[n][p+1];for(int i=0;i<n;i++){result[i][0]=py[i];for(int a=0;a<p;a++)result[i][a+1]=weights[i]*geometry.q[i][a];}return result;}
         double[] products(double[] rotated){double[] result=new double[geometry.p+1];for(int i=0;i<rotated.length;i++){result[0]+=rotated[i]*py[i];for(int a=0;a<geometry.p;a++)result[a+1]+=rotated[i]*weights[i]*geometry.q[i][a];}return result;}
         Association score(double[] rotated,double[] products){
             double raw=0;for(int i=0;i<rotated.length;i++)raw+=rotated[i]*rotated[i]*weights[i];
             double correction=0;for(int a=0;a<geometry.p;a++)for(int b=0;b<geometry.p;b++)correction+=products[a+1]*inverse[a][b]*products[b+1];
             double info=raw-correction;
-            if(!Double.isFinite(info)||!Double.isFinite(raw)||info < -1e-9*raw)throw new ArithmeticException("Invalid pooled score information");
-            if(raw==0||info<=1e-12*raw)return new Association(Double.NaN,Double.NaN,0,0,"monomorphic-or-collinear");
+            if(!Double.isFinite(info)||info < -1e-9*raw)throw new ArithmeticException("Invalid pooled score information");
+            if(info<=1e-12*raw)return new Association(Double.NaN,Double.NaN,0,0,"monomorphic-or-collinear");
             double z=products[0]/Math.sqrt(info),statistic=z*z;
-            if(!Double.isFinite(z))throw new ArithmeticException("Nonfinite pooled score statistic");
-            return new Association(products[0]/info,1/Math.sqrt(info),statistic,jdistlib.ChiSquare.cumulative(statistic,1,false,true)/Math.log(10),"ok");
+            if(!Double.isFinite(statistic))throw new ArithmeticException("Nonfinite pooled score statistic");
+            double beta=(products[0]/info)*responseScale,se=responseScale/Math.sqrt(info);
+            if(!Double.isFinite(beta)||!Double.isFinite(se)||se<=0)throw new ArithmeticException("Pooled effect or SE exceeds FP64 range");
+            return new Association(beta,se,statistic,jdistlib.ChiSquare.cumulative(statistic,1,false,true)/Math.log(10),"ok");
         }
         String variances(){StringJoiner result=new StringJoiner(";");for(int j=0;j<variance.length;j++)result.add(geometry.names.get(j)+"="+variance[j]);return result.toString();}
     }
