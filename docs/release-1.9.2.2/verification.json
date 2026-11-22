@@ -1,0 +1,584 @@
+{
+  "version": "1.9.2.2",
+  "verified_utc": "2026-11-22T23:39:45.527755+00:00",
+  "source_pr": {
+    "number": 26,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/26",
+    "reviewed_head": "4db85d23c6b53647f8b3f9e8ac80f88132fe95eb",
+    "merged_commit": "101215547f9c36057a28a40e0effaddd7207b183",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "conclusion": "success",
+        "url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45083345809/job/137396260523",
+        "head_sha": "4db85d23c6b53647f8b3f9e8ac80f88132fe95eb"
+      }
+    ]
+  },
+  "release_pr": {
+    "number": 27,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/27",
+    "head": "5479ef7693ab04fd32b1cdd1843435e957d58009",
+    "merge": {
+      "sha": "506d1aeb911599fd2565375a362d6837c3f3079a",
+      "merged": true,
+      "message": "Pull Request successfully merged"
+    },
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "conclusion": "success",
+        "url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45083967615/job/137398209685",
+        "head_sha": "5479ef7693ab04fd32b1cdd1843435e957d58009"
+      }
+    ]
+  },
+  "tag": {
+    "name": "v1.9.2.2",
+    "annotated_object": "e89bfb2256d705669a346aca05efbad4cef09300",
+    "peeled_commit": "5479ef7693ab04fd32b1cdd1843435e957d58009"
+  },
+  "release": {
+    "url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.2",
+    "id": 454834226,
+    "draft": false,
+    "prerelease": false,
+    "latest_publicly_verified": true,
+    "assets": [
+      {
+        "name": "gpu-eqtl-1.9.2.2-universal.jar",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.2/gpu-eqtl-1.9.2.2-universal.jar",
+        "bytes": 140842444,
+        "sha256": "6762b14e65d12716e65de6fca3539ea23366121933a1f7aad3e27037c289ab31",
+        "public_download_verified": true
+      },
+      {
+        "name": "RELEASE-MANIFEST.txt",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.2/RELEASE-MANIFEST.txt",
+        "bytes": 401,
+        "sha256": "a22acdcc906e4de07a046e6408e9a25ae6bc6cba5b3578202b606506d4af12a9",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256SUMS",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.2/SHA256SUMS",
+        "bytes": 97,
+        "sha256": "0570c59fa6f9c22d71ba75edde246cf4076c29a38bc4b42d5194c010011d016b",
+        "public_download_verified": true
+      }
+    ]
+  },
+  "package": {
+    "version": "1.9.2.2",
+    "source_commit": "5479ef7693ab04fd32b1cdd1843435e957d58009",
+    "jar_bytes": 140842444,
+    "jar_sha256": "6762b14e65d12716e65de6fca3539ea23366121933a1f7aad3e27037c289ab31",
+    "tests": {
+      "tests": 248,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 243
+    },
+    "packaged_license_files": 9,
+    "dependency_namespace_files": {
+      "org/jlinalg/": 1098,
+      "jdistlib/": 933
+    },
+    "bundled_openblas_platforms": [
+      "windows-x86_64",
+      "linux-x86_64",
+      "linux-arm64",
+      "macosx-x86_64",
+      "macosx-arm64"
+    ],
+    "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+    "java_class_major": 61,
+    "manifest_clean": true,
+    "backend_smoke": true
+  },
+  "optional_skips": [
+    "gov.nih.eqtl.io.QVariantMatrixSourceTest.readsExternalBcftoolsFixtureWhenConfigured",
+    "gov.nih.gpu.cpu.CpuBackendTest.bundledOneMklLoadsWhenProfileIsEnabled",
+    "gov.nih.gpu.GpuKernelIntegrationTest.oneMklCpuEngineFp32MatchesScalarReferenceWhenBundled",
+    "gov.nih.gpu.GpuKernelIntegrationTest.oneMklCpuEngineResidualizationMatchesScalarReferenceWhenBundled",
+    "gov.nih.gpu.GpuKernelIntegrationTest.oneMklCpuEngineFp64MatchesScalarReferenceWhenBundled"
+  ],
+  "packaged_tests": {
+    "tests": 122,
+    "passed": 121,
+    "aborted": 1,
+    "failed": 0
+  },
+  "bcf_decoding_association_and_migration": {
+    "version": "1.9.2.2",
+    "native_bgzf_bcf_checks": [
+      {
+        "fixture": "sparse-dictionary",
+        "field": "GT",
+        "backend": "cpu",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-dictionary",
+        "field": "GT",
+        "backend": "cuda",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-dictionary",
+        "field": "GT",
+        "backend": "opencl",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "GT",
+        "backend": "cpu",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "GT",
+        "backend": "cuda",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "GT",
+        "backend": "opencl",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-dictionary",
+        "field": "DS",
+        "backend": "cpu",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-dictionary",
+        "field": "DS",
+        "backend": "cuda",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-dictionary",
+        "field": "DS",
+        "backend": "opencl",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "DS",
+        "backend": "cpu",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "DS",
+        "backend": "cuda",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      },
+      {
+        "fixture": "sparse-contigs",
+        "field": "DS",
+        "backend": "opencl",
+        "rows": 6,
+        "vcf_agreement": true,
+        "byte_identical_resume": true,
+        "old_reader_failed": true
+      }
+    ],
+    "old_new_identities": {
+      "bcf": {
+        "old": {
+          "raw": "e658ed0c56c8982c3dc34cfeb11985209a02e5d7c152e28b0e052c5e35ae8245",
+          "prepared": "c1532d7916fa8e96dd4a6fb2370de3beed87807954369bb50c84c39c9b880acf",
+          "mixed": "b6a4b06cd7f9dea952875cf93592e3fce80fca103d9947f61dfdff9331f74129",
+          "resumed": "0",
+          "raw_present": "false"
+        },
+        "current": {
+          "raw": "3918fa93d3a6310cecdaeb1acbe642310a5f84a090fdadc4071e5df9623cb8d9",
+          "prepared": "6e76279146b288727ba96c706e01d8548b925af81ea0047f7049f749cbcefd62",
+          "mixed": "6bb4a6925f1713311643e3010f0d62b0fb86053c9fbe6875f64cba1636c3dd59",
+          "resumed": "0",
+          "raw_present": "false"
+        },
+        "repeat": {
+          "raw": "3918fa93d3a6310cecdaeb1acbe642310a5f84a090fdadc4071e5df9623cb8d9",
+          "prepared": "6e76279146b288727ba96c706e01d8548b925af81ea0047f7049f749cbcefd62",
+          "mixed": "6bb4a6925f1713311643e3010f0d62b0fb86053c9fbe6875f64cba1636c3dd59",
+          "resumed": "3",
+          "raw_present": "true"
+        }
+      },
+      "auto": {
+        "old": {
+          "raw": "e658ed0c56c8982c3dc34cfeb11985209a02e5d7c152e28b0e052c5e35ae8245",
+          "prepared": "c1532d7916fa8e96dd4a6fb2370de3beed87807954369bb50c84c39c9b880acf",
+          "mixed": "3d71cf462036b6d5ea81bf57b8e114f3130f1b650f58a82173ef4f588abbb715",
+          "resumed": "0",
+          "raw_present": "false"
+        },
+        "current": {
+          "raw": "3918fa93d3a6310cecdaeb1acbe642310a5f84a090fdadc4071e5df9623cb8d9",
+          "prepared": "6e76279146b288727ba96c706e01d8548b925af81ea0047f7049f749cbcefd62",
+          "mixed": "35fbf4a57371d1365507b0adf0cbcf1e1772e7b094313773faf2633742305c94",
+          "resumed": "0",
+          "raw_present": "false"
+        },
+        "repeat": {
+          "raw": "3918fa93d3a6310cecdaeb1acbe642310a5f84a090fdadc4071e5df9623cb8d9",
+          "prepared": "6e76279146b288727ba96c706e01d8548b925af81ea0047f7049f749cbcefd62",
+          "mixed": "35fbf4a57371d1365507b0adf0cbcf1e1772e7b094313773faf2633742305c94",
+          "resumed": "3",
+          "raw_present": "true"
+        }
+      },
+      "vcf": {
+        "old": {
+          "raw": "9bba3aa80c0629e5fde266c96de3ccf918773648bb2005fa6d28aa9043fb25e7",
+          "prepared": "69d394482044c200d5c291f989b61f412e9cd13b5fcc11b5050d60939392d11f",
+          "mixed": "98557daf6ab54057180a263b5777ca1b8d5b28ad1c6e853dcfc60e19adba4907",
+          "resumed": "0",
+          "raw_present": "false"
+        },
+        "current": {
+          "raw": "9bba3aa80c0629e5fde266c96de3ccf918773648bb2005fa6d28aa9043fb25e7",
+          "prepared": "69d394482044c200d5c291f989b61f412e9cd13b5fcc11b5050d60939392d11f",
+          "mixed": "98557daf6ab54057180a263b5777ca1b8d5b28ad1c6e853dcfc60e19adba4907",
+          "resumed": "3",
+          "raw_present": "true"
+        },
+        "repeat": {
+          "raw": "9bba3aa80c0629e5fde266c96de3ccf918773648bb2005fa6d28aa9043fb25e7",
+          "prepared": "69d394482044c200d5c291f989b61f412e9cd13b5fcc11b5050d60939392d11f",
+          "mixed": "98557daf6ab54057180a263b5777ca1b8d5b28ad1c6e853dcfc60e19adba4907",
+          "resumed": "3",
+          "raw_present": "true"
+        }
+      },
+      "csv": {
+        "old": {
+          "raw": "0f53eb80056984bbd9f18fd56b60500721a8a7573b5dc304fea54d9ba3f3fed9",
+          "prepared": "77e1a4da903498a1a44bbf23630ded68296477849d9cb00b4ad98b472c88f1ee",
+          "mixed": "18da6fef63665989886c276357e4242acc7d39fc9a2161378e302168b29fb8fe",
+          "resumed": "-1",
+          "raw_present": "false"
+        },
+        "current": {
+          "raw": "0f53eb80056984bbd9f18fd56b60500721a8a7573b5dc304fea54d9ba3f3fed9",
+          "prepared": "77e1a4da903498a1a44bbf23630ded68296477849d9cb00b4ad98b472c88f1ee",
+          "mixed": "18da6fef63665989886c276357e4242acc7d39fc9a2161378e302168b29fb8fe",
+          "resumed": "-1",
+          "raw_present": "true"
+        },
+        "repeat": {
+          "raw": "0f53eb80056984bbd9f18fd56b60500721a8a7573b5dc304fea54d9ba3f3fed9",
+          "prepared": "77e1a4da903498a1a44bbf23630ded68296477849d9cb00b4ad98b472c88f1ee",
+          "mixed": "18da6fef63665989886c276357e4242acc7d39fc9a2161378e302168b29fb8fe",
+          "resumed": "-1",
+          "raw_present": "true"
+        }
+      }
+    },
+    "ordinary_result_upgrade_checks": [
+      {
+        "format": "bcf",
+        "resume_accepted": false,
+        "prior_output_unchanged": true
+      },
+      {
+        "format": "vcf",
+        "resume_accepted": true,
+        "prior_output_unchanged": true
+      },
+      {
+        "format": "csv",
+        "resume_accepted": true,
+        "prior_output_unchanged": true
+      }
+    ],
+    "rows_per_run": 6,
+    "reference": "committed synthetic VCF; both GT and DS",
+    "numerical_tolerance": {
+      "relative": 2e-09,
+      "absolute": 2e-11
+    },
+    "private_data_used": false
+  },
+  "pooled_cli": [
+    {
+      "backend": "cpu",
+      "engine": "java",
+      "rows": 4,
+      "dense_R_tolerance": 2e-05,
+      "validate_only": true,
+      "byte_identical_resume": true,
+      "sha256": [
+        "5a5e9dab89ca9e41ba51d3634bdcaca3d0bfd7bfab3b984c2cd18cd6876c4e35",
+        "86b9dc6cabbc4cff8b33d161c02467bb81ab6a3adf7e2dff94dbafdc67b66b86"
+      ]
+    },
+    {
+      "backend": "cpu",
+      "engine": "openblas",
+      "rows": 4,
+      "dense_R_tolerance": 2e-05,
+      "validate_only": true,
+      "byte_identical_resume": true,
+      "sha256": [
+        "485e729a0aec70a4222a849a9ccfd46195ee10bffbfc13d1a8a9b13a80bcfc43",
+        "1f37f5a2e3631014bdf598362c92b199aa93511372eb4f8778fd98a66581b485"
+      ]
+    },
+    {
+      "backend": "cuda",
+      "engine": "openblas",
+      "rows": 4,
+      "dense_R_tolerance": 2e-05,
+      "validate_only": true,
+      "byte_identical_resume": true,
+      "sha256": [
+        "900b5c50ae19cb620603b67f3ca55f70cb3f0542ca32eb66603037517e82dc73",
+        "1f37f5a2e3631014bdf598362c92b199aa93511372eb4f8778fd98a66581b485"
+      ]
+    },
+    {
+      "backend": "opencl",
+      "engine": "openblas",
+      "rows": 4,
+      "dense_R_tolerance": 2e-05,
+      "validate_only": true,
+      "byte_identical_resume": true,
+      "sha256": [
+        "485e729a0aec70a4222a849a9ccfd46195ee10bffbfc13d1a8a9b13a80bcfc43",
+        "1f37f5a2e3631014bdf598362c92b199aa93511372eb4f8778fd98a66581b485"
+      ]
+    }
+  ],
+  "shared_null_and_interruption_checks": {
+    "shared_null_files": 4,
+    "native_null_reused_across_backends": true,
+    "second_chromosome_reused_traits": 2,
+    "shared_null_bytes_unchanged": true,
+    "interrupted_audit_retained_files": 2,
+    "default_cleanup_completed": true,
+    "recovered_result_audit_byte_identical": true,
+    "v1_9_2_pooled_checkpoint_rejected": true,
+    "previous_outputs_unchanged": true
+  },
+  "spectral_and_legacy_cli": {
+    "version": "1.9.2.2",
+    "traits": 3,
+    "sets": 2,
+    "runs": [
+      {
+        "method": "burden",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      }
+    ],
+    "max_relative_p_difference": 5.10702591327572e-15,
+    "native_vs_java_tolerance": {
+      "relative": 3e-08,
+      "absolute": 1e-10
+    },
+    "legacy_tolerance": {
+      "relative": 2e-05,
+      "absolute": 0.0001
+    },
+    "spectral_association_rows": 72,
+    "legacy_reference_rows": 18,
+    "all_resumes_zero_products": true,
+    "legacy_1_9_2_1_checkpoint_compatible": true,
+    "spectral_1_9_2_1_checkpoint_compatible": true,
+    "previous_release_checkpoint_upgrades": 6
+  },
+  "legacy_grm_cuda": {
+    "method": "skat-o",
+    "observed_samples": 43,
+    "byte_identical_resume": true,
+    "resume_products": 0,
+    "identical_content_model_file_replacement": true
+  },
+  "official_sources_reviewed": [
+    "https://github.com/samtools/htslib/blob/1.23/vcf.c"
+  ],
+  "environment": {
+    "os": "Windows 11",
+    "jdk": "25",
+    "compilation_target": 17,
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "621.14",
+    "cuda_toolkit": "12.9",
+    "blas": "bundled OpenBLAS 0.3.34 and portable Java"
+  },
+  "documentation": {
+    "local_links_and_anchors": 140,
+    "files_checked": 8,
+    "javascript_syntax": true,
+    "git_diff_check": true
+  },
+  "website": {
+    "files": [
+      {
+        "http_status": 200,
+        "file": "index.html",
+        "url": "https://robbyjo.github.io/GPU_eQTL/index.html?verify=1795390761",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "file": "updates.html",
+        "url": "https://robbyjo.github.io/GPU_eQTL/updates.html?verify=1795390761",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "file": "site.js",
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.js?verify=1795390761",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "file": "site.css",
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.css?verify=1795390761",
+        "matches_release_source": true
+      }
+    ],
+    "verified_utc": "2026-11-22T23:39:21.5635441+00:00",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45084348573",
+    "workflow_id": 45084348573,
+    "commit": "506d1aeb911599fd2565375a362d6837c3f3079a",
+    "conclusion": "success"
+  },
+  "compatibility": {
+    "bcf_reader_signature": "bcf-reader-explicit-idx-v1",
+    "old_bcf_qc_raw_prepared_result_state_invalidated": true,
+    "bcf_requires_fresh_result_checkpoint_paths": true,
+    "csv_vcf_identities_unchanged": true,
+    "pooled_null_identity_unchanged": true,
+    "cache_byte_formats_unchanged": true
+  },
+  "limits": [
+    "Synthetic release validation only; no private cohort or production association.",
+    "HTSJDK 5.0.0 lookup bridge must be regression-tested for dependency upgrades.",
+    "Existing biallelic diploid BCF GT/DS contract and supported index restrictions remain; no CSI decoding added.",
+    "No fresh macOS, other-vendor GPU or concurrent multi-GPU validation.",
+    "Optional oneMKL profile and configured external bcftools fixture were unavailable in this universal gate; committed native synthetic BCF fixtures were exercised."
+  ]
+}
