@@ -2,6 +2,11 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Read explicit BCF header `IDX` values for FILTER/INFO/FORMAT and contigs, including sparse and reordered dictionaries. Reject conflicting or undeclared indices instead of crashing or decoding another field. Native bcftools synthetic fixtures cover GT/DS, sample order, missing calls, non-PASS sites and indexed traversal.
+- BCF-derived QC, raw/prepared caches and result checkpoints have a new reader identity. Preserve previous BCF results and use fresh result/checkpoint paths when upgrading; CSV and VCF identities are unchanged.
+
 ## [1.9.2.1](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.1) — 2026-11-20
 
 - Reuse immutable, checksummed pooled null fits across chromosome processes with `--mixed-null-cache-dir`; per-key process locks avoid duplicate fits. Native weighted-design and large-family products preserve FP64 scalar/dense-R references.

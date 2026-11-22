@@ -228,6 +228,13 @@ In the tables below, “none” means the option is absent unless supplied. Bool
 
 These options affect VCF/BCF genotype input. CSV predictors do not receive variant MAF/MAC/HWE filtering.
 
+BCF 2.1/2.2 header dictionaries honor explicit `IDX` values, including gaps and
+entries listed out of index order. Headers without explicit indices retain their
+legacy ordering. Invalid, conflicting or referenced undeclared indices fail
+explicitly. The corrected reader changes BCF-derived state identities: keep old
+results and use fresh BCF result/checkpoint paths when upgrading. BCF QC and
+matrix caches rebuild under the new identity; CSV/VCF identities are unchanged.
+
 | Command-line option | Values and default | Legacy INI key | Meaning |
 | --- | --- | --- | --- |
 | `--genotype-field FIELD` | `auto` (default), `DS`, `GT` | `genotype_field` | `auto` prefers header-declared dosage and falls back to genotype calls. |
