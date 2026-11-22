@@ -1,0 +1,13 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed",IDX=0>
+##contig=<ID=1,length=1000,IDX=0>
+##contig=<ID=2,length=1000,IDX=1>
+##INFO=<ID=AF,Number=A,Type=Float,Description="Synthetic ALT frequency, IDX=999 inside quoted text",IDX=53>
+##FILTER=<ID=LowQual,Description="Synthetic site flag",IDX=8>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype",IDX=27>
+##FORMAT=<ID=DS,Number=1,Type=Float,Description="ALT dosage",IDX=31>
+##INFO=<ID=LowQual,Number=0,Type=Flag,Description="Same dictionary ID in a second namespace",IDX=8>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S2	S1	S3	S4
+1	100	first	A	G	50	PASS	AF=0.5	GT:DS	0/0:0.25	0/1:0.75	1/1:1.75	./.:.
+1	200	second	C	T	40	LowQual	AF=0.25;LowQual	GT:DS	1|0:1.25	0/0:0	0/1:0.5	1/1:2
+2	300	third	G	A	.	PASS	AF=0.4	GT:DS	1/1:2	./1:.	0/0:0	0/1:1

@@ -65,6 +65,8 @@ import htsjdk.variant.vcf.VCFCodec;
 
 /** Re-readable VCF/BCF dosage rows with deterministic variant QC. */
 public final class QVariantMatrixSource implements QMatrixRowSource {
+    /** Prevent reuse of BCF-derived state decoded with implicit header-order indices. */
+    public static final String BCF_READER_SIGNATURE = "bcf-reader-explicit-idx-v1";
     private static final int BUFFER_SIZE = 16 * 1024 * 1024;
     private static final double INTEGER_TOLERANCE = 1e-8;
     private static final long PROGRESS_CHECK_RECORDS = 1_000;
@@ -903,6 +905,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             options.minimumMaf(), options.minimumMac(), options.frequencyScope(), analysisSampleCount,
             regions == null ? "all" : regions.signature(),
             variantIndex == null ? "none" : variantIndex, indexSize, indexModifiedMillis);
+        if (options.format() == Format.BCF)
+            signatureTag += ";" + BCF_READER_SIGNATURE;
         Metadata scanned = new Metadata(path, state.included, samples.length, samples, signatureTag);
         Summary counts = new Summary(state.inputRecords, state.included, state.monomorphic,
             state.singletons, state.doubletons, state.excludedByMaf, state.excludedByMac,
@@ -935,6 +939,8 @@ public final class QVariantMatrixSource implements QMatrixRowSource {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }
         updateDigest(digest, "gpu-eqtl-variant-qc-checkpoint-v3");
+        if (options.format() == Format.BCF)
+            updateDigest(digest, BCF_READER_SIGNATURE);
         updateDigest(digest, path.toString());
         updateDigest(digest, Long.toString(sourceSize));
         updateDigest(digest, Long.toString(sourceModifiedMillis));

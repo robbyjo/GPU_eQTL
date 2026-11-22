@@ -7,6 +7,7 @@ import java.nio.file.*;
 import java.security.*;
 import java.util.*;
 import gov.nih.eqtl.io.QMatrixRowSource;
+import gov.nih.eqtl.io.QVariantMatrixSource;
 import gov.nih.gpu.*;
 
 /** One fitted trait at a time, bounded predictor tiles, atomic trait checkpoints. */
@@ -135,6 +136,10 @@ public final class QMixedModelRunner {
     static String signature(QeQTLAnalysisConfig config, int[] genotypeColumns, int[] traitColumns, String execution) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         digest.update("mixed-v3-qr-scaled-null-retry-jlinalg-0.3.6-jdistlib-0.10.2-fp64".getBytes(StandardCharsets.UTF_8));
+        String format = config.getGenotypeFileFormat();
+        if (format.equals("bcf") || (format.equals("auto")
+                && config.getGenotypeFilename().toLowerCase(Locale.ROOT).endsWith(".bcf")))
+            digest.update(QVariantMatrixSource.BCF_READER_SIGNATURE.getBytes(StandardCharsets.UTF_8));
         digest.update(execution.getBytes(StandardCharsets.UTF_8));
         Map<String,String> settings = new TreeMap<>(config.asMap());
         for (String key : List.of("resume", "keep_checkpoints", "rebuild_cache", "profile", "profile_output")) settings.remove(key);
