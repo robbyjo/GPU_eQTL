@@ -1,0 +1,13 @@
+# GPU eQTL 1.9.2.2
+
+This release fixes [PR #26](https://github.com/robbyjo/GPU_eQTL/pull/26): native BCF files with sparse or reordered header `IDX` values could crash before association or assign an incorrect tag or contig. The reader now honors the shared FILTER/INFO/FORMAT dictionary and separate contig dictionary, preserves original record offsets for indexed traversal, and rejects conflicting or undeclared entries explicitly.
+
+**BCF upgrade requirement:** preserve previous BCF outputs and use fresh association result/checkpoint paths. The new `bcf-reader-explicit-idx-v1` identity prevents reuse of older BCF QC, raw/prepared caches and result state. Cache formats themselves are unchanged; corrected BCF state is built under its new identity. CSV and VCF identities retain their existing compatibility checks. Earlier pooled version-3 migration requirements still apply; see the [updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
+
+The adapter keeps the pinned HTSJDK 5.0.0 record/genotype decoder and installs explicit lookups through one checked compatibility bridge. The bridge fails explicitly if those dependency fields are unavailable. Any HTSJDK upgrade must run the committed sparse-dictionary regressions. This change retains the existing biallelic diploid GT/DS contract and does not add CSI decoding. See the [synthetic fixtures and source contract](https://github.com/robbyjo/GPU_eQTL/blob/master/test/resources/variant-reference/SPARSE_BCF.md).
+
+The reviewed full local suite passes 248 tests: 243 passed and five optional skips, with zero failures/errors. Nine new tests cover native sparse tags/contigs, GT/DS, missing and phased calls, sample order, non-PASS records, indexed offsets, invalid/implicit/shared IDs, large sparse indices and old raw-cache rejection. Local hardware verification runs CUDA/OpenCL on an NVIDIA GeForce RTX 2080, native OpenBLAS and portable Java references under JDK 25 targeting Java 17. Required hosted Linux/Java 17 CI passed. The clean universal package, exact-JAR BCF decoding/association/upgrade checks, prior-release compatibility, public downloads and website deployment are recorded in the [verification receipt](https://github.com/robbyjo/GPU_eQTL/blob/master/docs/release-1.9.2.2/verification.json).
+
+Release validation uses synthetic fixtures and runs no private cohort association or production job. The PR separately records its bounded reader-only comparison with bcftools. No new full-cohort performance, fresh macOS, other-vendor GPU or concurrent multi-GPU validation is claimed.
+
+Download `gpu-eqtl-1.9.2.2-universal.jar`, `SHA256SUMS` and `RELEASE-MANIFEST.txt` from this release. Java 17 or newer is required.
