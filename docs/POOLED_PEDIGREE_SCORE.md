@@ -135,7 +135,7 @@ eigendecomposition, and commits synthetic fixtures only.
 
 The standalone `test/gov/nih/eqtl/PooledSyntheticBenchmark.java` is an optional
 engineering benchmark, excluded from ordinary JUnit execution. Compile it with
-`javac -cp target/gpu-eqtl-1.9.2.1-all.jar -d target/benchmark-classes test/gov/nih/eqtl/PooledSyntheticBenchmark.java`
+`javac -cp target/gpu-eqtl-1.9.2.2-all.jar -d target/benchmark-classes test/gov/nih/eqtl/PooledSyntheticBenchmark.java`
 and run `gov.nih.eqtl.PooledSyntheticBenchmark FRESH_OUTPUT_DIRECTORY` with
 `target/benchmark-classes` plus the shaded JAR on the Java classpath, native CPU
 algebra selected, and an available CUDA runtime. It uses 8,955 synthetic samples,
