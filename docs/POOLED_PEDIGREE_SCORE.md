@@ -146,6 +146,48 @@ This fitter does not recalculate HWE per transcript or introduce an HWE filter.
 
 ## Validation and limits
 
+### Optional genome-wide trait batching
+
+For complete predictors, add `--mixed-trait-batch-size 32` (maximum 256) to a
+genome-wide `--mixed-null-fitter pedigree-block` score run. The default is 1,
+which preserves the existing runner and result-checkpoint identity. Batching
+requires `--predictor-missing error` and cannot be combined with cis-only
+`--trait-positions`. Each exact trait sample mask keeps its own geometry and
+per-trait REML null; a mask change flushes the current batch.
+
+The batched runner caches the original genotype centering and pedigree rotation
+under `centered-rotated-v1` in the cache directory. Its identity includes the raw
+input/sample order and exact geometry/algebra. Per-key process locks protect
+creation, and existing corrupted rows fail their checksums rather than being
+silently rebuilt. Budget disk space for an additional FP64 genotype matrix for
+each mask. High-entropy missingness can make this unsuitable.
+
+Score columns and weighted squared norms use bounded FP64 matrix products.
+Nearly collinear/boundary cases use the original explicit residual and
+reprojection calculation. Effect/SE/statistic range checks still run for every
+pair; the chi-square tail is skipped only safely below the output threshold.
+Selected pairs still pass the original log-p cutoff. The null fit, covariance
+bounds, `1e-6` convergence criterion and chi-square(1) inference are unchanged.
+
+Use fresh result/checkpoint paths when enabling batching or changing its size.
+Compatible immutable nulls can be reused. Results and audits remain separate
+checksummed atomic trait parts; an interrupted batch can leave some completed
+traits, and resume reconstructs missing paired audits while retaining partial
+evidence. Batches are submitted sequentially through an exclusive backend
+context; this option does not add a concurrent multi-GPU scheduler. Explicit
+heap/device checks reject oversized tiles or batches with instructions to
+reduce them. Heap admission retries once after requesting garbage collection,
+so unreachable prior tiles are not mistaken for live allocations; the same
+headroom requirement still applies. Up to 256 checkpoint writers are opened
+iteratively, avoiding a call stack proportional to the trait batch size.
+Every writer must close successfully before new parts receive digest commits.
+Their combined character buffers are capped at 16 MiB, with encoder/writer
+headroom included in heap admission; GPU admission counts device matrices only.
+Performance depends on input parsing, cache reads, trait batch
+size, null fitting and available hardware; no full-cohort timing is promised.
+
+### Reference checks
+
 Synthetic tests compare complete/incomplete masks, likelihoods, gradients and
 scores against independent base-R dense covariance Cholesky and finite
 differences. They cover response scaling, inbred proportional-identity bounds,

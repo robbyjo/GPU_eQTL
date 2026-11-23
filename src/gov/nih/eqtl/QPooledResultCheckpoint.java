@@ -61,6 +61,47 @@ final class QPooledResultCheckpoint implements AutoCloseable {
         ByteBuffer value=ByteBuffer.wrap(digest(block,part(block)));long position=headerLength+32L*block;
         while(value.hasRemaining())position+=digests.write(value,position);
     }
+    @FunctionalInterface interface BatchWriter {void write(Writer[] writers)throws Exception;}
+    private static int batchBufferCharacters(int count) {
+        if(count<1||count>256)throw new IllegalArgumentException("Expected 1..256 checkpoint parts");
+        // Bound all character buffers together to 16 MiB, rather than giving
+        // every trait a separate 2 MiB char array. Keep single-trait buffering.
+        return Math.min(1024*1024,8*1024*1024/count);
+    }
+    static long batchBufferBytes(int count) {
+        // Include encoder buffers and writer overhead in the admission budget.
+        return (2L*batchBufferCharacters(count)+16*1024)*count;
+    }
+    /** Open one bounded group without recursively nesting one callback per trait. */
+    void writeBlocks(int[] blocks,BatchWriter action)throws Exception {
+        if(blocks.length<1||blocks.length>256)throw new IllegalArgumentException("Expected 1..256 checkpoint parts");
+        var unique=new java.util.HashSet<Integer>();
+        for(int block:blocks){requireBlock(block);if(!unique.add(block))throw new IllegalArgumentException("Duplicate checkpoint part");}
+        Writer[] writers=new Writer[blocks.length];Path[] temporary=new Path[blocks.length];
+        try {
+            for(int i=0;i<blocks.length;i++) {
+                int block=blocks[i];
+                if(isComplete(block)){writers[i]=Writer.nullWriter();continue;}
+                Path path=parts.directory().resolve(String.format("block-%08d.partial",block));
+                retainUncommitted(part(block));retainUncommitted(path);Files.deleteIfExists(path);
+                temporary[i]=path;writers[i]=new BufferedWriter(new OutputStreamWriter(Files.newOutputStream(path,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE),StandardCharsets.UTF_8),batchBufferCharacters(blocks.length));
+            }
+            action.write(writers);
+            // Close every writer successfully before committing any new part.
+            for(int i=0;i<writers.length;i++){writers[i].close();writers[i]=null;}
+            for(int i=0;i<blocks.length;i++)if(temporary[i]!=null) {
+                int block=blocks[i];
+                try{Files.move(temporary[i],part(block),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}
+                catch(AtomicMoveNotSupportedException e){Files.move(temporary[i],part(block),StandardCopyOption.REPLACE_EXISTING);}
+                ByteBuffer value=ByteBuffer.wrap(digest(block,part(block)));long position=headerLength+32L*block;
+                while(value.hasRemaining())position+=digests.write(value,position);
+            }
+        } finally {
+            IOException failure=null;
+            for(var writer:writers)if(writer!=null)try{writer.close();}catch(IOException e){if(failure==null)failure=e;else failure.addSuppressed(e);}
+            if(failure!=null)throw failure;
+        }
+    }
     void assemble(Path output,String header)throws IOException {
         for(int block=0;block<count;block++)if(!isComplete(block))throw new IOException("Uncommitted pooled trait "+block);
         parts.assemble(output,header);

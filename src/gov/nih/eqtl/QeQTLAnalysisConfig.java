@@ -48,6 +48,9 @@ public class QeQTLAnalysisConfig {
         getSetNullFitter();
         String fitter=getMixedNullFitter();
         boolean block=fitter.equals("pedigree-block");
+        int traitBatch=getMixedTraitBatchSize();
+        if(traitBatch>1&&(!block||getTraitPositionsFilename()!=null||getPredictorMissingPolicy()!=QMissingValuePolicy.ERROR))
+            throw new IllegalArgumentException("mixed-trait-batch-size > 1 requires genome-wide pedigree-block score and predictor-missing error");
         if(block) {
             if(!getMixedModel().equals("score")||getAnalysisMethod().isSetTest()||getPedigreeFilename()==null
                 ||getRelationshipMatrixFilename()!=null||getRandomCovariates()!=null||getCovariateFilename()==null
@@ -109,6 +112,11 @@ public class QeQTLAnalysisConfig {
     }
     public String getTraitPositionsFilename() { return expandPath(get("trait_positions"),getIniPath()); }
     public String getMixedNullCacheDirectory() { return expandPath(get("mixed_null_cache_dir"),getIniPath()); }
+    public int getMixedTraitBatchSize() {
+        int value=Integer.parseInt(mIni.getOrDefault("mixed_trait_batch_size","1"));
+        if(value<1||value>256)throw new IllegalArgumentException("mixed-trait-batch-size must be 1..256");
+        return value;
+    }
     public String getRemlDf() { return mIni.getOrDefault("reml_df", "residual").toLowerCase(Locale.ROOT); }
     public String getSetNullFitter() {
         String value=mIni.getOrDefault("set_null_fitter","legacy").toLowerCase(Locale.ROOT);

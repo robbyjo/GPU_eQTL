@@ -2,6 +2,10 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Add opt-in `--mixed-trait-batch-size 2..256` for genome-wide pedigree-block score scans with complete predictors. Traits sharing an exact observed mask share one centered/rotated genotype read and batched FP64 score/norm products. Keep per-trait REML fits, variance bounds, strict convergence, explicit residual safeguards and chi-square(1) inference. Default size 1 keeps the previous runner and checkpoint identity; batched results require fresh checkpoints and bind the batch size. Immutable compatible nulls remain reusable.
+
 ## [1.9.2.6](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.6) — 2026-11-23
 
 - Include both Linux x64 and Windows x64 JCuda/cuBLAS JNI bindings in every build, independent of the build host. Add hardware-independent payload tests and release-JAR checks so a Windows-built universal JAR cannot silently omit its Linux CUDA bindings. The compatible NVIDIA driver and system CUDA/cuBLAS/NVRTC runtime remain separate requirements; numerical code and checkpoint identities are unchanged.

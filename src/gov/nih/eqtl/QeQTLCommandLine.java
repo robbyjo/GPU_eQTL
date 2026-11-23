@@ -64,6 +64,7 @@ public final class QeQTLCommandLine {
         VALUE_OPTIONS.put("--set-null-fitter", "set_null_fitter");
         VALUE_OPTIONS.put("--mixed-null-fitter", "mixed_null_fitter");
         VALUE_OPTIONS.put("--mixed-null-cache-dir", "mixed_null_cache_dir");
+        VALUE_OPTIONS.put("--mixed-trait-batch-size", "mixed_trait_batch_size");
         VALUE_OPTIONS.put("--residual-group-column", "residual_group_column");
         VALUE_OPTIONS.put("--pedigree-group", "pedigree_group");
         VALUE_OPTIONS.put("--trait-positions", "trait_positions");
@@ -317,6 +318,7 @@ public final class QeQTLCommandLine {
               --set-null-fitter legacy|spectral  Pedigree burden/SKAT/SKAT-O null fitter (default: legacy)
               --mixed-null-fitter legacy|pedigree-block  Opt-in pooled single-SNP score fitter
               --mixed-null-cache-dir DIR       Checksummed per-trait nulls reusable across chromosomes
+              --mixed-trait-batch-size N       Genome-wide pedigree score batch (1..256; default: 1)
               --residual-group-column NAME     Separate fitted residual variance per group
               --pedigree-group VALUE           Group with pedigree covariance (others independent)
               --trait-positions FILE           ID/CHROM/POS TSV, positions are 1-based
