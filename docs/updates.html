@@ -78,7 +78,8 @@
       <aside class="updates-index" aria-label="Update navigation">
         <p class="eyebrow">Recent releases</p>
         <nav aria-label="Release versions">
-          <a href="#v1-9-2-3">v1.9.2.3 <span>Latest</span></a>
+          <a href="#v1-9-2-4">v1.9.2.4 <span>Latest</span></a>
+          <a href="#v1-9-2-3">v1.9.2.3</a>
           <a href="#v1-9-2-2">v1.9.2.2</a>
           <a href="#v1-9-2-1">v1.9.2.1</a>
           <a href="#v1-9-2">v1.9.2</a>
@@ -96,8 +97,20 @@
       </aside>
 
       <div class="updates-feed">
-        <article class="release-entry release-latest" id="v1-9-2-3" aria-labelledby="v1-9-2-3-title">
-          <div class="release-meta"><span>v1.9.2.3</span><time datetime="2026-11-22">November 22, 2026</time><span class="release-badge">Latest release</span></div>
+        <article class="release-entry release-latest" id="v1-9-2-4" aria-labelledby="v1-9-2-4-title">
+          <div class="release-meta"><span>v1.9.2.4</span><time datetime="2026-11-22">November 22, 2026</time><span class="release-badge">Latest release</span></div>
+          <h2 id="v1-9-2-4-title">Stable pooled association scores at variance boundaries</h2>
+          <p>Association scoring now uses an orthonormal weighted design and stable residual calculations when projection nearly removes a predictor. This fixes invalid information errors and inaccurate effects after an otherwise converged pooled null fit.</p>
+          <p class="upgrade-note"><strong>Upgrading pooled analyses</strong> Use fresh pooled result/checkpoint paths for signature version 5. Verified v4 immutable nulls from v1.9.2.3 remain reusable under the existing exact model, sample and CPU algebra checks. Earlier outputs and nulls remain retained.</p>
+          <div class="release-links">
+            <a href="https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.4">Download ↗<span class="sr-only"> v1.9.2.4</span></a>
+            <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/RELEASE_NOTES_1.9.2.4.md">Full release notes ↗<span class="sr-only"> v1.9.2.4</span></a>
+            <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/POOLED_PEDIGREE_SCORE.md">Pooled score method ↗</a>
+          </div>
+        </article>
+
+        <article class="release-entry" id="v1-9-2-3" aria-labelledby="v1-9-2-3-title">
+          <div class="release-meta"><span>v1.9.2.3</span><time datetime="2026-11-22">November 22, 2026</time></div>
           <h2 id="v1-9-2-3-title">Stable pooled REML at variance boundaries</h2>
           <p>Thin Householder QR stabilizes weighted residuals and information calculations when a cohort variance reaches its bound. Score-converged restarts are accepted, and identical optimizer iterates stop promptly. The model, variance bounds and strict convergence criterion are preserved.</p>
           <p class="upgrade-note"><strong>Upgrading pooled analyses</strong> Use fresh pooled result/checkpoint paths. Version 4 and the new shared-null key preserve earlier results and prevent reuse of older fitted nulls. Legacy/set identities and aligned raw-cache formats retain their existing compatibility checks.</p>
