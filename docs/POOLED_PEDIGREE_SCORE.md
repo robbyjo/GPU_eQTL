@@ -58,6 +58,15 @@ options, all supplied variants are tested. Atomic result/audit trait parts and
 input/model/backend signatures protect compatible restarts. This mode has a
 distinct checkpoint identity from existing mixed results.
 
+Association products use the orthonormal columns of the weighted fixed design.
+Score information is the weighted predictor norm minus the squared projection
+norm, without multiplying by the potentially ill-conditioned inverse information
+matrix. When subtraction would remove at least 99% of the raw norm, the equivalent
+explicit residual norm and residual score are evaluated and reprojected once to
+remove roundoff along the fixed design. This numerical branch changes neither
+the score law nor the existing `information <= 1e-12 * raw norm` collinearity rule.
+Nonfinite products and materially invalid information still fail explicitly.
+
 ## Identifiability and convergence
 
 The response is projected onto the fixed-design residual space and normalized
@@ -108,10 +117,13 @@ recomputation; retained audits use that directory's `audit` subdirectory, so
 cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
-This implementation uses pooled result signature version 4 and a new shared-null
-algorithm key. Pooled results/checkpoints from v1.9.2.2 and earlier require fresh
-output directories; preserve the earlier results and diagnostics. Earlier null
-files remain immutable and are not reused by the new key.
+This implementation uses pooled result signature version 5. Pooled
+results/checkpoints from v1.9.2.3 and earlier require fresh output directories;
+preserve the earlier results and diagnostics. The `pooled-null-v4-weighted-qr`
+key and immutable null format from v1.9.2.3 remain compatible: the orthonormal
+score basis is reconstructed from the verified weights and exact design geometry.
+Pre-v1.9.2.3 null files are not reused under that key. Null fitting, component
+bounds and convergence criteria are unchanged by the score repair.
 Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
 The released validation-only checks for exact IDs, observed-mask rank/DF and
 covariance identifiability remain available without fitting nulls.
