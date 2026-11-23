@@ -88,6 +88,19 @@ smaller objective due to floating-point roundoff. A line search that cannot move
 any parameter proceeds to the remaining start instead of spending its budget on
 identical iterates.
 
+The line search computes the REML objective change directly from covariance
+ratios, using `expm1`/`log1p` and a small Cholesky factor of the relative
+fixed-effect information. This avoids subtracting independently rounded full
+likelihoods, which can reject useful steps near a variance boundary and stall
+above the score criterion. With `A = orth(sqrt(W) X)`, `T = W_new/W - I` and
+the current whitened residual `e`, the residual-sum-of-squares change is
+`e' T e - (A' T e)' (I + A' T A)^-1 (A' T e)`. The information determinant
+change is `log det(I + A' T A)`. No pooled `N x N` matrix is formed.
+The Armijo rule and roundoff allowance, total iteration budget, component bounds
+and strict `1e-6` convergence criterion are unchanged; an unresolved fit remains
+fatal. Absolute likelihoods and final score statistics retain their existing
+weighted-QR and orthogonal-score calculations.
+
 If a selected pedigree covariance is exactly `c I`, its additive and residual
 components are not separately identifiable. The fitter uses their identifiable
 total with the exact summed original bounds and labels it `total:FHS`.
@@ -117,13 +130,11 @@ recomputation; retained audits use that directory's `audit` subdirectory, so
 cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
-This implementation uses pooled result signature version 5. Pooled
-results/checkpoints from v1.9.2.3 and earlier require fresh output directories;
-preserve the earlier results and diagnostics. The `pooled-null-v4-weighted-qr`
-key and immutable null format from v1.9.2.3 remain compatible: the orthonormal
-score basis is reconstructed from the verified weights and exact design geometry.
-Pre-v1.9.2.3 null files are not reused under that key. Null fitting, component
-bounds and convergence criteria are unchanged by the score repair.
+This implementation uses pooled result signature version 6 and the new
+`pooled-null-v5-relative-reml` algorithm key. Pooled results/checkpoints from
+v1.9.2.4 and earlier require fresh output paths. Earlier immutable null files
+remain preserved under their old keys and are not reused by the changed fitter;
+the binary null format is unchanged. Preserve all earlier outputs and diagnostics.
 Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
 The released validation-only checks for exact IDs, observed-mask rank/DF and
 covariance identifiability remain available without fitting nulls.
@@ -138,6 +149,8 @@ This fitter does not recalculate HWE per transcript or introduce an HWE filter.
 Synthetic tests compare complete/incomplete masks, likelihoods, gradients and
 scores against independent base-R dense covariance Cholesky and finite
 differences. They cover response scaling, inbred proportional-identity bounds,
+unequal component likelihood changes against dense-R references for complete
+and incomplete masks in both directions,
 covariance confounding, native/scalar large-family rotations, inclusive cis
 boundaries, null reuse/corruption, raw-row CRC validation and result/audit
 resume/corruption. Actual CUDA, NVIDIA OpenCL and native CPU product checks

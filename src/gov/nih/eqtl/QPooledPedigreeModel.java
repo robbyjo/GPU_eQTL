@@ -226,7 +226,7 @@ final class QPooledPedigreeModel {
             try {
                 MessageDigest digest=MessageDigest.getInstance("SHA-256");
                 try(DataOutputStream out=new DataOutputStream(new DigestOutputStream(OutputStream.nullOutputStream(),digest))) {
-                    out.writeUTF("pooled-null-v4-weighted-qr");out.writeUTF(engine);out.writeUTF(trait);
+                    out.writeUTF("pooled-null-v5-relative-reml");out.writeUTF(engine);out.writeUTF(trait);
                     out.writeInt(maxIterations);out.writeInt(n);out.writeInt(p);out.writeDouble(logR);out.writeBoolean(combinedIdentity);
                     for(int i:mask){out.writeInt(i);out.writeUTF(cacheSampleIds[i]);out.writeUTF(groups[i]);out.writeUTF(individuals[i]);}
                     for(String name:names)out.writeUTF(name);
@@ -283,7 +283,8 @@ final class QPooledPedigreeModel {
                         for(int a=0;a<count;a++)candidate[a]=Math.max(lowerBounds[a],Math.min(upperBounds[a],theta[a]+alpha*direction[a]));
                         Evaluation trial=evaluate(candidate,y,active,algebra);
                         double actualDescent=0;for(int a=0;a<count;a++)actualDescent+=current.gradient[a]*(candidate[a]-theta[a]);
-                        if(trial.objective<=current.objective+1e-4*actualDescent+2e-14*Math.max(1,Math.abs(current.objective))){next=trial;break;}
+                        double change=objectiveChange(current,theta,candidate,algebra);
+                        if(change<=1e-4*actualDescent+2e-14*Math.max(1,Math.abs(current.objective))){next=trial;break;}
                     }
                     if(next==null||Arrays.equals(theta,candidate))break;
                     double[] s=new double[count],z=new double[count];
@@ -317,6 +318,35 @@ final class QPooledPedigreeModel {
                 return new Objective(result.objective,result.gradient.clone());
             }
         }
+        double objectiveChange(double[] from,double[] to,double[] response) {
+            if(from.length!=names.size()||to.length!=names.size()||response.length!=n)throw new IllegalArgumentException("Diagnostic dimensions differ");
+            boolean[] active=new boolean[names.size()];Arrays.fill(active,true);active[0]=!combinedIdentity;
+            try(var algebra=SpectralLinearAlgebra.open()) {
+                return objectiveChange(evaluate(from,rotate(response),active,algebra),from,to,algebra);
+            }
+        }
+        // Evaluate a likelihood difference directly, without subtracting two
+        // independently rounded weighted-QR objectives near a stationary point.
+        private double objectiveChange(Evaluation current,double[] theta,double[] candidate,SpectralLinearAlgebra algebra) {
+            int count=theta.length;double[] delta=new double[count];
+            for(int a=0;a<count;a++)delta[a]=current.variance[a]*Math.expm1(candidate[a]-theta[a]);
+            double[] shifted=new double[Math.multiplyExact(n,p)],cross=new double[p];double covariance=0,quadratic=0;
+            for(int i=0;i<n;i++) {
+                double ratio=current.weights[i]*(delta[0]*eigen[i]+delta[residual[i]]);
+                if(!(ratio>-1)||!Double.isFinite(ratio))throw new ArithmeticException("Invalid relative pooled covariance");
+                double change=-ratio/(1+ratio),r=current.py[i]/Math.sqrt(current.weights[i]);
+                covariance+=Math.log1p(ratio);quadratic+=change*r*r;
+                for(int a=0;a<p;a++){double value=change*current.orthogonal[i*p+a];shifted[i*p+a]=value;cross[a]+=value*r;}
+            }
+            double[] flat=algebra.multiply(current.orthogonal,true,shifted,false,p,p,n);
+            double[][] increment=new double[p][p];for(int a=0;a<p;a++)System.arraycopy(flat,a*p,increment[a],0,p);
+            // With A=orth(sqrt(W)X), T=W_new/W-1 and e=sqrt(W)r:
+            // delta SSE=e'Te-(A'Te)'(I+A'TA)^-1(A'Te).
+            SmallCholesky relative=new SmallCholesky(increment,true);
+            double value=.5*(covariance+relative.logDeterminant()+quadratic-dot(cross,relative.solve(cross)));
+            if(!Double.isFinite(value))throw new ArithmeticException("Nonfinite pooled REML objective change");
+            return value;
+        }
         private Evaluation evaluate(double[] theta,double[] y,boolean[] active,SpectralLinearAlgebra algebra) {
             int count=theta.length;double[] variance=new double[count];
             for(int a=0;a<count;a++)variance[a]=active[a]?Math.exp(theta[a]):0;
@@ -349,7 +379,7 @@ final class QPooledPedigreeModel {
             double maximum=0;for(int a=0;a<count;a++)maximum=Math.max(maximum,Math.abs(projected(gradient[a],theta[a],active[a],lowerBounds[a],upperBounds[a])));
             double objective=.5*((n-p)*Math.log(2*Math.PI)+logdet+logInformation+2*logR+quadratic);
             if(!Double.isFinite(objective)||!Double.isFinite(maximum))throw new ArithmeticException("Nonfinite pooled REML objective or score");
-            return new Evaluation(objective,gradient,variance,w,py,inverse,maximum);
+            return new Evaluation(objective,gradient,variance,w,py,inverse,maximum,projection.orthonormalColumns());
         }
     }
     static final class Fit {
@@ -365,7 +395,7 @@ final class QPooledPedigreeModel {
             this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.responseScale=responseScale;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;this.reused=reused;
             int n=geometry.n,p=geometry.p;sqrtWeights=new double[n];double[] design=new double[Math.multiplyExact(n,p)];
             for(int i=0;i<n;i++){sqrtWeights[i]=Math.sqrt(weights[i]);for(int a=0;a<p;a++)design[i*p+a]=sqrtWeights[i]*geometry.q[i][a];}
-            // Reconstruct from the immutable null, including cached v4 fits. The
+            // Reconstruct from the immutable null. The
             // fitted model and serialized state do not change with this score basis.
             try(var algebra=SpectralLinearAlgebra.open()){scoreBasis=algebra.projectResidual(design,new double[n],n,p).orthonormalColumns();}
         }
@@ -397,14 +427,23 @@ final class QPooledPedigreeModel {
     }
     record Association(double beta,double se,double statistic,double log10P,String status) { }
     record Objective(double value,double[] gradient) { }
-    private record Evaluation(double objective,double[] gradient,double[] variance,double[] weights,double[] py,double[][] inverse,double maximumScore) { }
+    private record Evaluation(double objective,double[] gradient,double[] variance,double[] weights,double[] py,double[][] inverse,double maximumScore,double[] orthogonal) { }
     static final class Unestimable extends IllegalArgumentException { Unestimable(String message){super(message);} }
     static final class SmallCholesky {
-        final double[][] l;
-        SmallCholesky(double[][] matrix){int n=matrix.length;l=new double[n][n];for(int i=0;i<n;i++)for(int j=0;j<=i;j++){double v=matrix[i][j];for(int k=0;k<j;k++)v-=l[i][k]*l[j][k];if(i==j){if(!(v>0)||!Double.isFinite(v))throw new ArithmeticException("Pooled fixed-effect information is not positive definite");l[i][j]=Math.sqrt(v);}else l[i][j]=v/l[j][j];}}
+        final double[][] l;private final double logDeterminant;
+        SmallCholesky(double[][] matrix){this(matrix,false);}
+        SmallCholesky(double[][] matrix,boolean identityPlus){
+            int n=matrix.length;l=new double[n][n];double determinant=0;
+            for(int i=0;i<n;i++)for(int j=0;j<=i;j++) {
+                double v=matrix[i][j];for(int k=0;k<j;k++)v-=l[i][k]*l[j][k];
+                if(i==j){double diagonal=identityPlus?1+v:v;if(!(diagonal>0)||!Double.isFinite(diagonal))throw new ArithmeticException("Pooled fixed-effect information is not positive definite");l[i][j]=Math.sqrt(diagonal);determinant+=identityPlus?Math.log1p(v):Math.log(v);}
+                else l[i][j]=v/l[j][j];
+            }
+            logDeterminant=determinant;
+        }
         double[] solve(double[] b){int n=l.length;double[] x=b.clone();for(int i=0;i<n;i++){for(int j=0;j<i;j++)x[i]-=l[i][j]*x[j];x[i]/=l[i][i];}for(int i=n-1;i>=0;i--){for(int j=i+1;j<n;j++)x[i]-=l[j][i]*x[j];x[i]/=l[i][i];}return x;}
         double[][] inverse(){int n=l.length;double[][] inverse=new double[n][n];for(int j=0;j<n;j++){double[] b=new double[n];b[j]=1;double[] x=solve(b);for(int i=0;i<n;i++)inverse[i][j]=x[i];}return inverse;}
-        double logDeterminant(){double value=0;for(int i=0;i<l.length;i++)value+=2*Math.log(l[i][i]);return value;}
+        double logDeterminant(){return logDeterminant;}
     }
     private static int find(int[] parent,int i){while(parent[i]!=i){parent[i]=parent[parent[i]];i=parent[i];}return i;}
     private static double projected(double g,double theta,boolean active,double lower,double upper){if(!active||(theta<=lower+1e-9&&g>0)||(theta>=upper-1e-9&&g<0))return 0;return g;}

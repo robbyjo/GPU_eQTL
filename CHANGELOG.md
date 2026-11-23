@@ -2,6 +2,11 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Prevent pooled REML line-search stalls near variance boundaries by computing the likelihood change directly from relative covariance and fixed-effect information, instead of subtracting two nearly equal full objectives. Preserve the model, bounds, iteration budget, Armijo allowance and strict `1e-6` projected-score criterion.
+- Pooled result signature version 6 and a new shared-null algorithm key require fresh pooled results/checkpoints and refitted nulls when upgrading from v1.9.2.4 or earlier. Preserve earlier immutable state; legacy/set identities and aligned raw-cache formats are unchanged.
+
 ## [1.9.2.4](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.4) — 2026-11-22
 
 - Stabilize pooled association information at cohort variance boundaries. GPU and scalar products now use the orthonormal weighted design; close subtractions use a reprojected residual norm. This fixes invalid negative information and inaccurate estimates after successful null convergence, preserving the model, fitted null, score law and collinearity threshold.
