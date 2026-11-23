@@ -2,6 +2,11 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Stabilize pooled pedigree REML at cohort variance boundaries with weighted Householder QR. Accept score-converged restarts despite objective roundoff and stop zero-length line-search steps. Preserve the statistical model, component bounds, total iteration budget and `1e-6` score criterion.
+- Pooled result signature version 4 and a new shared-null key require fresh pooled result/checkpoint paths when upgrading from v1.9.2.2 or earlier. Preserve earlier outputs; legacy/set signatures and aligned raw-cache formats are unchanged.
+
 ## [1.9.2.2](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.2) — 2026-11-22
 
 - Read explicit BCF header `IDX` values for FILTER/INFO/FORMAT and contigs, including sparse and reordered dictionaries. Reject conflicting or undeclared indices instead of crashing or decoding another field. Native bcftools synthetic fixtures cover GT/DS, sample order, missing calls, non-PASS sites and indexed traversal.

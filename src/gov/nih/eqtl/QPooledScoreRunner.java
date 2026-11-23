@@ -10,7 +10,7 @@ import gov.nih.gpu.*;
 
 /** Opt-in pooled score scan; bounded SNP tiles, raw indexed cache and atomic trait parts. */
 final class QPooledScoreRunner {
-    private static final String ALGORITHM="pooled-pedigree-block-v3-normalized-null-integrity";
+    private static final String ALGORITHM="pooled-pedigree-block-v4-weighted-qr";
     private static final String HEADER="SNP,Probe,N,DF,Effect,SE,Statistic,log10P,Test,Status,VarianceComponents,REMLLogLik,Iterations,MaxProjectedScore,Rank";
     private static final String AUDIT="Trait\tN\tRank\tCohortN\tTestedVariants\tDegenerateVariants\tStatus\tVarianceComponents\tREMLLogLik\tMaxProjectedScore\tIdentityReduction";
     static void validate(QeQTLAnalysisConfig config,QPooledPedigreeModel model,QMatrixRowSource genotypes,int[] genotypeColumns,
