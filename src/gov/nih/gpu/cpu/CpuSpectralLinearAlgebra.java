@@ -71,6 +71,38 @@ public final class CpuSpectralLinearAlgebra implements SpectralLinearAlgebra {
         }
         return new Eigen(values,vectors);
     }
+    public QrProjection projectResidual(double[] matrix,double[] response,int n,int p) {
+        if(n<p||p<1||matrix.length!=Math.multiplyExact(n,p)||response.length!=n)
+            throw new IllegalArgumentException("Spectral QR dimensions differ");
+        double[] residual=response.clone(),orthogonal=new double[matrix.length],upper=new double[p*p];
+        if(nativeBlas) {
+            double[] factor=matrix.clone(),tau=new double[p];
+            require(LAPACKE_dgeqrf(101,n,p,factor,p,tau),"Weighted thin QR");
+            for(int i=0;i<p;i++)for(int j=i;j<p;j++)upper[i*p+j]=factor[i*p+j];
+            require(LAPACKE_dormqr(101,(byte)'L',(byte)'T',n,1,p,factor,p,tau,residual,1),"Weighted QR response");
+            java.util.Arrays.fill(residual,0,p,0);
+            require(LAPACKE_dormqr(101,(byte)'L',(byte)'N',n,1,p,factor,p,tau,residual,1),"Weighted QR residual");
+            require(LAPACKE_dorgqr(101,n,p,p,factor,p,tau),"Weighted thin Q");
+            orthogonal=factor;
+        } else {
+            double[][] a=new double[n][p];for(int i=0;i<n;i++)System.arraycopy(matrix,i*p,a[i],0,p);
+            var qr=new QRDecomposition(a,0);
+            if(qr.getRank()!=p)throw new ArithmeticException("Weighted design lost rank");
+            double[][] packed=qr.getQRArray(),q=qr.getQArray(),r=qr.getRArray();
+            for(int k=0;k<p;k++)reflect(packed,residual,k,n);
+            java.util.Arrays.fill(residual,0,p,0);
+            for(int k=p-1;k>=0;k--)reflect(packed,residual,k,n);
+            for(int i=0;i<n;i++)System.arraycopy(q[i],0,orthogonal,i*p,p);
+            for(int i=0;i<p;i++)System.arraycopy(r[i],0,upper,i*p,p);
+        }
+        for(int i=0;i<p;i++)if(!Double.isFinite(upper[i*p+i])||upper[i*p+i]==0)
+            throw new ArithmeticException("Weighted design lost rank");
+        return new QrProjection(residual,orthogonal,upper);
+    }
+    private static void reflect(double[][] packed,double[] vector,int k,int n) {
+        double sum=0;for(int i=k;i<n;i++)sum+=packed[i][k]*vector[i];
+        sum=-sum/packed[k][k];for(int i=k;i<n;i++)vector[i]+=sum*packed[i][k];
+    }
     public double[] multiply(double[] a,boolean ta,double[] b,boolean tb,int m,int n,int k) {
         if(a.length!=Math.multiplyExact(m,k)||b.length!=Math.multiplyExact(k,n))throw new IllegalArgumentException("Spectral product dimensions differ");
         double[] c=new double[Math.multiplyExact(m,n)];

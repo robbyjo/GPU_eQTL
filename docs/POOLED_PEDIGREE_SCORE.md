@@ -69,6 +69,16 @@ original response units. This optimizer and its bounds are separate from the
 legacy fitter. Numerical nonconvergence is fatal even when unestimable traits
 are explicitly skipped.
 
+Each likelihood evaluation whitens the fixed design and response, then uses
+thin Householder QR for the residual and information determinant. This avoids
+squaring the weighted design's condition number when a cohort residual variance
+reaches its lower bound. The calculation uses native LAPACK or the portable Java
+reference without constructing an `N x N` projector. A restart satisfying the
+score criterion is accepted even if an earlier nonstationary fit has a slightly
+smaller objective due to floating-point roundoff. A line search that cannot move
+any parameter proceeds to the remaining start instead of spending its budget on
+identical iterates.
+
 If a selected pedigree covariance is exactly `c I`, its additive and residual
 components are not separately identifiable. The fitter uses their identifiable
 total with the exact summed original bounds and labels it `total:FHS`.
@@ -98,8 +108,10 @@ recomputation; retained audits use that directory's `audit` subdirectory, so
 cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
-This implementation uses pooled result signature version 3, distinct from
-v1.9.2 pooled version 2 and the initial draft. Use fresh pooled result directories.
+This implementation uses pooled result signature version 4 and a new shared-null
+algorithm key. Pooled results/checkpoints from v1.9.2.2 and earlier require fresh
+output directories; preserve the earlier results and diagnostics. Earlier null
+files remain immutable and are not reused by the new key.
 Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
 The released validation-only checks for exact IDs, observed-mask rank/DF and
 covariance identifiability remain available without fitting nulls.

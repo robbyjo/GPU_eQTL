@@ -226,7 +226,7 @@ final class QPooledPedigreeModel {
             try {
                 MessageDigest digest=MessageDigest.getInstance("SHA-256");
                 try(DataOutputStream out=new DataOutputStream(new DigestOutputStream(OutputStream.nullOutputStream(),digest))) {
-                    out.writeUTF("pooled-null-v3-normalized-null-integrity");out.writeUTF(engine);out.writeUTF(trait);
+                    out.writeUTF("pooled-null-v4-weighted-qr");out.writeUTF(engine);out.writeUTF(trait);
                     out.writeInt(maxIterations);out.writeInt(n);out.writeInt(p);out.writeDouble(logR);out.writeBoolean(combinedIdentity);
                     for(int i:mask){out.writeInt(i);out.writeUTF(cacheSampleIds[i]);out.writeUTF(groups[i]);out.writeUTF(individuals[i]);}
                     for(String name:names)out.writeUTF(name);
@@ -285,7 +285,7 @@ final class QPooledPedigreeModel {
                         double actualDescent=0;for(int a=0;a<count;a++)actualDescent+=current.gradient[a]*(candidate[a]-theta[a]);
                         if(trial.objective<=current.objective+1e-4*actualDescent+2e-14*Math.max(1,Math.abs(current.objective))){next=trial;break;}
                     }
-                    if(next==null)break;
+                    if(next==null||Arrays.equals(theta,candidate))break;
                     double[] s=new double[count],z=new double[count];
                     for(int a=0;a<count;a++){s[a]=candidate[a]-theta[a];z[a]=(next.gradient[a]-current.gradient[a])/norm;}
                     double sz=dot(s,z);
@@ -296,8 +296,10 @@ final class QPooledPedigreeModel {
                     } else inverse=identity(count);
                     theta=candidate;current=next;
                 }
+                // A stationary restart is valid even if roundoff makes an earlier,
+                // nonstationary objective marginally smaller. Never discard it.
+                if(current.maximumScore<=SCORE_TOLERANCE){best=current;break;}
                 if(best==null||current.objective<best.objective)best=current;
-                if(best.maximumScore<=SCORE_TOLERANCE)break;
             }
             if(!Double.isFinite(best.maximumScore)||best.maximumScore>SCORE_TOLERANCE)throw new ArithmeticException("Pooled REML did not converge: projected log-variance score="+best.maximumScore);
             double[] variance=best.variance.clone();for(int a=0;a<variance.length;a++){variance[a]=(variance[a]*responseScale)*responseScale;if(!Double.isFinite(variance[a])||(active[a]&&variance[a]==0))throw new ArithmeticException("Pooled variance exceeds FP64 range");}
@@ -318,26 +320,34 @@ final class QPooledPedigreeModel {
         private Evaluation evaluate(double[] theta,double[] y,boolean[] active,SpectralLinearAlgebra algebra) {
             int count=theta.length;double[] variance=new double[count];
             for(int a=0;a<count;a++)variance[a]=active[a]?Math.exp(theta[a]):0;
-            double[] w=new double[n],wy=new double[n],weightedQ=new double[Math.multiplyExact(n,p)];double[][] m=new double[p][p];double[] b=new double[p];double logdet=0;
+            double[] w=new double[n],sqrtW=new double[n],wy=new double[n],weightedQ=new double[Math.multiplyExact(n,p)];double logdet=0;
             for(int i=0;i<n;i++) {
                 double v=variance[0]*eigen[i]+variance[residual[i]];
                 if(!(v>0)||!Double.isFinite(v))throw new ArithmeticException("Invalid pooled covariance");
-                logdet+=Math.log(v);w[i]=1/v;wy[i]=w[i]*y[i];
-                for(int a=0;a<p;a++){b[a]+=q[i][a]*wy[i];weightedQ[i*p+a]=w[i]*q[i][a];}
+                logdet+=Math.log(v);w[i]=1/v;sqrtW[i]=Math.sqrt(w[i]);wy[i]=sqrtW[i]*y[i];
+                for(int a=0;a<p;a++)weightedQ[i*p+a]=sqrtW[i]*q[i][a];
             }
-            double[] cross=algebra.multiply(qFlat,true,weightedQ,false,p,p,n);
-            for(int a=0;a<p;a++)for(int c=0;c<p;c++)m[a][c]=.5*(cross[a*p+c]+cross[c*p+a]);
-            SmallCholesky ch=new SmallCholesky(m);double[][] inverse=ch.inverse();double[] beta=ch.solve(b),py=new double[n],gradient=new double[count];double quadratic=0;
-            double[] inverseFlat=new double[p*p];for(int a=0;a<p;a++)System.arraycopy(inverse[a],0,inverseFlat,a*p,p);
-            double[] correction=algebra.multiply(weightedQ,false,inverseFlat,false,n,p,p);
+            // Whiten, then project through thin Householder QR. Forming Q'WQ
+            // squares the condition number when one cohort reaches a variance bound.
+            var projection=algebra.projectResidual(weightedQ,wy,n,p);
+            double[] upper=projection.upper(),inverseR=new double[p*p];double logInformation=0;
+            for(int a=0;a<p;a++)logInformation+=2*Math.log(Math.abs(upper[a*p+a]));
+            for(int col=0;col<p;col++)for(int row=p-1;row>=0;row--) {
+                double value=row==col?1:0;
+                for(int k=row+1;k<p;k++)value-=upper[row*p+k]*inverseR[k*p+col];
+                inverseR[row*p+col]=value/upper[row*p+row];
+            }
+            double[] inverseFlat=algebra.multiply(inverseR,false,inverseR,true,p,p,p);
+            double[][] inverse=new double[p][p];for(int a=0;a<p;a++)System.arraycopy(inverseFlat,a*p,inverse[a],0,p);
+            double[] py=new double[n],gradient=new double[count];double quadratic=0;
             for(int i=0;i<n;i++) {
-                double r=y[i];for(int a=0;a<p;a++)r-=q[i][a]*beta[a];py[i]=w[i]*r;quadratic+=r*py[i];
-                double leverage=0;for(int a=0;a<p;a++)leverage+=correction[i*p+a]*weightedQ[i*p+a];
-                double term=w[i]-leverage-py[i]*py[i];
+                double r=projection.residual()[i];py[i]=sqrtW[i]*r;quadratic+=r*r;
+                double leverage=0;for(int a=0;a<p;a++){double value=projection.orthonormalColumns()[i*p+a];leverage+=value*value;}
+                double term=w[i]*(1-leverage)-py[i]*py[i];
                 gradient[0]+=.5*variance[0]*eigen[i]*term;gradient[residual[i]]+=.5*variance[residual[i]]*term;
             }
             double maximum=0;for(int a=0;a<count;a++)maximum=Math.max(maximum,Math.abs(projected(gradient[a],theta[a],active[a],lowerBounds[a],upperBounds[a])));
-            double objective=.5*((n-p)*Math.log(2*Math.PI)+logdet+ch.logDeterminant()+2*logR+quadratic);
+            double objective=.5*((n-p)*Math.log(2*Math.PI)+logdet+logInformation+2*logR+quadratic);
             if(!Double.isFinite(objective)||!Double.isFinite(maximum))throw new ArithmeticException("Nonfinite pooled REML objective or score");
             return new Evaluation(objective,gradient,variance,w,py,inverse,maximum);
         }
