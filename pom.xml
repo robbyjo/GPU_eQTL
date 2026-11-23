@@ -44,6 +44,38 @@
             <artifactId>jcublas</artifactId>
             <version>${jcuda.version}</version>
         </dependency>
+        <!-- JCuda's transitive classifier follows the build host. Include both
+             supported CUDA targets explicitly so a Windows-built JAR also
+             works on Linux (and conversely). These are JNI bindings, not the
+             system CUDA/cuBLAS runtime or NVIDIA driver. -->
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcuda-natives</artifactId>
+            <version>${jcuda.version}</version>
+            <classifier>linux-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcublas-natives</artifactId>
+            <version>${jcuda.version}</version>
+            <classifier>linux-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcuda-natives</artifactId>
+            <version>${jcuda.version}</version>
+            <classifier>windows-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jcuda</groupId>
+            <artifactId>jcublas-natives</artifactId>
+            <version>${jcuda.version}</version>
+            <classifier>windows-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.jocl</groupId>
             <artifactId>jocl</artifactId>
