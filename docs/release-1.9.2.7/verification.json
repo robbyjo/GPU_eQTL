@@ -1,0 +1,444 @@
+{
+  "version": "1.9.2.7",
+  "verified_utc": "2026-11-23T22:30:34.726838+00:00",
+  "source_pr": {
+    "number": 41,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/41",
+    "reviewed_head": "600f1038314c5aa9ba62c2c30073077785c28765",
+    "merged_commit": "ff660b79b6d47efd705f124b6e3bdf8fadda80b4",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "600f1038314c5aa9ba62c2c30073077785c28765",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45278466856/job/138056336284"
+      }
+    ],
+    "review_correction": "Bound combined checkpoint character buffers to16MiB and reserve encoder/writer heap headroom; numerical formulas and identities unchanged."
+  },
+  "release_pr": {
+    "number": 42,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/42",
+    "head": "33422c6439b0e9dd673c67b5019be52d141a3300",
+    "merged_commit": "1ccd7c4a734e6c6ac00725998d66dbc77e18e289",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "33422c6439b0e9dd673c67b5019be52d141a3300",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45278853410/job/138057667481"
+      }
+    ]
+  },
+  "annotated_tag": {
+    "name": "v1.9.2.7",
+    "tag_object": "a51357521eea14b59e3894d1569d0c254483b1ac",
+    "commit": "33422c6439b0e9dd673c67b5019be52d141a3300",
+    "remote_verified": true
+  },
+  "package": {
+    "version": "1.9.2.7",
+    "source_commit": "33422c6439b0e9dd673c67b5019be52d141a3300",
+    "jar_bytes": 150823884,
+    "jar_sha256": "5277127a6affbad66157c4681a4b88436c0c11cb6860cfcd8dc336975e227d09",
+    "tests": {
+      "tests": 270,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 265
+    },
+    "packaged_license_files": 9,
+    "dependency_namespace_files": {
+      "org/jlinalg/": 1098,
+      "jdistlib/": 933
+    },
+    "bundled_openblas_platforms": [
+      "windows-x86_64",
+      "linux-x86_64",
+      "linux-arm64",
+      "macosx-x86_64",
+      "macosx-arm64"
+    ],
+    "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+    "java_class_major": 61,
+    "manifest_clean": true,
+    "backend_smoke": true,
+    "cuda_jni_payloads": [
+      {
+        "entry": "lib/libJCudaDriver-12.6.0-linux-x86_64.so",
+        "bytes": 1201712,
+        "sha256": "fdc3b4b4fca4f0fab54ff12c0b4d6ad1c5e8d55015b4950834c705e5db301255",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaDriver-12.6.0-windows-x86_64.dll",
+        "bytes": 453120,
+        "sha256": "4499dbe4ff61e20950a7c57e246d2ac79e9c7449087bf4e522f384c0be576ae2",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCudaRuntime-12.6.0-linux-x86_64.so",
+        "bytes": 1037872,
+        "sha256": "710738a34ac2e1bc35879b55989b7f7661a36b0e821840399d16940a91d888e4",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaRuntime-12.6.0-windows-x86_64.dll",
+        "bytes": 477696,
+        "sha256": "83bdfb8d88a7bdf147162b72123842a1957b469984746770ced37ccd6975a8af",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvrtc-12.6.0-linux-x86_64.so",
+        "bytes": 88648,
+        "sha256": "1c5a7926684e5af45f6e1280bab41d50735500db2a61cd59f58ab3520e93960c",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvrtc-12.6.0-windows-x86_64.dll",
+        "bytes": 137728,
+        "sha256": "7475cc1b76fcb13fda6e8aa3343c3d9a067913051e781dc60b9805cfeaea38f5",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvPTXCompiler-12.6.0-linux-x86_64.so",
+        "bytes": 24063816,
+        "sha256": "6bce6925256b2456ab9521372a3a6ae76438488d0394dd467e32f3c0a32efa18",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvPTXCompiler-12.6.0-windows-x86_64.dll",
+        "bytes": 20139008,
+        "sha256": "493036fd54a6c8e0ba9cfd512fa0db4e5ec7549d1dfd484d390c61aff2af2442",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas-12.6.0-linux-x86_64.so",
+        "bytes": 232240,
+        "sha256": "12ea4fd8365a9378ae339e22f14cd404b0ea053ac73a38764dd93a7765779ea3",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas-12.6.0-windows-x86_64.dll",
+        "bytes": 256000,
+        "sha256": "505869eb22765ec8008281d6c769ce2f780f431f826eb807cc629a6edc5c462f",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas2-12.6.0-linux-x86_64.so",
+        "bytes": 1614384,
+        "sha256": "990b2129e540a7f93d0776799d48659dc85e4f7f5bfb6473d0c8369ef8126c32",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas2-12.6.0-windows-x86_64.dll",
+        "bytes": 897024,
+        "sha256": "b6b96ecd19889c90d95b7b4758ec4a267dbf6a38785b2f7ff1f701dff5cf7e46",
+        "x86_64_verified": true
+      }
+    ]
+  },
+  "packaged_tests": {
+    "tests": 144,
+    "passed": 143,
+    "optional_aborted": 1,
+    "failures": 0,
+    "errors": 0,
+    "optional_details": [
+      {
+        "classname": "gov.nih.eqtl.io.QVariantMatrixSourceTest",
+        "name": "readsExternalBcftoolsFixtureWhenConfigured()"
+      }
+    ]
+  },
+  "bounded_heap_checkpoint_regression": {
+    "heap": "128MiB",
+    "trait_parts": 256,
+    "baseline_out_of_memory_reproduced": true,
+    "corrected_interruption_recovery_and_committed_bytes_pass": true,
+    "permanent_subprocess_test": true,
+    "combined_character_buffer_cap_MiB": 16,
+    "encoder_writer_headroom_in_admission": true
+  },
+  "batched_cli": {
+    "version": "1.9.2.7",
+    "checks": [
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "threshold": "1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 153,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "threshold": "0.1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 0,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "threshold": "1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 153,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "threshold": "0.1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 0,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "threshold": "1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 153,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "threshold": "0.1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 0,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "threshold": "1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 153,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "threshold": "0.1",
+        "traits": 9,
+        "variants": 17,
+        "rows": 0,
+        "default_v1_9_2_6_resume_byte_identical": true,
+        "batched_resume_byte_identical": true,
+        "paired_audit_recovery_byte_identical": true,
+        "partial_evidence_retained": true,
+        "changed_batch_and_legacy_rejected": true,
+        "immutable_nulls_reused": true
+      }
+    ],
+    "maximum_relative_error": 2.220446049250313e-16,
+    "scalar_relative_tolerance": 1e-08,
+    "maximum_batch": {
+      "size": 256,
+      "rows": 4352,
+      "jvm_heap": "128m",
+      "byte_identical_resume": true
+    },
+    "rotation_corruption_rejected_without_rebuild": true,
+    "existing_outputs_preserved": true,
+    "invalid_modes_rejected": true,
+    "null_files": 274,
+    "linux_gpu_final_artifact_tested": false,
+    "selective_threshold": {
+      "pvalue": 0.6380832356710193,
+      "checks": [
+        {
+          "backend": "cpu",
+          "engine": "java",
+          "rows": 67,
+          "unfiltered_rows": 153,
+          "exact_retained_keys_order": true,
+          "byte_identical_resume": true,
+          "unchanged_audit_counts": true
+        },
+        {
+          "backend": "cpu",
+          "engine": "openblas",
+          "rows": 67,
+          "unfiltered_rows": 153,
+          "exact_retained_keys_order": true,
+          "byte_identical_resume": true,
+          "unchanged_audit_counts": true
+        },
+        {
+          "backend": "cuda",
+          "engine": "openblas",
+          "rows": 67,
+          "unfiltered_rows": 153,
+          "exact_retained_keys_order": true,
+          "byte_identical_resume": true,
+          "unchanged_audit_counts": true
+        },
+        {
+          "backend": "opencl",
+          "engine": "openblas",
+          "rows": 67,
+          "unfiltered_rows": 153,
+          "exact_retained_keys_order": true,
+          "byte_identical_resume": true,
+          "unchanged_audit_counts": true
+        }
+      ],
+      "maximum_relative_error": 2.220446049250313e-16
+    }
+  },
+  "cuda_related_set_cli": {
+    "method": "SKAT-O",
+    "N": 43,
+    "actual_cuda_products": true,
+    "model_file_identical_content_replacement": true,
+    "byte_identical_result_audit_resume": true,
+    "resume_recomputed_matrix_products": 0
+  },
+  "hardware": {
+    "os": "Windows",
+    "jdk": "25 targeting Java17",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "621.14",
+    "cuda_runtime": "12.6",
+    "paths": [
+      "portable Java",
+      "native OpenBLAS",
+      "CUDA",
+      "OpenCL"
+    ],
+    "official_jar_linux_gpu_tested": false
+  },
+  "release": {
+    "id": 456073500,
+    "url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.7",
+    "latest_stable_publicly_verified": true,
+    "assets": [
+      {
+        "name": "gpu-eqtl-1.9.2.7-universal.jar",
+        "bytes": 150823884,
+        "sha256": "5277127a6affbad66157c4681a4b88436c0c11cb6860cfcd8dc336975e227d09",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.7/gpu-eqtl-1.9.2.7-universal.jar",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 97,
+        "sha256": "5d840c5db78e71c26b8e5f09c1f0ac21fa671051ea605644523d29ffe35da98a",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.7/SHA256SUMS",
+        "public_download_verified": true
+      },
+      {
+        "name": "RELEASE-MANIFEST.txt",
+        "bytes": 401,
+        "sha256": "111a5a33d7056875dbd53ab2f4b309013a461c9c4e78f16fe160c08cf4eaca2f",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.7/RELEASE-MANIFEST.txt",
+        "public_download_verified": true
+      }
+    ]
+  },
+  "website": {
+    "workflow_id": 45280084379,
+    "commit": "1ccd7c4a734e6c6ac00725998d66dbc77e18e289",
+    "conclusion": "success",
+    "verified_utc": "2026-11-23T22:30:32.8312469+00:00",
+    "files": [
+      {
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/index.html?verify=1795473032",
+        "file": "index.html",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/updates.html?verify=1795473032",
+        "file": "updates.html",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.js?verify=1795473032",
+        "file": "site.js",
+        "matches_release_source": true
+      },
+      {
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.css?verify=1795473032",
+        "file": "site.css",
+        "matches_release_source": true
+      }
+    ],
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45280084379"
+  },
+  "documentation": {
+    "local_repository_links_anchors": 154,
+    "files": 8,
+    "javascript_syntax": true,
+    "posix_shell_syntax": true,
+    "powershell_syntax": true,
+    "whitespace": true
+  },
+  "compatibility": {
+    "default_batch": 1,
+    "default_v1_9_2_6_checkpoints_reused": true,
+    "immutable_nulls_reused": true,
+    "legacy_pooled_identity": "pooled-pedigree-block-v6-relative-reml",
+    "batch_identity_suffix": ";batched-score-v1;batch=N",
+    "shared_null_key": "pooled-null-v5-relative-reml",
+    "requirement": "Use fresh result/checkpoint paths when enabling or changing batch size. Retain earlier results and state; earlier pooled/BCF migrations still apply."
+  },
+  "limits": [
+    "Synthetic software checks only; no production deployment or controlled cohort analysis.",
+    "Maximum full-run batching uses N96/rank7/17 variants/256 traits at128MiB; this is not a full-cohort memory or throughput guarantee.",
+    "PR prototype Linux CPU/A100 timings apply to an earlier candidate, not this official artifact. No fresh official-JAR Linux GPU execution is claimed.",
+    "Batching is opt-in, genome-wide FP64 with complete predictors, sequential through an exclusive context. No concurrent multi-GPU scheduler.",
+    "Per-mask rotation caches consume additional FP64 disk storage; masks, pedigree size, null fitting, input parsing and I/O remain workload limits.",
+    "No fresh macOS/other-vendor GPU validation; optional oneMKL and external bcftools fixture were unavailable."
+  ]
+}

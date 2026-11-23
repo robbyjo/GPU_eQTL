@@ -103,7 +103,7 @@
         <article class="release-entry release-latest" id="v1-9-2-7" aria-labelledby="v1-9-2-7-title">
           <div class="release-meta"><span>v1.9.2.7</span><time datetime="2026-11-23">November 23, 2026</time><span class="release-badge">Latest release</span></div>
           <h2 id="v1-9-2-7-title">Optional batching for pedigree scores</h2>
-          <p>Genome-wide pedigree scans can share predictor rotation and wider FP64 products across traits with the same exact sample mask. Choose <code>--mixed-trait-batch-size 2..256</code>; the default stays 1. Complete predictors with <code>--predictor-missing error</code> are required.</p>
+          <p>Genome-wide pedigree scans can share predictor rotation and wider FP64 products across traits with the same exact sample mask. For example, choose <code>--mixed-trait-batch-size 32</code> (range 2–256); the default stays 1. Complete predictors with <code>--predictor-missing error</code> are required.</p>
           <p class="upgrade-note"><strong>Enabling or resizing batches</strong> Use fresh result/checkpoint paths. Compatible immutable nulls remain reusable. Budget an extra FP64 predictor cache per mask; no full-cohort speedup is promised.</p>
           <div class="release-links">
             <a href="https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.7">Download ↗<span class="sr-only"> v1.9.2.7</span></a>
