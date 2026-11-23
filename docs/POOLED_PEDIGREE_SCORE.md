@@ -181,6 +181,8 @@ so unreachable prior tiles are not mistaken for live allocations; the same
 headroom requirement still applies. Up to 256 checkpoint writers are opened
 iteratively, avoiding a call stack proportional to the trait batch size.
 Every writer must close successfully before new parts receive digest commits.
+Their combined character buffers are capped at 16 MiB, with encoder/writer
+headroom included in heap admission; GPU admission counts device matrices only.
 Performance depends on input parsing, cache reads, trait batch
 size, null fitting and available hardware; no full-cohort timing is promised.
 

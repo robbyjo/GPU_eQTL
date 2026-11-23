@@ -26,13 +26,14 @@ final class QPooledBatchProducts {
     private void checkMemory(int rows) {
         long left=Math.multiplyExact((long)rows,shared),rhs=Math.multiplyExact((long)shared,columns),normRhs=Math.multiplyExact((long)shared,normColumns);
         long scoreOut=Math.multiplyExact((long)rows,columns),normOut=Math.multiplyExact((long)rows,normColumns);
-        long bytes=Math.multiplyExact(8L,Math.addExact(Math.addExact(2*left,rhs+normRhs),scoreOut+normOut));
+        long matrixBytes=Math.multiplyExact(8L,Math.addExact(Math.addExact(2*left,rhs+normRhs),scoreOut+normOut));
+        long bytes=Math.addExact(matrixBytes,QPooledResultCheckpoint.batchBufferBytes(fits.length));
         Runtime rt=Runtime.getRuntime();
         requireHeap(bytes,()->rt.maxMemory()-(rt.totalMemory()-rt.freeMemory()),rt::gc);
         if(pool!=null)for(var c:pool.getAllContexts()) {
             var d=c.getDevice();long total=d.getGlobalMemoryBytes(),allocation=d.getMaxAllocationBytes();
             long largest=8*Math.max(Math.max(left,rhs),Math.max(normRhs,Math.max(scoreOut,normOut)));
-            if((allocation>0&&largest>allocation)||(total>0&&bytes>total*3/4))throw new IllegalArgumentException("Pedigree batch exceeds device memory budget");
+            if((allocation>0&&largest>allocation)||(total>0&&matrixBytes>total*3/4))throw new IllegalArgumentException("Pedigree batch exceeds device memory budget");
         }
     }
     static void requireHeap(long bytes,java.util.function.LongSupplier available,Runnable reclaim) {

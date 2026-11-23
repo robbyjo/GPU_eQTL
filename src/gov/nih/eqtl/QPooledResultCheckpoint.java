@@ -62,6 +62,16 @@ final class QPooledResultCheckpoint implements AutoCloseable {
         while(value.hasRemaining())position+=digests.write(value,position);
     }
     @FunctionalInterface interface BatchWriter {void write(Writer[] writers)throws Exception;}
+    private static int batchBufferCharacters(int count) {
+        if(count<1||count>256)throw new IllegalArgumentException("Expected 1..256 checkpoint parts");
+        // Bound all character buffers together to 16 MiB, rather than giving
+        // every trait a separate 2 MiB char array. Keep single-trait buffering.
+        return Math.min(1024*1024,8*1024*1024/count);
+    }
+    static long batchBufferBytes(int count) {
+        // Include encoder buffers and writer overhead in the admission budget.
+        return (2L*batchBufferCharacters(count)+16*1024)*count;
+    }
     /** Open one bounded group without recursively nesting one callback per trait. */
     void writeBlocks(int[] blocks,BatchWriter action)throws Exception {
         if(blocks.length<1||blocks.length>256)throw new IllegalArgumentException("Expected 1..256 checkpoint parts");
@@ -74,7 +84,7 @@ final class QPooledResultCheckpoint implements AutoCloseable {
                 if(isComplete(block)){writers[i]=Writer.nullWriter();continue;}
                 Path path=parts.directory().resolve(String.format("block-%08d.partial",block));
                 retainUncommitted(part(block));retainUncommitted(path);Files.deleteIfExists(path);
-                temporary[i]=path;writers[i]=new BufferedWriter(Files.newBufferedWriter(path,StandardCharsets.UTF_8,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE),1024*1024);
+                temporary[i]=path;writers[i]=new BufferedWriter(new OutputStreamWriter(Files.newOutputStream(path,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE),StandardCharsets.UTF_8),batchBufferCharacters(blocks.length));
             }
             action.write(writers);
             // Close every writer successfully before committing any new part.

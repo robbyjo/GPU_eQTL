@@ -6,6 +6,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class QPooledResultCheckpointTest {
+    @Test void maximumBatchRecoveryFits128MiBHeap(@TempDir Path root)throws Exception {
+        Path log=root.resolve("bounded-heap.log");
+        var child=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin","java").toString(),
+            "-Xmx128m","-cp",System.getProperty("java.class.path"),HeapChild.class.getName(),root.toString())
+            .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertTrue(child.waitFor(60,java.util.concurrent.TimeUnit.SECONDS),"Bounded-heap recovery timed out");
+            assertEquals(0,child.exitValue(),Files.readString(log));
+        } finally {if(child.isAlive()){child.destroyForcibly();child.waitFor();}}
+    }
+    public static final class HeapChild {
+        public static void main(String[] args)throws Exception {
+            new QPooledResultCheckpointTest().maximumBatchCommitsIterativelyAndPreservesFailedParts(Path.of(args[0]));
+        }
+    }
     @Test void maximumBatchCommitsIterativelyAndPreservesFailedParts(@TempDir Path root)throws Exception {
         Path dir=root.resolve("batch");int[] ids=java.util.stream.IntStream.range(0,256).toArray();
         try(var parts=QPooledResultCheckpoint.open(dir,"batch-signature",256,false)) {
