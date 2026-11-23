@@ -2,7 +2,7 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
-## Unreleased
+## [1.9.2.3](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.3) — 2026-11-22
 
 - Stabilize pooled pedigree REML at cohort variance boundaries with weighted Householder QR. Accept score-converged restarts despite objective roundoff and stop zero-length line-search steps. Preserve the statistical model, component bounds, total iteration budget and `1e-6` score criterion.
 - Pooled result signature version 4 and a new shared-null key require fresh pooled result/checkpoint paths when upgrading from v1.9.2.2 or earlier. Preserve earlier outputs; legacy/set signatures and aligned raw-cache formats are unchanged.
