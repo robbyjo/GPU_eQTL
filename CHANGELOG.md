@@ -2,7 +2,7 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
-## Unreleased
+## [1.9.2.6](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.6) — 2026-11-23
 
 - Include both Linux x64 and Windows x64 JCuda/cuBLAS JNI bindings in every build, independent of the build host. Add hardware-independent payload tests and release-JAR checks so a Windows-built universal JAR cannot silently omit its Linux CUDA bindings. The compatible NVIDIA driver and system CUDA/cuBLAS/NVRTC runtime remain separate requirements; numerical code and checkpoint identities are unchanged.
 
