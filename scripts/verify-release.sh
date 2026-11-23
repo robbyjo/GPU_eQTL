@@ -47,6 +47,16 @@ entries=$(jar tf "$release_jar")
 printf '%s\n' "$entries" | grep -Fx 'META-INF/LICENSE' >/dev/null
 printf '%s\n' "$entries" | grep -Fx 'META-INF/LICENSE_EXCEPTION' >/dev/null
 printf '%s\n' "$entries" | grep -E '^META-INF/licenses/.+' >/dev/null
+cuda_version=$(sed -n 's/.*<jcuda.version>\(.*\)<\/jcuda.version>.*/\1/p' pom.xml)
+test -n "$cuda_version"
+for binding in JCudaDriver JCudaRuntime JNvrtc JNvPTXCompiler JCublas JCublas2; do
+  for entry in "lib/lib$binding-$cuda_version-linux-x86_64.so" "lib/$binding-$cuda_version-windows-x86_64.dll"; do
+    if ! printf '%s\n' "$entries" | grep -Fx "$entry" >/dev/null; then
+      echo "Packaged jar omits CUDA JNI binding $entry" >&2
+      exit 1
+    fi
+  done
+done
 java -jar "$release_jar" --printbackendinfo
 
 (

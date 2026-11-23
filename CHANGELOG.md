@@ -2,6 +2,10 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Include both Linux x64 and Windows x64 JCuda/cuBLAS JNI bindings in every build, independent of the build host. Add hardware-independent payload tests and release-JAR checks so a Windows-built universal JAR cannot silently omit its Linux CUDA bindings. The compatible NVIDIA driver and system CUDA/cuBLAS/NVRTC runtime remain separate requirements; numerical code and checkpoint identities are unchanged.
+
 ## [1.9.2.5](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.5) — 2026-11-23
 
 - Prevent pooled REML line-search stalls near variance boundaries by computing the likelihood change directly from relative covariance and fixed-effect information, instead of subtracting two nearly equal full objectives. Preserve the model, bounds, iteration budget, Armijo allowance and strict `1e-6` projected-score criterion.

@@ -53,6 +53,12 @@ foreach ($entry in $requiredEntries) {
 if (-not ($entries | Where-Object { $_ -like "META-INF/licenses/*" })) {
     throw "Packaged jar omits third-party license notices"
 }
+$cudaVersion = ([xml](Get-Content -LiteralPath (Join-Path $projectRoot "pom.xml") -Raw)).project.properties.'jcuda.version'
+foreach ($binding in @("JCudaDriver", "JCudaRuntime", "JNvrtc", "JNvPTXCompiler", "JCublas", "JCublas2")) {
+    foreach ($entry in @("lib/lib$binding-$cudaVersion-linux-x86_64.so", "lib/$binding-$cudaVersion-windows-x86_64.dll")) {
+        if ($entries -notcontains $entry) { throw "Packaged jar omits CUDA JNI binding $entry" }
+    }
+}
 
 if (-not $SkipBackendSmoke) {
     & java -jar $releaseJar --printbackendinfo
