@@ -11,6 +11,10 @@ import gov.nih.gpu.*;
 /** Opt-in pooled score scan; bounded SNP tiles, raw indexed cache and atomic trait parts. */
 final class QPooledScoreRunner {
     private static final String ALGORITHM="pooled-pedigree-block-v6-relative-reml";
+    private static String algorithm(QeQTLAnalysisConfig config) {
+        int batch=config.getMixedTraitBatchSize();
+        return batch==1?ALGORITHM:ALGORITHM+";batched-score-v1;batch="+batch;
+    }
     private static final String HEADER="SNP,Probe,N,DF,Effect,SE,Statistic,log10P,Test,Status,VarianceComponents,REMLLogLik,Iterations,MaxProjectedScore,Rank";
     private static final String AUDIT="Trait\tN\tRank\tCohortN\tTestedVariants\tDegenerateVariants\tStatus\tVarianceComponents\tREMLLogLik\tMaxProjectedScore\tIdentityReduction";
     static void validate(QeQTLAnalysisConfig config,QPooledPedigreeModel model,QMatrixRowSource genotypes,int[] genotypeColumns,
@@ -37,7 +41,7 @@ final class QPooledScoreRunner {
     static void run(QeQTLAnalysisConfig config,QPooledPedigreeModel model,QMatrixRowSource genotypes,int[] genotypeColumns,
         QMatrixRowSource traits,int[] traitColumns,GpuContext[] contexts)throws Exception {
         String stamp=QMixedModelRunner.sourceStamp(config);
-        String signature=QMixedModelRunner.signature(config,genotypeColumns,traitColumns,ALGORITHM+";"+model.engine()+";"+QMixedModelRunner.execution(contexts));
+        String signature=QMixedModelRunner.signature(config,genotypeColumns,traitColumns,algorithm(config)+";"+model.engine()+";"+QMixedModelRunner.execution(contexts));
         Path out=Path.of(config.getOutputFilename()).toAbsolutePath().normalize();
         Path checkpointDir=config.getCheckpointDirectory()==null?Path.of(out+".pooled-checkpoint"):Path.of(config.getCheckpointDirectory());
         checkpointDir=checkpointDir.toAbsolutePath().normalize();
@@ -54,6 +58,9 @@ final class QPooledScoreRunner {
             GpuContextPool pool=new GpuContextPool(contexts);var traitReader=traits.open(traitColumns)) {
             compile(pool);
             CisIndex cis=config.getTraitPositionsFilename()==null?null:new CisIndex(Path.of(config.getTraitPositionsFilename()),raw.indexedRowIds(),Long.parseLong(config.get("mixed_cis_window")));
+            if(config.getMixedTraitBatchSize()>1) {
+                QPooledBatchRunner.run(config,model,raw,traitReader,pool,results,audits,cacheDir,nullCache,stamp,traitCount,block);
+            } else {
             for(int t=0;t<traitCount;t++) {
                 var row=traitReader.readBlock(1);if(row==null||row.rowOffset()!=t||row.rowCount()!=1)throw new IOException("Pooled trait source changed");
                 if(results.isComplete(t)&&audits.isComplete(t))continue;
@@ -91,8 +98,9 @@ final class QPooledScoreRunner {
                 System.out.println("Pooled score trait "+id+": N="+geometry.n+", rank="+geometry.p+", projected score="+fit.maximumScore+", geometry builds="+model.geometryBuilds()+", null="+(fit.reused?"cache":"computed"));
             }
             if(traitReader.readBlock(1)!=null)throw new IOException("Pooled trait source grew");
+            }
         }
-        if(!signature.equals(QMixedModelRunner.signature(config,genotypeColumns,traitColumns,ALGORITHM+";"+model.engine()+";"+QMixedModelRunner.execution(contexts))))throw new IOException("Pooled inputs changed");
+        if(!signature.equals(QMixedModelRunner.signature(config,genotypeColumns,traitColumns,algorithm(config)+";"+model.engine()+";"+QMixedModelRunner.execution(contexts))))throw new IOException("Pooled inputs changed");
         // Assemble audit first because the parent checkpoint may be cleaned after result assembly.
         audits.assemble(Path.of(out+".pooled.tsv"),AUDIT);results.assemble(out,HEADER);
         if(!config.getKeepCheckpoints()){audits.removeCompleted();results.removeCompleted();}
