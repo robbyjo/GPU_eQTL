@@ -149,6 +149,8 @@ This fitter does not recalculate HWE per transcript or introduce an HWE filter.
 Synthetic tests compare complete/incomplete masks, likelihoods, gradients and
 scores against independent base-R dense covariance Cholesky and finite
 differences. They cover response scaling, inbred proportional-identity bounds,
+unequal component likelihood changes against dense-R references for complete
+and incomplete masks in both directions,
 covariance confounding, native/scalar large-family rotations, inclusive cis
 boundaries, null reuse/corruption, raw-row CRC validation and result/audit
 resume/corruption. Actual CUDA, NVIDIA OpenCL and native CPU product checks

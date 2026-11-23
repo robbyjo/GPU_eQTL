@@ -12,6 +12,25 @@ class QPooledLikelihoodChangeTest {
     @Test void nativeBoundaryLineSearchMatchesAnalyticLimit() throws Exception { boundary("openblas"); }
     @Test void portableTinyLikelihoodChangesMatchAnalyticReml() throws Exception { changes("java"); }
     @Test void nativeTinyLikelihoodChangesMatchAnalyticReml() throws Exception { changes("openblas"); }
+    @Test void portableUnequalComponentChangesMatchIndependentDenseR() throws Exception { mixedChanges("java"); }
+    @Test void nativeUnequalComponentChangesMatchIndependentDenseR() throws Exception { mixedChanges("openblas"); }
+    private void mixedChanges(String engine) throws Exception {
+        String old=System.getProperty("eqtl.cpu.blas");System.setProperty("eqtl.cpu.blas",engine);
+        try {
+            var d=QPooledPedigreeModelTest.data();var model=QPooledPedigreeModelTest.model(d);
+            var lines=Files.readAllLines(QPooledPedigreeModelTest.ROOT.resolve("relative-changes.csv"));
+            for(String line:lines.subList(1,lines.size())) {
+                String[] v=line.split(",");Set<Integer> missing=v[0].equals("missing")?Set.of(2,7,18,41,52,80,93):Set.of();
+                int[] mask=java.util.stream.IntStream.range(0,d.y().length).filter(i->!missing.contains(i)).toArray();
+                var geometry=model.geometry(mask);double[] y=Arrays.stream(mask).mapToDouble(i->d.y()[i]).toArray();
+                double[] from=Arrays.stream(new double[]{.2,.03,.15,.34}).map(Math::log).toArray(),to=from.clone();
+                for(int j=0;j<to.length;j++)to[j]+=Double.parseDouble(v[j+1]);
+                double expected=Double.parseDouble(v[5]);
+                assertEquals(expected,geometry.objectiveChange(from,to,y),1e-9,"forward "+line);
+                assertEquals(-expected,geometry.objectiveChange(to,from,y),1e-9,"reverse "+line);
+            }
+        } finally {if(old==null)System.clearProperty("eqtl.cpu.blas");else System.setProperty("eqtl.cpu.blas",old);}
+    }
     record Data(double[][] x,double[] y,double[] noise,String[] groups,String[] ids,Path pedigree) { }
     private Data data(int extra) throws Exception {
         int m=24,n=3*m;double[][] x=new double[n][3+extra];double[] y=new double[n],noise=new double[n];String[] groups=new String[n],ids=new String[n];
