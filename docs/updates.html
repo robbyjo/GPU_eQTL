@@ -78,7 +78,8 @@
       <aside class="updates-index" aria-label="Update navigation">
         <p class="eyebrow">Recent releases</p>
         <nav aria-label="Release versions">
-          <a href="#v1-9-2-2">v1.9.2.2 <span>Latest</span></a>
+          <a href="#v1-9-2-3">v1.9.2.3 <span>Latest</span></a>
+          <a href="#v1-9-2-2">v1.9.2.2</a>
           <a href="#v1-9-2-1">v1.9.2.1</a>
           <a href="#v1-9-2">v1.9.2</a>
           <a href="#v1-9-1-6">v1.9.1.6</a>
@@ -95,8 +96,20 @@
       </aside>
 
       <div class="updates-feed">
-        <article class="release-entry release-latest" id="v1-9-2-2" aria-labelledby="v1-9-2-2-title">
-          <div class="release-meta"><span>v1.9.2.2</span><time datetime="2026-11-22">November 22, 2026</time><span class="release-badge">Latest release</span></div>
+        <article class="release-entry release-latest" id="v1-9-2-3" aria-labelledby="v1-9-2-3-title">
+          <div class="release-meta"><span>v1.9.2.3</span><time datetime="2026-11-22">November 22, 2026</time><span class="release-badge">Latest release</span></div>
+          <h2 id="v1-9-2-3-title">Stable pooled REML at variance boundaries</h2>
+          <p>Thin Householder QR stabilizes weighted residuals and information calculations when a cohort variance reaches its bound. Score-converged restarts are accepted, and identical optimizer iterates stop promptly. The model, variance bounds and strict convergence criterion are preserved.</p>
+          <p class="upgrade-note"><strong>Upgrading pooled analyses</strong> Use fresh pooled result/checkpoint paths. Version 4 and the new shared-null key preserve earlier results and prevent reuse of older fitted nulls. Legacy/set identities and aligned raw-cache formats retain their existing compatibility checks.</p>
+          <div class="release-links">
+            <a href="https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.3">Download ↗<span class="sr-only"> v1.9.2.3</span></a>
+            <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/RELEASE_NOTES_1.9.2.3.md">Full release notes ↗<span class="sr-only"> v1.9.2.3</span></a>
+            <a href="https://github.com/robbyjo/GPU_eQTL/blob/master/docs/POOLED_PEDIGREE_SCORE.md">Pooled numerical method ↗</a>
+          </div>
+        </article>
+
+        <article class="release-entry" id="v1-9-2-2" aria-labelledby="v1-9-2-2-title">
+          <div class="release-meta"><span>v1.9.2.2</span><time datetime="2026-11-22">November 22, 2026</time></div>
           <h2 id="v1-9-2-2-title">Correct sparse BCF header dictionaries</h2>
           <p>Reads explicit BCF header dictionary numbers for tags and contigs, including gaps and reordered entries. This fixes crashes and possible mislabeling with native bcftools files. Conflicting or undeclared dictionary entries fail explicitly.</p>
           <p class="upgrade-note"><strong>Upgrading BCF analyses</strong> Preserve previous outputs and use fresh result/checkpoint paths. BCF QC and dosage/prepared caches use a new reader identity, preventing reuse of state decoded by the older reader. CSV and VCF identities retain their existing compatibility checks.</p>
