@@ -2116,7 +2116,7 @@ public class QeQTLAnalysis implements IJobOwner
 	public static void main(String[] args)
 	{
 		long timea = System.currentTimeMillis();
-		System.out.println("GPU eQTL analysis software version 1.9.2.3. By: Roby Joehanes");
+		System.out.println("GPU eQTL analysis software version 1.9.2.4. By: Roby Joehanes");
 		if (args == null || args.length < 1) {
 			printUsage();
 			System.exit(kExitCodeErrorInvalidParam);

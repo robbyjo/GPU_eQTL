@@ -2,7 +2,7 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
-## Unreleased
+## [1.9.2.4](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.4) — 2026-11-22
 
 - Stabilize pooled association information at cohort variance boundaries. GPU and scalar products now use the orthonormal weighted design; close subtractions use a reprojected residual norm. This fixes invalid negative information and inaccurate estimates after successful null convergence, preserving the model, fitted null, score law and collinearity threshold.
 - Pooled result signature version 5 requires fresh result/checkpoint paths from v1.9.2.3 and earlier. The v4 shared-null key and immutable format are unchanged: the stable score basis is reconstructed from the verified null. Legacy/set signatures and raw-cache formats are unchanged.
