@@ -1,0 +1,362 @@
+{
+  "version": "1.9.2.6",
+  "verified_utc": "2026-11-23T20:28:50.891179+00:00",
+  "source_pr": {
+    "number": 38,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/38",
+    "reviewed_head": "463d636cf96608cd4806e5e1ea2ae71c01c29924",
+    "merged_commit": "d971170d6fe38fd5eecf0ca0a5330eb46255cc11",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45257726552/job/137983974474",
+        "head_sha": "463d636cf96608cd4806e5e1ea2ae71c01c29924"
+      }
+    ]
+  },
+  "release_pr": {
+    "number": 39,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/39",
+    "head": "0f2b75c289ac244d3d6b19ae3723cc4dab18242a",
+    "merged_commit": "0fb162020f40462109a88b2a2468e5a8e3246818",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45258296038/job/137985844529",
+        "head_sha": "0f2b75c289ac244d3d6b19ae3723cc4dab18242a"
+      }
+    ]
+  },
+  "annotated_tag": {
+    "name": "v1.9.2.6",
+    "tag_object": "7cfa183aae79e99aba3657d9277b7cce72955f51",
+    "commit": "0f2b75c289ac244d3d6b19ae3723cc4dab18242a",
+    "remote_verified": true
+  },
+  "package": {
+    "version": "1.9.2.6",
+    "source_commit": "0f2b75c289ac244d3d6b19ae3723cc4dab18242a",
+    "jar_bytes": 150803286,
+    "jar_sha256": "490515009632158744577fe9379ddad4c8853318e79b62adbc344b8ec4118b87",
+    "tests": {
+      "tests": 261,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 256
+    },
+    "packaged_license_files": 9,
+    "dependency_namespace_files": {
+      "org/jlinalg/": 1098,
+      "jdistlib/": 933
+    },
+    "bundled_openblas_platforms": [
+      "windows-x86_64",
+      "linux-x86_64",
+      "linux-arm64",
+      "macosx-x86_64",
+      "macosx-arm64"
+    ],
+    "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+    "java_class_major": 61,
+    "manifest_clean": true,
+    "backend_smoke": true,
+    "cuda_jni_payloads": [
+      {
+        "entry": "lib/libJCudaDriver-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 1201712,
+        "sha256": "fdc3b4b4fca4f0fab54ff12c0b4d6ad1c5e8d55015b4950834c705e5db301255",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JCudaDriver-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 453120,
+        "sha256": "4499dbe4ff61e20950a7c57e246d2ac79e9c7449087bf4e522f384c0be576ae2",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/libJCudaRuntime-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 1037872,
+        "sha256": "710738a34ac2e1bc35879b55989b7f7661a36b0e821840399d16940a91d888e4",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JCudaRuntime-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 477696,
+        "sha256": "83bdfb8d88a7bdf147162b72123842a1957b469984746770ced37ccd6975a8af",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/libJNvrtc-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 88648,
+        "sha256": "1c5a7926684e5af45f6e1280bab41d50735500db2a61cd59f58ab3520e93960c",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JNvrtc-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 137728,
+        "sha256": "7475cc1b76fcb13fda6e8aa3343c3d9a067913051e781dc60b9805cfeaea38f5",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/libJNvPTXCompiler-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 24063816,
+        "sha256": "6bce6925256b2456ab9521372a3a6ae76438488d0394dd467e32f3c0a32efa18",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JNvPTXCompiler-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 20139008,
+        "sha256": "493036fd54a6c8e0ba9cfd512fa0db4e5ec7549d1dfd484d390c61aff2af2442",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/libJCublas-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 232240,
+        "sha256": "12ea4fd8365a9378ae339e22f14cd404b0ea053ac73a38764dd93a7765779ea3",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JCublas-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 256000,
+        "sha256": "505869eb22765ec8008281d6c769ce2f780f431f826eb807cc629a6edc5c462f",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/libJCublas2-12.6.0-linux-x86_64.so",
+        "platform": "linux-x86_64",
+        "bytes": 1614384,
+        "sha256": "990b2129e540a7f93d0776799d48659dc85e4f7f5bfb6473d0c8369ef8126c32",
+        "x86_64_header_verified": true
+      },
+      {
+        "entry": "lib/JCublas2-12.6.0-windows-x86_64.dll",
+        "platform": "windows-x86_64",
+        "bytes": 897024,
+        "sha256": "b6b96ecd19889c90d95b7b4758ec4a267dbf6a38785b2f7ff1f701dff5cf7e46",
+        "x86_64_header_verified": true
+      }
+    ],
+    "unchanged_production_class_bytes": 310,
+    "other_production_class_byte_differences": [
+      "gov/nih/eqtl/QCohortModel$1.class",
+      "gov/nih/eqtl/QCohortModel.class",
+      "gov/nih/eqtl/QMixedModel.class",
+      "gov/nih/eqtl/QMixedModelRunner.class",
+      "gov/nih/eqtl/QPooledPedigreeModel$Geometry.class",
+      "gov/nih/eqtl/QPooledPedigreeModel.class",
+      "gov/nih/eqtl/QPooledScoreRunner.class",
+      "gov/nih/eqtl/QRemlScoreRefinement.class",
+      "gov/nih/eqtl/datastructure/QGeneExpressionData$QTableDataIterator.class",
+      "gov/nih/eqtl/io/QCovariateTable.class",
+      "gov/nih/eqtl/io/QLocalPatternImputedSource.class",
+      "gov/nih/eqtl/io/QVariantMatrixSource$IndexedCursor.class",
+      "gov/nih/eqtl/io/QVariantMatrixSource.class",
+      "gov/nih/eqtl/io/QVariantQcCheckpoint.class",
+      "gov/nih/eqtl/settest/QQuadraticFormDistribution.class",
+      "gov/nih/eqtl/settest/QSetScoreDistribution.class",
+      "gov/nih/eqtl/settest/QSetTestEngine.class",
+      "gov/nih/eqtl/settest/QSkatOmnibusIntegration.class",
+      "gov/nih/eqtl/settest/QSkatReference.class",
+      "gov/nih/eqtl/settest/QVariantSetTable.class",
+      "gov/nih/gpu/GpuContextPool.class",
+      "gov/nih/parallel/QThreadPool$QPoolThread.class",
+      "gov/nih/table/QTableData$QTableDataIterator.class",
+      "gov/nih/table/QTableData.class",
+      "gov/nih/table/QTableDataExtra$QTableDataIterator.class",
+      "gov/nih/table/QTableView$QTableViewIterator.class",
+      "gov/nih/utils/QFileUtils.class"
+    ],
+    "numerical_source_unchanged_from_v1_9_2_5": true,
+    "only_source_change": "Executable version banner",
+    "class_byte_comparison_gating": false
+  },
+  "packaged_tests": {
+    "tests": 135,
+    "passed": 134,
+    "optional_aborted": 1,
+    "failures": 0,
+    "errors": 0,
+    "optional_details": [
+      {
+        "classname": "gov.nih.eqtl.io.QVariantMatrixSourceTest",
+        "name": "readsExternalBcftoolsFixtureWhenConfigured()",
+        "reason": null
+      }
+    ]
+  },
+  "posix_payload_gate": {
+    "accepts_exact_v1_9_2_6_jar": true,
+    "rejects_incomplete_published_v1_9_2_5_jar": true
+  },
+  "cuda_related_set_cli": {
+    "method": "SKAT-O",
+    "N": 43,
+    "actual_cuda_products": true,
+    "byte_identical_result_audit_resume": true,
+    "model_file_identical_content_replacement": true,
+    "resume_recomputed_matrix_products": 0
+  },
+  "pooled_upgrade": {
+    "version": "1.9.2.6",
+    "checks": [
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "rows": 4,
+        "previous_release": "1.9.2.5",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v5_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.5",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v5_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.5",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v5_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.5",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v5_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      }
+    ],
+    "shared_null_files": 4,
+    "pooled_result_identity_unchanged": true,
+    "shared_null_key_unchanged": true
+  },
+  "hardware": {
+    "os": "Windows",
+    "jdk": "25 targeting Java17",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "621.14",
+    "cuda_runtime": "12.6",
+    "backends": [
+      "CUDA",
+      "OpenCL",
+      "native OpenBLAS",
+      "portable Java"
+    ],
+    "official_jar_linux_gpu_retested": false
+  },
+  "release": {
+    "id": 455957850,
+    "url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.6",
+    "latest_stable_publicly_verified": true,
+    "assets": [
+      {
+        "name": "gpu-eqtl-1.9.2.6-universal.jar",
+        "bytes": 150803286,
+        "sha256": "490515009632158744577fe9379ddad4c8853318e79b62adbc344b8ec4118b87",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.6/gpu-eqtl-1.9.2.6-universal.jar",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 97,
+        "sha256": "01454346dea2534394a9614076804171f901d20934be14afc70c7c9625ad9f60",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.6/SHA256SUMS",
+        "public_download_verified": true
+      },
+      {
+        "name": "RELEASE-MANIFEST.txt",
+        "bytes": 401,
+        "sha256": "002b303fa85f5bb94a67d6ab10bd6b35fed356c68896d80c233989850f11e869",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.6/RELEASE-MANIFEST.txt",
+        "public_download_verified": true
+      }
+    ]
+  },
+  "website": {
+    "commit": "0fb162020f40462109a88b2a2468e5a8e3246818",
+    "files": [
+      {
+        "url": "https://robbyjo.github.io/GPU_eQTL/index.html?verify=1795465653",
+        "http_status": 200,
+        "matches_release_source": true,
+        "file": "index.html"
+      },
+      {
+        "url": "https://robbyjo.github.io/GPU_eQTL/updates.html?verify=1795465653",
+        "http_status": 200,
+        "matches_release_source": true,
+        "file": "updates.html"
+      },
+      {
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.js?verify=1795465653",
+        "http_status": 200,
+        "matches_release_source": true,
+        "file": "site.js"
+      },
+      {
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.css?verify=1795465653",
+        "http_status": 200,
+        "matches_release_source": true,
+        "file": "site.css"
+      }
+    ],
+    "workflow_id": 45259375484,
+    "verified_utc": "2026-11-23T20:27:34.2645988+00:00",
+    "conclusion": "success",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45259375484"
+  },
+  "documentation": {
+    "local_repository_links_anchors": 151,
+    "files": 8,
+    "javascript_syntax": true,
+    "posix_shell_syntax": true,
+    "powershell_syntax": true,
+    "whitespace": true
+  },
+  "compatibility": {
+    "numerical_source_unchanged_from_v1_9_2_5": true,
+    "new_checkpoint_migration": false,
+    "pooled_result_identity": "pooled-pedigree-block-v6-relative-reml",
+    "shared_null_key": "pooled-null-v5-relative-reml",
+    "older_upgrade_requirement": "From v1.9.2.4 or earlier, use fresh pooled result/checkpoint paths and refitted nulls; retain previous state."
+  },
+  "notes": [
+    "Initial hosted source CI failed before compilation on Maven Central HTTP429; final-head required Java17 CI passed.",
+    "Initial CLI harness lacked retained synthetic inputs; copied synthetic g/y/set files and completed the separate CLI check. Packaged JUnit tests had already passed.",
+    "Class-byte comparison is diagnostic, not a reproducibility gate: javap showed captured-field and constant-pool ordering differences. Exact source comparison proves only the executable banner changes; packaged numerical checks pass."
+  ],
+  "limits": [
+    "Synthetic software release checks only; no production deployment or controlled cohort association.",
+    "PR author reported Linux/Java17 A100 validation of an earlier candidate; the official artifact has no fresh Linux GPU execution claim.",
+    "System NVIDIA driver and compatible CUDA/cuBLAS/NVRTC runtimes remain external requirements.",
+    "No pedigree performance change, full-cohort throughput, or fresh macOS/other-vendor/multi-GPU validation.",
+    "Optional oneMKL and external bcftools fixture were unavailable; native synthetic BCF fixtures were tested."
+  ]
+}
