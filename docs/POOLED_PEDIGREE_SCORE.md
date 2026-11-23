@@ -176,7 +176,12 @@ traits, and resume reconstructs missing paired audits while retaining partial
 evidence. Batches are submitted sequentially through an exclusive backend
 context; this option does not add a concurrent multi-GPU scheduler. Explicit
 heap/device checks reject oversized tiles or batches with instructions to
-reduce them. Performance depends on input parsing, cache reads, trait batch
+reduce them. Heap admission retries once after requesting garbage collection,
+so unreachable prior tiles are not mistaken for live allocations; the same
+headroom requirement still applies. Up to 256 checkpoint writers are opened
+iteratively, avoiding a call stack proportional to the trait batch size.
+Every writer must close successfully before new parts receive digest commits.
+Performance depends on input parsing, cache reads, trait batch
 size, null fitting and available hardware; no full-cohort timing is promised.
 
 ### Reference checks

@@ -6,6 +6,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class QPooledResultCheckpointTest {
+    @Test void maximumBatchCommitsIterativelyAndPreservesFailedParts(@TempDir Path root)throws Exception {
+        Path dir=root.resolve("batch");int[] ids=java.util.stream.IntStream.range(0,256).toArray();
+        try(var parts=QPooledResultCheckpoint.open(dir,"batch-signature",256,false)) {
+            assertThrows(java.io.IOException.class,()->parts.writeBlocks(ids,w->{w[0].write("interrupted\n");w[255].write("last interrupted\n");throw new java.io.IOException("synthetic interruption");}));
+            for(int i:ids)assertFalse(parts.isComplete(i));
+            parts.writeBlocks(ids,w->{for(int i:ids)w[i].write(i+",value\n");});
+            for(int i:ids)assertTrue(parts.isComplete(i));
+            parts.assemble(root.resolve("first.csv"),"id,value");
+            byte[] before=Files.readAllBytes(root.resolve("first.csv"));
+            parts.writeBlocks(ids,w->{for(var writer:w)writer.write("must not replace committed parts\n");});
+            parts.assemble(root.resolve("resumed.csv"),"id,value");assertArrayEquals(before,Files.readAllBytes(root.resolve("resumed.csv")));
+            assertThrows(IllegalArgumentException.class,()->parts.writeBlocks(new int[]{0,0},w->{}));
+        }
+        try(var retained=Files.list(root.resolve("batch.uncommitted"))){assertEquals(256,retained.count());}
+    }
     @Test void partsResumeWithDigestAndRejectMutation(@TempDir Path root)throws Exception {
         Path dir=root.resolve("checkpoint");
         try(var parts=QPooledResultCheckpoint.open(dir,"signature",2,false)) {

@@ -45,7 +45,8 @@ final class QPooledBatchRunner {
         double logThreshold=config.getThresholdType().equals("pval")?Math.log10(config.getThresholdValue()):Double.POSITIVE_INFINITY;
         double critical=config.getThresholdType().equals("pval")?jdistlib.ChiSquare.quantile(config.getThresholdValue(),1,false,false):Double.NEGATIVE_INFINITY;
         try(var rotated=QPooledRotationCache.open(cacheDir.resolve("centered-rotated-v1"),raw,first.mask,geometry,block)) {
-            writeParts(batch,0,results,()->{
+            results.writeBlocks(batch.stream().mapToInt(t->t.index).toArray(),writers->{
+                for(int t=0;t<batch.size();t++)batch.get(t).writer=writers[t];
                 try(var source=rotated.open(null)) {
                     QMatrixRowSource.Block tile;
                     while((tile=source.readBlock(block))!=null) {
@@ -68,13 +69,6 @@ final class QPooledBatchRunner {
             if(!audits.isComplete(trait.index))audits.writeBlock(trait.index,w->w.write(trait.id+"\t"+geometry.n+"\t"+geometry.p+"\t"+model.cohortCounts(trait.mask)+"\t"+trait.counts[0]+"\t"+trait.counts[1]+"\tok\t"+fit.variances()+"\t"+fit.logLik+"\t"+fit.maximumScore+"\t"+geometry.combinedIdentity+"\n"));
         }
         System.out.println("Pedigree batch completed: traits="+batch.size()+", variants="+first.counts[0]+", N="+geometry.n+", rank="+geometry.p);
-    }
-    @FunctionalInterface private interface Action {void run()throws Exception;}
-    private static void writeParts(List<Trait> batch,int i,QPooledResultCheckpoint results,Action action)throws Exception {
-        if(i==batch.size()){action.run();return;}
-        var trait=batch.get(i);
-        if(results.isComplete(trait.index)){trait.writer=Writer.nullWriter();writeParts(batch,i+1,results,action);}
-        else results.writeBlock(trait.index,w->{trait.writer=w;writeParts(batch,i+1,results,action);});
     }
     private static String csv(String s){return "\""+s.replace("\"","\"\"")+"\"";}
 }

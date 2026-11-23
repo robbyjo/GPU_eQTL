@@ -8,6 +8,15 @@ import gov.nih.gpu.cuda.CudaGpuBackend;
 import gov.nih.gpu.opencl.JoclGpuBackend;
 
 class QPooledBatchProductsTest {
+    @org.junit.jupiter.api.Test void heapGuardReclaimsOnceAndStillRejectsInsufficientCapacity() {
+        var reclaimed=new java.util.concurrent.atomic.AtomicInteger();
+        QPooledBatchProducts.requireHeap(100,()->400,reclaimed::incrementAndGet);
+        org.junit.jupiter.api.Assertions.assertEquals(0,reclaimed.get());
+        QPooledBatchProducts.requireHeap(100,()->reclaimed.get()==0?150:400,reclaimed::incrementAndGet);
+        org.junit.jupiter.api.Assertions.assertEquals(1,reclaimed.get());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,()->QPooledBatchProducts.requireHeap(100,()->150,reclaimed::incrementAndGet));
+        org.junit.jupiter.api.Assertions.assertEquals(2,reclaimed.get());
+    }
     @org.junit.jupiter.api.io.TempDir Path temporary;
     @org.junit.jupiter.api.Test void portableJavaMatchesScalar() throws Exception {
         String old=System.getProperty("eqtl.cpu.blas");System.setProperty("eqtl.cpu.blas","java");

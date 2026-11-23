@@ -27,13 +27,21 @@ final class QPooledBatchProducts {
         long left=Math.multiplyExact((long)rows,shared),rhs=Math.multiplyExact((long)shared,columns),normRhs=Math.multiplyExact((long)shared,normColumns);
         long scoreOut=Math.multiplyExact((long)rows,columns),normOut=Math.multiplyExact((long)rows,normColumns);
         long bytes=Math.multiplyExact(8L,Math.addExact(Math.addExact(2*left,rhs+normRhs),scoreOut+normOut));
-        Runtime rt=Runtime.getRuntime();long available=rt.maxMemory()-(rt.totalMemory()-rt.freeMemory());
-        if(bytes>available/2)throw new IllegalArgumentException("Pedigree batch exceeds bounded JVM heap budget; reduce batch or tile size");
+        Runtime rt=Runtime.getRuntime();
+        requireHeap(bytes,()->rt.maxMemory()-(rt.totalMemory()-rt.freeMemory()),rt::gc);
         if(pool!=null)for(var c:pool.getAllContexts()) {
             var d=c.getDevice();long total=d.getGlobalMemoryBytes(),allocation=d.getMaxAllocationBytes();
             long largest=8*Math.max(Math.max(left,rhs),Math.max(normRhs,Math.max(scoreOut,normOut)));
             if((allocation>0&&largest>allocation)||(total>0&&bytes>total*3/4))throw new IllegalArgumentException("Pedigree batch exceeds device memory budget");
         }
+    }
+    static void requireHeap(long bytes,java.util.function.LongSupplier available,Runnable reclaim) {
+        if(bytes<0)throw new IllegalArgumentException("Negative batch allocation");
+        if(bytes<=available.getAsLong()/2)return;
+        // A previous tile/batch may be unreachable but not collected yet. Keep
+        // the same headroom check, retrying once after requesting reclamation.
+        reclaim.run();
+        if(bytes>available.getAsLong()/2)throw new IllegalArgumentException("Pedigree batch exceeds bounded JVM heap budget; reduce batch or tile size");
     }
     Products calculate(double[][] g) throws Exception {
         int rows=round(g.length,16);checkMemory(rows);double[] left=new double[Math.multiplyExact(rows,shared)],squared=new double[left.length];boolean[] scalar=new boolean[g.length];
