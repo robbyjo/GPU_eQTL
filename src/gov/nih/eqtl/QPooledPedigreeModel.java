@@ -356,22 +356,40 @@ final class QPooledPedigreeModel {
         final Geometry geometry;
         final double[] variance,weights,py;
         final double[][] inverse;
+        private final double[] sqrtWeights,scoreBasis;
         final double responseScale,logLik,maximumScore;
         final int iterations;
         final boolean reused;
         Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations){this(geometry,variance,weights,py,inverse,responseScale,logLik,maximumScore,iterations,false);}
-        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations,boolean reused){this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.responseScale=responseScale;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;this.reused=reused;}
-        double[][] scoreColumns(){int n=geometry.n,p=geometry.p;double[][] result=new double[n][p+1];for(int i=0;i<n;i++){result[i][0]=py[i];for(int a=0;a<p;a++)result[i][a+1]=weights[i]*geometry.q[i][a];}return result;}
-        double[] products(double[] rotated){double[] result=new double[geometry.p+1];for(int i=0;i<rotated.length;i++){result[0]+=rotated[i]*py[i];for(int a=0;a<geometry.p;a++)result[a+1]+=rotated[i]*weights[i]*geometry.q[i][a];}return result;}
+        Fit(Geometry geometry,double[] variance,double[] weights,double[] py,double[][] inverse,double responseScale,double logLik,double maximumScore,int iterations,boolean reused){
+            this.geometry=geometry;this.variance=variance;this.weights=weights;this.py=py;this.inverse=inverse;this.responseScale=responseScale;this.logLik=logLik;this.maximumScore=maximumScore;this.iterations=iterations;this.reused=reused;
+            int n=geometry.n,p=geometry.p;sqrtWeights=new double[n];double[] design=new double[Math.multiplyExact(n,p)];
+            for(int i=0;i<n;i++){sqrtWeights[i]=Math.sqrt(weights[i]);for(int a=0;a<p;a++)design[i*p+a]=sqrtWeights[i]*geometry.q[i][a];}
+            // Reconstruct from the immutable null, including cached v4 fits. The
+            // fitted model and serialized state do not change with this score basis.
+            try(var algebra=SpectralLinearAlgebra.open()){scoreBasis=algebra.projectResidual(design,new double[n],n,p).orthonormalColumns();}
+        }
+        double[][] scoreColumns(){int n=geometry.n,p=geometry.p;double[][] result=new double[n][p+1];for(int i=0;i<n;i++){result[i][0]=py[i];for(int a=0;a<p;a++)result[i][a+1]=sqrtWeights[i]*scoreBasis[i*p+a];}return result;}
+        double[] products(double[] rotated){int p=geometry.p;double[] result=new double[p+1];for(int i=0;i<rotated.length;i++){result[0]+=rotated[i]*py[i];for(int a=0;a<p;a++)result[a+1]+=rotated[i]*sqrtWeights[i]*scoreBasis[i*p+a];}return result;}
         Association score(double[] rotated,double[] products){
-            double raw=0;for(int i=0;i<rotated.length;i++)raw+=rotated[i]*rotated[i]*weights[i];
-            double correction=0;for(int a=0;a<geometry.p;a++)for(int b=0;b<geometry.p;b++)correction+=products[a+1]*inverse[a][b]*products[b+1];
-            double info=raw-correction;
+            double raw=0;for(int i=0;i<rotated.length;i++){double value=rotated[i]*sqrtWeights[i];raw+=value*value;}
+            double correction=0;for(int a=0;a<geometry.p;a++)correction+=products[a+1]*products[a+1];
+            double info=raw-correction,score=products[0];
             if(!Double.isFinite(info)||info < -1e-9*raw)throw new ArithmeticException("Invalid pooled score information");
+            if(info<=.01*raw&&raw>0) {
+                // Close subtraction can lose the small positive information at a
+                // cohort variance bound. Use its equivalent residual norm and
+                // reproject once to remove roundoff along the fixed-effect basis.
+                int n=geometry.n,p=geometry.p;double[] residual=new double[n],coefficients=new double[p];
+                for(int i=0;i<n;i++){double value=rotated[i]*sqrtWeights[i];for(int a=0;a<p;a++)value-=scoreBasis[i*p+a]*products[a+1];residual[i]=value;}
+                for(int i=0;i<n;i++)for(int a=0;a<p;a++)coefficients[a]+=scoreBasis[i*p+a]*residual[i];
+                info=0;score=0;
+                for(int i=0;i<n;i++){double value=residual[i];for(int a=0;a<p;a++)value-=scoreBasis[i*p+a]*coefficients[a];info+=value*value;score+=value*(py[i]/sqrtWeights[i]);}
+            }
             if(info<=1e-12*raw)return new Association(Double.NaN,Double.NaN,0,0,"monomorphic-or-collinear");
-            double z=products[0]/Math.sqrt(info),statistic=z*z;
+            double z=score/Math.sqrt(info),statistic=z*z;
             if(!Double.isFinite(statistic))throw new ArithmeticException("Nonfinite pooled score statistic");
-            double beta=(products[0]/info)*responseScale,se=responseScale/Math.sqrt(info);
+            double beta=(score/info)*responseScale,se=responseScale/Math.sqrt(info);
             if(!Double.isFinite(beta)||!Double.isFinite(se)||se<=0)throw new ArithmeticException("Pooled effect or SE exceeds FP64 range");
             return new Association(beta,se,statistic,jdistlib.ChiSquare.cumulative(statistic,1,false,true)/Math.log(10),"ok");
         }
