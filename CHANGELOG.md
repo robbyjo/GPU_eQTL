@@ -2,6 +2,11 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Fix pooled REML stalls when a variance component reaches a bound. Project constraint scores before BFGS directions and secant updates, resetting curvature when the free set changes. Keep the model, variance bounds, FP64 precision, total iteration budget and strict `1e-6` projected-score convergence criterion. Numerical nonconvergence remains fatal.
+- Use pooled result signature version 7 and shared-null key `pooled-null-v6-projected-bfgs`. Upgrading from v1.9.2.7 or earlier requires fresh pooled result/checkpoint paths and refitted nulls; retain old immutable state. Legacy/set identities and raw/rotated genotype-cache formats are unchanged.
+
 ## [1.9.2.7](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.7) — 2026-11-23
 
 - Add opt-in `--mixed-trait-batch-size 2..256` for genome-wide pedigree-block score scans with complete predictors. Traits sharing an exact observed mask share one centered/rotated genotype read and batched FP64 score/norm products. Keep per-trait REML fits, variance bounds, strict convergence, explicit residual safeguards and chi-square(1) inference. Default size 1 keeps the previous runner and checkpoint identity; batched results require fresh checkpoints and bind the batch size. Immutable compatible nulls remain reusable.

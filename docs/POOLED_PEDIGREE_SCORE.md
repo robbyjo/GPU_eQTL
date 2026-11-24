@@ -130,11 +130,21 @@ recomputation; retained audits use that directory's `audit` subdirectory, so
 cleanup preserves all interrupted evidence. One OS lock owns the checkpoint.
 Both final outputs must assemble before default cleanup; `--keep-checkpoints`
 retains committed parts. Output order is trait then original predictor order.
-This implementation uses pooled result signature version 6 and the new
-`pooled-null-v5-relative-reml` algorithm key. Pooled results/checkpoints from
-v1.9.2.4 and earlier require fresh output paths. Earlier immutable null files
+The bounded REML optimizer projects active-bound scores before inverse-Hessian
+steps and secant updates, and resets curvature when the free set changes. An
+outward score at a bound is a constraint multiplier, so it must not couple into
+steps for free variance components. The bounds, total iteration budget and
+strict `1e-6` maximum projected-score criterion are unchanged; unresolved fits
+still fail explicitly.
+
+This implementation uses pooled result signature version 7 and the new
+`pooled-null-v6-projected-bfgs` algorithm key. Pooled results/checkpoints from
+v1.9.2.7 and earlier require fresh output paths. Earlier immutable null files
 remain preserved under their old keys and are not reused by the changed fitter;
 the binary null format is unchanged. Preserve all earlier outputs and diagnostics.
+The centered/rotated genotype-cache format is also unchanged, but its key is
+bound to the fitter identity and new entries are built after this upgrade.
+Retain the earlier entries and allow disk space for the new per-mask copies.
 Existing legacy/spectral signatures and aligned raw-cache formats are unchanged.
 The released validation-only checks for exact IDs, observed-mask rank/DF and
 covariance identifiability remain available without fitting nulls.

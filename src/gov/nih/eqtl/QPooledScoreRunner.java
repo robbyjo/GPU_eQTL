@@ -10,7 +10,7 @@ import gov.nih.gpu.*;
 
 /** Opt-in pooled score scan; bounded SNP tiles, raw indexed cache and atomic trait parts. */
 final class QPooledScoreRunner {
-    private static final String ALGORITHM="pooled-pedigree-block-v6-relative-reml";
+    private static final String ALGORITHM="pooled-pedigree-block-v7-projected-bfgs";
     private static String algorithm(QeQTLAnalysisConfig config) {
         int batch=config.getMixedTraitBatchSize();
         return batch==1?ALGORITHM:ALGORITHM+";batched-score-v1;batch="+batch;
