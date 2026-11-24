@@ -1,0 +1,11 @@
+# GPU eQTL 1.9.2.8
+
+This release includes [PR #44](https://github.com/robbyjo/GPU_eQTL/pull/44), fixing pooled REML stalls when a variance component reaches a bound. The bounded BFGS optimizer projects outward constraint scores before inverse-Hessian directions and secant updates, and resets curvature when the free set changes.
+
+The covariance model, FP64 arithmetic, variance bounds, relative likelihood line search, total iteration budget and strict `1e-6` projected-score convergence criterion are unchanged. Unresolved fits still fail explicitly. The correction applies to pooled pedigree-block fits, including opt-in trait batches; legacy and rare-variant set fitters retain their existing identities and statistical laws.
+
+**Upgrade requirement:** from v1.9.2.7 or earlier, use fresh pooled result/checkpoint paths and refit nulls. Result identity is `pooled-pedigree-block-v7-projected-bfgs`; shared-null key is `pooled-null-v6-projected-bfgs`. Keep all earlier outputs, checkpoints and immutable null files. The null binary format is unchanged. Centered/rotated genotype-cache format is unchanged, but its fitter-bound key creates new per-mask entries; retain the earlier entries and budget disk space for new copies. Aligned raw dosage caches retain their compatibility checks. See the [pooled method and cache guidance](https://github.com/robbyjo/GPU_eQTL/blob/master/docs/POOLED_PEDIGREE_SCORE.md).
+
+The reviewed local suite passed 272 tests: 267 passed and five optional skips, with zero failures/errors. Both new Java/OpenBLAS regressions fail against the published v1.9.2.7 JAR at the same 100-iteration limit. The corrected 192-sample/12-column sibship fixture matches analytic within/between-family REML limits and response scaling; existing independent dense-R objective, gradient, fit and score references pass. Local execution used RTX 2080 CUDA/OpenCL, native OpenBLAS and portable Java. The release verification record separates final-JAR checks from the PR author's earlier candidate Linux diagnostics.
+
+No production deployment, controlled cohort analysis, full-cohort throughput or fresh other-vendor/multi-GPU qualification is claimed. Existing batching restrictions and older BCF upgrade requirements still apply.

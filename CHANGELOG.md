@@ -2,7 +2,7 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
-## Unreleased
+## [1.9.2.8](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.8) — 2026-11-24
 
 - Fix pooled REML stalls when a variance component reaches a bound. Project constraint scores before BFGS directions and secant updates, resetting curvature when the free set changes. Keep the model, variance bounds, FP64 precision, total iteration budget and strict `1e-6` projected-score convergence criterion. Numerical nonconvergence remains fatal.
 - Use pooled result signature version 7 and shared-null key `pooled-null-v6-projected-bfgs`. Upgrading from v1.9.2.7 or earlier requires fresh pooled result/checkpoint paths and refitted nulls; retain old immutable state. Legacy/set identities and raw/rotated genotype-cache formats are unchanged.
