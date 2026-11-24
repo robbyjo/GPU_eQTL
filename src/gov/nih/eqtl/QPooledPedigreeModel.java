@@ -226,7 +226,7 @@ final class QPooledPedigreeModel {
             try {
                 MessageDigest digest=MessageDigest.getInstance("SHA-256");
                 try(DataOutputStream out=new DataOutputStream(new DigestOutputStream(OutputStream.nullOutputStream(),digest))) {
-                    out.writeUTF("pooled-null-v5-relative-reml");out.writeUTF(engine);out.writeUTF(trait);
+                    out.writeUTF("pooled-null-v6-projected-bfgs");out.writeUTF(engine);out.writeUTF(trait);
                     out.writeInt(maxIterations);out.writeInt(n);out.writeInt(p);out.writeDouble(logR);out.writeBoolean(combinedIdentity);
                     for(int i:mask){out.writeInt(i);out.writeUTF(cacheSampleIds[i]);out.writeUTF(groups[i]);out.writeUTF(individuals[i]);}
                     for(String name:names)out.writeUTF(name);
@@ -270,8 +270,11 @@ final class QPooledPedigreeModel {
                 for(int iteration=0;iteration<budget;iteration++) {
                     iterations++;
                     if(current.maximumScore<=SCORE_TOLERANCE)break;
-                    double[] direction=new double[count];double norm=n-p;
-                    for(int a=0;a<count;a++)for(int b=0;b<count;b++)direction[a]-=inverse[a][b]*current.gradient[b]/norm;
+                    double[] direction=new double[count],projectedGradient=new double[count];double norm=n-p;
+                    // A bound's outward score is a KKT multiplier, not a free
+                    // gradient. Do not feed it through inverse-Hessian coupling.
+                    for(int a=0;a<count;a++)projectedGradient[a]=projected(current.gradient[a],theta[a],active[a],lowerBounds[a],upperBounds[a]);
+                    for(int a=0;a<count;a++)for(int b=0;b<count;b++)direction[a]-=inverse[a][b]*projectedGradient[b]/norm;
                     for(int a=0;a<count;a++)if(!active[a]||(theta[a]<=lowerBounds[a]+1e-12&&direction[a]<0)||(theta[a]>=upperBounds[a]-1e-12&&direction[a]>0))direction[a]=0;
                     double descent=dot(current.gradient,direction);
                     if(!(descent<0)){inverse=identity(count);for(int a=0;a<count;a++)direction[a]=-projected(current.gradient[a],theta[a],active[a],lowerBounds[a],upperBounds[a])/norm;descent=dot(current.gradient,direction);}
@@ -287,10 +290,16 @@ final class QPooledPedigreeModel {
                         if(change<=1e-4*actualDescent+2e-14*Math.max(1,Math.abs(current.objective))){next=trial;break;}
                     }
                     if(next==null||Arrays.equals(theta,candidate))break;
-                    double[] s=new double[count],z=new double[count];
-                    for(int a=0;a<count;a++){s[a]=candidate[a]-theta[a];z[a]=(next.gradient[a]-current.gradient[a])/norm;}
+                    double[] s=new double[count],z=new double[count];boolean changedFreeSet=false;
+                    for(int a=0;a<count;a++) {
+                        s[a]=candidate[a]-theta[a];
+                        double pg=projected(next.gradient[a],candidate[a],active[a],lowerBounds[a],upperBounds[a]);
+                        z[a]=(pg-projectedGradient[a])/norm;
+                        changedFreeSet|=(pg!=next.gradient[a])!=(projectedGradient[a]!=current.gradient[a]);
+                    }
                     double sz=dot(s,z);
-                    if(sz>1e-14*dot(s,s)) {
+                    // Curvature from a different free subspace is not reusable.
+                    if(!changedFreeSet&&sz>1e-14*dot(s,s)) {
                         double[] hz=new double[count];for(int a=0;a<count;a++)for(int b=0;b<count;b++)hz[a]+=inverse[a][b]*z[b];
                         double coefficient=(sz+dot(z,hz))/(sz*sz);
                         for(int a=0;a<count;a++)for(int b=0;b<count;b++)inverse[a][b]+=coefficient*s[a]*s[b]-(hz[a]*s[b]+s[a]*hz[b])/sz;
