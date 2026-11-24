@@ -1,0 +1,645 @@
+{
+  "version": "1.9.2.8",
+  "verified_utc": "2026-11-24T14:48:57.440587+00:00",
+  "source_pr": {
+    "number": 44,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/44",
+    "reviewed_head": "ac504bd679f35d1623afc02a15b52701add41786",
+    "merged_commit": "10a0c8f385deebb9424d3ecceb3db512857c2f19",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "ac504bd679f35d1623afc02a15b52701add41786",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45415671611/job/138521080053"
+      }
+    ],
+    "review": "Reviewed projected gradients, BFGS secant updates/free-set resets and unchanged model/bounds/line search/budget/strict convergence; clarified rotation-cache key migration. No numerical source correction during review."
+  },
+  "release_pr": {
+    "number": 45,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/45",
+    "head": "2ed6ca5313ca519469b59ad5a9bd982579495fbd",
+    "merged_commit": "433b6ab8a3567a0b1dd26c939e4eb90f7616132e",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "2ed6ca5313ca519469b59ad5a9bd982579495fbd",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45416321390/job/138523376734"
+      }
+    ]
+  },
+  "annotated_tag": {
+    "name": "v1.9.2.8",
+    "tag_object": "3a30aff1d83912f4c5bb5228a0915312f6fcdd70",
+    "commit": "2ed6ca5313ca519469b59ad5a9bd982579495fbd",
+    "remote_verified": true
+  },
+  "package": {
+    "version": "1.9.2.8",
+    "source_commit": "2ed6ca5313ca519469b59ad5a9bd982579495fbd",
+    "jar_bytes": 150824076,
+    "jar_sha256": "bbe388dbcff296f3d495e9b3704db644118903a624197aa0d262057bb6bbc50d",
+    "tests": {
+      "tests": 272,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 267
+    },
+    "packaged_license_files": 9,
+    "dependency_namespace_files": {
+      "org/jlinalg/": 1098,
+      "jdistlib/": 933
+    },
+    "bundled_openblas_platforms": [
+      "windows-x86_64",
+      "linux-x86_64",
+      "linux-arm64",
+      "macosx-x86_64",
+      "macosx-arm64"
+    ],
+    "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+    "java_class_major": 61,
+    "manifest_clean": true,
+    "backend_smoke": true,
+    "cuda_jni_payloads": [
+      {
+        "entry": "lib/libJCudaDriver-12.6.0-linux-x86_64.so",
+        "bytes": 1201712,
+        "sha256": "fdc3b4b4fca4f0fab54ff12c0b4d6ad1c5e8d55015b4950834c705e5db301255",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaDriver-12.6.0-windows-x86_64.dll",
+        "bytes": 453120,
+        "sha256": "4499dbe4ff61e20950a7c57e246d2ac79e9c7449087bf4e522f384c0be576ae2",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCudaRuntime-12.6.0-linux-x86_64.so",
+        "bytes": 1037872,
+        "sha256": "710738a34ac2e1bc35879b55989b7f7661a36b0e821840399d16940a91d888e4",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaRuntime-12.6.0-windows-x86_64.dll",
+        "bytes": 477696,
+        "sha256": "83bdfb8d88a7bdf147162b72123842a1957b469984746770ced37ccd6975a8af",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvrtc-12.6.0-linux-x86_64.so",
+        "bytes": 88648,
+        "sha256": "1c5a7926684e5af45f6e1280bab41d50735500db2a61cd59f58ab3520e93960c",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvrtc-12.6.0-windows-x86_64.dll",
+        "bytes": 137728,
+        "sha256": "7475cc1b76fcb13fda6e8aa3343c3d9a067913051e781dc60b9805cfeaea38f5",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvPTXCompiler-12.6.0-linux-x86_64.so",
+        "bytes": 24063816,
+        "sha256": "6bce6925256b2456ab9521372a3a6ae76438488d0394dd467e32f3c0a32efa18",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvPTXCompiler-12.6.0-windows-x86_64.dll",
+        "bytes": 20139008,
+        "sha256": "493036fd54a6c8e0ba9cfd512fa0db4e5ec7549d1dfd484d390c61aff2af2442",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas-12.6.0-linux-x86_64.so",
+        "bytes": 232240,
+        "sha256": "12ea4fd8365a9378ae339e22f14cd404b0ea053ac73a38764dd93a7765779ea3",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas-12.6.0-windows-x86_64.dll",
+        "bytes": 256000,
+        "sha256": "505869eb22765ec8008281d6c769ce2f780f431f826eb807cc629a6edc5c462f",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas2-12.6.0-linux-x86_64.so",
+        "bytes": 1614384,
+        "sha256": "990b2129e540a7f93d0776799d48659dc85e4f7f5bfb6473d0c8369ef8126c32",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas2-12.6.0-windows-x86_64.dll",
+        "bytes": 897024,
+        "sha256": "b6b96ecd19889c90d95b7b4758ec4a267dbf6a38785b2f7ff1f701dff5cf7e46",
+        "x86_64_verified": true
+      }
+    ]
+  },
+  "packaged_tests": {
+    "tests": 146,
+    "passed": 145,
+    "optional_aborted": 1,
+    "failures": 0,
+    "errors": 0,
+    "optional_details": [
+      {
+        "classname": "gov.nih.eqtl.io.QVariantMatrixSourceTest",
+        "name": "readsExternalBcftoolsFixtureWhenConfigured()"
+      }
+    ]
+  },
+  "published_baseline_regression": {
+    "version": "1.9.2.7",
+    "cases": 2,
+    "java_and_openblas_convergence_failures_reproduced": true,
+    "iteration_budget": 100
+  },
+  "active_bound_boundary": {
+    "version": "1.9.2.8",
+    "checks": [
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "batch_size": 1,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "batch_size": 3,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "batch_size": 1,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "batch_size": 3,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "batch_size": 1,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "batch_size": 3,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "batch_size": 1,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "batch_size": 3,
+        "rows": 51,
+        "N": 192,
+        "rank": 12,
+        "DF": 1,
+        "iteration_budget": 100,
+        "strict_score": true,
+        "analytic_variance_limits": true,
+        "independent_sibship_GLS": true,
+        "scales": [
+          1,
+          1e-06,
+          1000000.0
+        ],
+        "byte_identical_resume": true
+      }
+    ],
+    "maximum_errors": {
+      "variance_scaled_absolute": 2.9092983577783116e-10,
+      "effect_scaled_absolute": 1.8555357771121717e-11,
+      "se_scaled_absolute": 2.560573584761694e-11,
+      "statistic_absolute": 1.1164209778868894e-08,
+      "log10P_absolute": 4.811099518775563e-09
+    },
+    "association_scaled_absolute_tolerance": 2e-05,
+    "baseline_v1_9_2_7_java_and_openblas_failed": true,
+    "shared_null_files": 6
+  },
+  "pooled_migration": {
+    "version": "1.9.2.8",
+    "checks": [
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "rows": 153,
+        "traits": 9,
+        "variants": 17,
+        "N": [
+          96,
+          89
+        ],
+        "rank": 7,
+        "DF": 1,
+        "old_default_and_batched_rejected_without_mutation": true,
+        "fresh_v6_nulls_fitted_and_reused": true,
+        "new_default_and_batched_match": true,
+        "byte_identical_resume": true,
+        "paired_audit_recovery": true,
+        "partial_evidence_retained": true,
+        "selective_threshold": 0.6380832392047777,
+        "selected_rows": 67,
+        "changed_batch_rejected": true
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "rows": 153,
+        "traits": 9,
+        "variants": 17,
+        "N": [
+          96,
+          89
+        ],
+        "rank": 7,
+        "DF": 1,
+        "old_default_and_batched_rejected_without_mutation": true,
+        "fresh_v6_nulls_fitted_and_reused": true,
+        "new_default_and_batched_match": true,
+        "byte_identical_resume": true,
+        "paired_audit_recovery": true,
+        "partial_evidence_retained": true,
+        "selective_threshold": 0.6389199276146628,
+        "selected_rows": 68,
+        "changed_batch_rejected": true
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "rows": 153,
+        "traits": 9,
+        "variants": 17,
+        "N": [
+          96,
+          89
+        ],
+        "rank": 7,
+        "DF": 1,
+        "old_default_and_batched_rejected_without_mutation": true,
+        "fresh_v6_nulls_fitted_and_reused": true,
+        "new_default_and_batched_match": true,
+        "byte_identical_resume": true,
+        "paired_audit_recovery": true,
+        "partial_evidence_retained": true,
+        "selective_threshold": 0.6394937078716344,
+        "selected_rows": 69,
+        "changed_batch_rejected": true
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "rows": 153,
+        "traits": 9,
+        "variants": 17,
+        "N": [
+          96,
+          89
+        ],
+        "rank": 7,
+        "DF": 1,
+        "old_default_and_batched_rejected_without_mutation": true,
+        "fresh_v6_nulls_fitted_and_reused": true,
+        "new_default_and_batched_match": true,
+        "byte_identical_resume": true,
+        "paired_audit_recovery": true,
+        "partial_evidence_retained": true,
+        "selective_threshold": 0.6389199276146628,
+        "selected_rows": 68,
+        "changed_batch_rejected": true
+      }
+    ],
+    "old_null_v5_files_preserved": 18,
+    "new_null_v6_files": 18,
+    "old_nulls_reused": false,
+    "old_rotation_files_preserved": 4,
+    "new_rotation_files": 4,
+    "raw_dosage_cache_files": 1,
+    "maximum_old_new_relative_error": 5.248042639349748e-09,
+    "old_new_tolerance": 2e-05,
+    "maximum_default_batch_relative_error": 2.220446049250313e-16,
+    "default_batch_tolerance": 1e-08,
+    "rotation_corruption_rejected_without_rebuild": true,
+    "prior_outputs_preserved": true
+  },
+  "legacy_spectral": {
+    "version": "1.9.2.8",
+    "traits": 3,
+    "sets": 2,
+    "runs": [
+      {
+        "method": "burden",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "burden",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-java",
+        "rows": 6,
+        "legacy_agreement": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cpu-openblas",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "cuda",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      },
+      {
+        "method": "skat-o",
+        "backend": "opencl",
+        "rows": 6,
+        "membership_audit_matches_java": true,
+        "resume_byte_identical": true
+      }
+    ],
+    "max_relative_p_difference": 5.10702591327572e-15,
+    "native_vs_java_tolerance": {
+      "relative": 3e-08,
+      "absolute": 1e-10
+    },
+    "legacy_tolerance": {
+      "relative": 2e-05,
+      "absolute": 0.0001
+    },
+    "spectral_association_rows": 72,
+    "legacy_reference_rows": 18,
+    "all_resumes_zero_products": true,
+    "legacy_1_9_2_7_checkpoint_compatible": true,
+    "spectral_1_9_2_7_checkpoint_compatible": true,
+    "previous_release_checkpoint_upgrades": 6
+  },
+  "cuda_related_set_cli": {
+    "method": "SKAT-O",
+    "N": 43,
+    "actual_cuda_products": true,
+    "model_file_identical_content_replacement": true,
+    "byte_identical_result_audit_resume": true,
+    "resume_recomputed_matrix_products": 0
+  },
+  "hardware": {
+    "os": "Windows",
+    "jdk": "25 targeting Java17",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "621.14",
+    "cuda_runtime": "12.6",
+    "paths": [
+      "portable Java",
+      "native OpenBLAS",
+      "CUDA",
+      "OpenCL"
+    ],
+    "official_jar_linux_gpu_tested": false
+  },
+  "release": {
+    "id": 456902083,
+    "url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.8",
+    "latest_stable_publicly_verified": true,
+    "assets": [
+      {
+        "name": "gpu-eqtl-1.9.2.8-universal.jar",
+        "bytes": 150824076,
+        "sha256": "bbe388dbcff296f3d495e9b3704db644118903a624197aa0d262057bb6bbc50d",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.8/gpu-eqtl-1.9.2.8-universal.jar",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 97,
+        "sha256": "e83faeb685504eec720d1b69f5e24edfc10a62aa5173134216be74765fa44daf",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.8/SHA256SUMS",
+        "public_download_verified": true
+      },
+      {
+        "name": "RELEASE-MANIFEST.txt",
+        "bytes": 401,
+        "sha256": "babc03ae836cd834f98fc6c000226f481245f90d41c88a0a15a4c16d902f0cad",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.2.8/RELEASE-MANIFEST.txt",
+        "public_download_verified": true
+      }
+    ]
+  },
+  "website": {
+    "workflow_id": 45417828537,
+    "conclusion": "success",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45417828537",
+    "files": [
+      {
+        "file": "index.html",
+        "matches_release_source": true,
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/index.html?verify=1795531735"
+      },
+      {
+        "file": "updates.html",
+        "matches_release_source": true,
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/updates.html?verify=1795531735"
+      },
+      {
+        "file": "site.js",
+        "matches_release_source": true,
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.js?verify=1795531735"
+      },
+      {
+        "file": "site.css",
+        "matches_release_source": true,
+        "http_status": 200,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.css?verify=1795531735"
+      }
+    ],
+    "commit": "433b6ab8a3567a0b1dd26c939e4eb90f7616132e",
+    "verified_utc": "2026-11-24T14:48:55.8340461+00:00"
+  },
+  "documentation": {
+    "local_repository_links_anchors": 157,
+    "files": 8,
+    "javascript_syntax": true,
+    "posix_shell_syntax": true,
+    "powershell_syntax": true,
+    "whitespace": true
+  },
+  "compatibility": {
+    "pooled_result_identity": "pooled-pedigree-block-v7-projected-bfgs",
+    "shared_null_key": "pooled-null-v6-projected-bfgs",
+    "requirement": "From v1.9.2.7 or earlier, use fresh pooled result/checkpoint paths and refit nulls. Preserve old immutable files and results.",
+    "rotation_cache": "Format unchanged; fitter-bound key creates new per-mask entries. Retain old entries and budget extra disk.",
+    "raw_dosage_cache": "Format unchanged; single aligned cache reused byte-identically in migration checks.",
+    "legacy_spectral_set_identities_unchanged": true
+  },
+  "limits": [
+    "Synthetic software qualification only; no production deployment, restricted-host rerun or controlled cohort association.",
+    "192-sample/rank12/17-predictor boundary/scaling checks and N96/89 migration do not establish full-cohort calibration, throughput or resource requirements.",
+    "Earlier PR candidate Linux diagnostics are distinct; no fresh official-artifact Linux/macOS/other-vendor/multi-GPU execution is claimed.",
+    "Existing batching restrictions, per-mask cache disk use, pedigree/null-fit memory and input/I/O limits remain.",
+    "Optional oneMKL and configured external bcftools fixture were unavailable; native synthetic BCF and constrained-heap checkpoint tests ran."
+  ]
+}
