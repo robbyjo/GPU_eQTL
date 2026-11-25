@@ -7,6 +7,7 @@ import java.util.*;
 import gov.nih.gpu.*;
 import gov.nih.gpu.cpu.CpuBackend;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.io.TempDir;
 
 class QSpectralSetPipelineTest {
@@ -70,6 +71,63 @@ class QSpectralSetPipelineTest {
             config.set("set_null_fitter","legacy");final var incompatible=config;
             assertThrows(java.io.IOException.class,()->run(incompatible,engine));
             assertArrayEquals(before,Files.readAllBytes(out));
+        }
+    }
+    @Test void tailWorkersPreserveBytesThresholdsMasksAndCompatibleResume(@TempDir Path root)throws Exception {
+        var base=fixture(root);base.put("set_block_size","2");base.put("set_null_fitter","spectral");
+        for(String engine:List.of("java","openblas")) {
+            Path serial=root.resolve(engine+"-serial.csv");base.put("output_file",serial.toString());base.put("num_threads","1");
+            base.put("resume","false");run(new QeQTLAnalysisConfig(base),engine);
+            byte[] results=Files.readAllBytes(serial),audit=Files.readAllBytes(Path.of(serial+".sets.tsv"));
+            base.put("num_threads","2");base.put("resume","true");run(new QeQTLAnalysisConfig(base),engine);
+            assertArrayEquals(results,Files.readAllBytes(serial));assertArrayEquals(audit,Files.readAllBytes(Path.of(serial+".sets.tsv")));
+            Path parallel=root.resolve(engine+"-parallel.csv");base.put("output_file",parallel.toString());base.put("resume","false");
+            run(new QeQTLAnalysisConfig(base),engine);
+            assertArrayEquals(results,Files.readAllBytes(parallel));assertArrayEquals(audit,Files.readAllBytes(Path.of(parallel+".sets.tsv")));
+        }
+    }
+    @Test void cudaTailPipelineMatchesCpuAndResumes(@TempDir Path root)throws Exception {
+        hardwarePipeline(root,new gov.nih.gpu.cuda.CudaGpuBackend());
+    }
+    @Test void openClTailPipelineMatchesCpuAndResumes(@TempDir Path root)throws Exception {
+        hardwarePipeline(root,new gov.nih.gpu.opencl.JoclGpuBackend());
+    }
+    private void hardwarePipeline(Path root,GpuBackend backend)throws Exception {
+        List<GpuDevice> devices;
+        try {devices=new GpuRuntime(backend).getGpuDevices(true,true);}
+        catch(RuntimeException|LinkageError unavailable){Assumptions.abort("Runtime unavailable: "+unavailable);return;}
+        Assumptions.assumeFalse(devices.isEmpty(),"No eligible "+backend.getName()+" device");
+        var base=fixture(root);base.put("set_block_size","2");base.put("num_threads","2");base.put("set_null_fitter","spectral");
+        Path cpu=root.resolve("cpu.csv"),gpu=root.resolve("gpu.csv");base.put("output_file",cpu.toString());
+        run(new QeQTLAnalysisConfig(base),"openblas");var expected=Files.readAllLines(cpu);
+        base.put("output_file",gpu.toString());var config=new QeQTLAnalysisConfig(base);
+        String old=System.getProperty(CpuBackend.BLAS_PROPERTY);System.setProperty(CpuBackend.BLAS_PROPERTY,"openblas");
+        try {
+            QeQTLAnalysis.config=config;QeQTLAnalysis.profiler=new QeQTLProfiler(false);QeQTLAnalysis.gpuPrecision=GpuPrecision.FP64;
+            byte[] priorResults=null,priorAudit=null;
+            for(int pass=0;pass<2;pass++) try(var context=devices.get(0).openContext()) {
+                QeQTLAnalysis.mContexts=new GpuContext[]{context};
+                QeQTLAnalysis.runMatrixAnalysis(new QeQTLAnalysis(),config.get("genotype_file"),config.get("expression_file"),config.get("covariate_file"),
+                    new String[]{"x"},null,"none",Double.NaN,0,true,16,2,"csv");
+                var actual=Files.readAllLines(gpu);assertEquals(expected.size(),actual.size());
+                for(int i=1;i<actual.size();i++) {
+                    String[] a=actual.get(i).split(","),b=expected.get(i).split(",");
+                    assertArrayEquals(Arrays.copyOf(b,6),Arrays.copyOf(a,6));
+                    assertEquals(Double.parseDouble(b[6]),Double.parseDouble(a[6]),Math.abs(Double.parseDouble(b[6]))*2e-10);
+                    assertEquals(Double.parseDouble(b[10]),Double.parseDouble(a[10]),Math.max(1e-13,Double.parseDouble(b[10])*2e-9));
+                }
+                assertArrayEquals(Files.readAllBytes(Path.of(cpu+".sets.tsv")),Files.readAllBytes(Path.of(gpu+".sets.tsv")));
+                if(pass==0){
+                    priorResults=Files.readAllBytes(gpu);priorAudit=Files.readAllBytes(Path.of(gpu+".sets.tsv"));
+                    base.put("resume","true");config=new QeQTLAnalysisConfig(base);QeQTLAnalysis.config=config;
+                } else {
+                    assertArrayEquals(priorResults,Files.readAllBytes(gpu));assertArrayEquals(priorAudit,Files.readAllBytes(Path.of(gpu+".sets.tsv")));
+                }
+            }
+            System.out.println("SPECTRAL_TAIL_PIPELINE_GPU_PASS "+backend.getName()+" "+devices.get(0).getName());
+        } finally {
+            if(old==null)System.clearProperty(CpuBackend.BLAS_PROPERTY);else System.setProperty(CpuBackend.BLAS_PROPERTY,old);
+            QeQTLAnalysis.config=null;QeQTLAnalysis.mContexts=null;
         }
     }
     @Test void unsupportedSpectralRequestsFailBeforeAnalysis() {

@@ -17,6 +17,7 @@ Java software for eQTL and related QTL analyses, including rare-variant burden, 
 | Look up an option, INI setting, or complete command | [Command-line reference](docs/COMMAND_LINE_REFERENCE.md) |
 | Run burden, SKAT, or SKAT-O | [Set-test guide](docs/SET_TEST_FOUNDATION.md) |
 | Account for relatedness in set tests | [Related set tests](docs/RELATED_SET_TESTS.md) · [Spectral REML](docs/SPECTRAL_SET_NULL.md) |
+| Tune set-test eigenvalues and CPU/GPU overlap | [Set-test performance](docs/SET_TEST_PERFORMANCE.md) |
 | Fit single-variant mixed models | [Mixed-model guide](docs/MIXED_MODELS.md) |
 | Build from source or contribute | [Build instructions](docs/USER_GUIDE.md#build-and-test) · [Contributor guide](AGENTS.md) |
 

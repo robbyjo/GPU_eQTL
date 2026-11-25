@@ -62,14 +62,19 @@ public final class CpuSpectralLinearAlgebra implements SpectralLinearAlgebra {
         return b;
     }
     public Eigen eigen(double[] matrix,int n) {
+        return eigen(matrix,n,true);
+    }
+    public Eigen eigen(double[] matrix,int n,boolean wantVectors) {
+        if (n < 1 || matrix.length != Math.multiplyExact(n,n))
+            throw new IllegalArgumentException("Spectral eigenproblem dimensions differ");
         double[] values=new double[n],vectors=matrix.clone();
-        if(nativeBlas)require(LAPACKE_dsyevd(101,(byte)'V',(byte)'L',n,vectors,n,values),"Spectral symmetric eigenproblem");
+        if(nativeBlas)require(LAPACKE_dsyevd(101,(byte)(wantVectors?'V':'N'),(byte)'L',n,vectors,n,values),"Spectral symmetric eigenproblem");
         else {
             double[][] copy=new double[n][n];for(int i=0;i<n;i++)System.arraycopy(matrix,i*n,copy[i],0,n);
             var eig=new Matrix(copy).eig();values=eig.getRealEigenvalues();double[][] v=eig.getV().getArray();
             for(int i=0;i<n;i++)System.arraycopy(v[i],0,vectors,i*n,n);
         }
-        return new Eigen(values,vectors);
+        return new Eigen(values,wantVectors?vectors:null);
     }
     public QrProjection projectResidual(double[] matrix,double[] response,int n,int p) {
         if(n<p||p<1||matrix.length!=Math.multiplyExact(n,p)||response.length!=n)

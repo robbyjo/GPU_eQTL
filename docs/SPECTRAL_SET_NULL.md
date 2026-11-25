@@ -1,5 +1,9 @@
 # Spectral pedigree nulls for continuous set tests
 
+For window eigendecomposition and overlapping CPU p-value work after the null
+fit, see [set-test performance](SET_TEST_PERFORMANCE.md). Those stages retain the
+spectral null described here.
+
 `--set-null-fitter spectral` selects an FP64 spectral REML null for continuous burden, SKAT and SKAT-O analyses with one pedigree covariance and an independent residual component. The default remains `legacy`. Other random-effect combinations and ordinary single-predictor mixed analyses retain their existing fitter.
 
 ```powershell

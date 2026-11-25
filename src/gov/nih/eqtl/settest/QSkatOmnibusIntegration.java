@@ -18,6 +18,7 @@ final class QSkatOmnibusIntegration {
 
     static Result integrate(double[] lambda, double[] burden, double[] rho, double[] critical,
         double minimumP, double relativeTolerance, int maximumEvaluations, long seed) {
+        QQuadraticFormDistribution.checkCancellation();
         if (!(minimumP > 0) || minimumP < 1e-280)
             throw new ArithmeticException("SKAT-O tail is outside the supported integration range (p >= 1e-280)");
         if (minimumP == 1) return new Result(1,0,0,"joint-radial-exact");
@@ -57,6 +58,7 @@ final class QSkatOmnibusIntegration {
         int completed = 0, successive = 0;
         for (int perReplicate = 256; (long)perReplicate*replicates <= maximumEvaluations; perReplicate *= 2) {
             for (int r = 0; r < replicates; r++) for (int index = completed+1; index <= perReplicate; index++) {
+                QQuadraticFormDistribution.checkCancellation();
                 double norm = 0;
                 for (int j = 0; j < rank; j++) {
                     double u = radicalInverse(index,primes[j])+shifts[r][j]; u -= Math.floor(u);
@@ -133,6 +135,7 @@ final class QSkatOmnibusIntegration {
     }
     private static double[] adaptive(DoubleUnaryOperator f,double a,double b,double fa,double fm,double fb,
         double whole,double tolerance,int depth) {
+        QQuadraticFormDistribution.checkCancellation();
         double m = (a+b)/2, fl = f.applyAsDouble((a+m)/2), fr = f.applyAsDouble((m+b)/2);
         double left = (m-a)*(fa+4*fl+fm)/6, right = (b-m)*(fm+4*fr+fb)/6;
         double delta = left+right-whole;
@@ -145,6 +148,7 @@ final class QSkatOmnibusIntegration {
     private static int[] primes(int count) {
         int[] result = new int[count]; int found = 0;
         for (int x = 2; found < count; x++) {
+            if ((x & 63) == 0) QQuadraticFormDistribution.checkCancellation();
             boolean prime = true;
             for (int y = 2; y <= x/y; y++) if (x%y == 0) { prime = false; break; }
             if (prime) result[found++] = x;

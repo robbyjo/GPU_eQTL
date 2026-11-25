@@ -11,6 +11,11 @@ public interface SpectralLinearAlgebra extends AutoCloseable {
     String identity();
     double[] complement(double[][] orthonormalColumns);
     Eigen eigen(double[] symmetric, int dimension);
+    /** Values-only mode avoids forming eigenvectors for ordinary SKAT. */
+    default Eigen eigen(double[] symmetric, int dimension, boolean vectors) {
+        Eigen result = eigen(symmetric,dimension);
+        return vectors ? result : new Eigen(result.values(),null);
+    }
     /** Thin full-rank QR and (I-QQ')response; returns row-major Q and R without
      * forming A'A or a full Q. Input arrays are not modified. */
     QrProjection projectResidual(double[] matrix, double[] response, int rows, int columns);
