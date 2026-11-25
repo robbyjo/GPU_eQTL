@@ -2,7 +2,7 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
-## Unreleased
+## [1.9.3](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.3) — 2026-11-25
 
 - Accelerate window SKAT eigendecomposition with native CPU LAPACK values-only mode, retaining eigenvectors for SKAT-O and the portable FP64 reference. Preserve full score covariance, PSD/rank checks and the selected pedigree spectral REML null.
 - Hand expensive positive-gamma series to the existing same-law, error-checked tilted contour inversion after a preferred 2,048-term budget. Keep exact special cases, relative accuracy and explicit failure limits.

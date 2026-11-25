@@ -65,7 +65,7 @@ run the same class against the previous release and the candidate in separate
 JVMs. This PowerShell example uses three replicates and reports median times:
 
 ```powershell
-$candidate = 'target/gpu-eqtl-1.9.2.8-all.jar'
+$candidate = 'target/gpu-eqtl-1.9.3-all.jar'
 $baseline = 'previous/gpu-eqtl-1.9.2.8-all.jar'
 javac --release 17 -cp $candidate -d .dependencies/bench-classes scripts/benchmarks/SetNumericsBenchmark.java
 $classes = '.dependencies/bench-classes'
