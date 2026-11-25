@@ -89,6 +89,8 @@ final class QTiltedQuadraticForm {
         double roundingScale;
         Integrand(double tau,double[] b) { this.tau=tau; this.b=b; }
         double value(double u) {
+            if ((evaluations & 255) == 0 && Thread.currentThread().isInterrupted())
+                throw new java.util.concurrent.CancellationException("Set tail integration interrupted");
             if (++evaluations > MAXIMUM_EVALUATIONS)
                 throw new ArithmeticException("Quadratic-form inversion exceeded maximum evaluations");
             double angle=Math.atan2(u,tau);

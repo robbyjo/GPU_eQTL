@@ -2,6 +2,12 @@
 
 For release summaries and upgrade instructions, see the website [Updates page](https://robbyjo.github.io/GPU_eQTL/updates.html).
 
+## Unreleased
+
+- Accelerate window SKAT eigendecomposition with native CPU LAPACK values-only mode, retaining eigenvectors for SKAT-O and the portable FP64 reference. Preserve full score covariance, PSD/rank checks and the selected pedigree spectral REML null.
+- Hand expensive positive-gamma series to the existing same-law, error-checked tilted contour inversion after a preferred 2,048-term budget. Keep exact special cases, relative accuracy and explicit failure limits.
+- Overlap bounded CPU p-value workers (`--threads`) with subsequent context-owned matrix products, preserving source-ordered atomic result/audit checkpoints. Use fresh set result/checkpoint paths after upgrading; compatible raw caches and null identities are unchanged. See [resource budgeting](docs/SET_TEST_PERFORMANCE.md).
+
 ## [1.9.2.8](https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.2.8) — 2026-11-24
 
 - Fix pooled REML stalls when a variance component reaches a bound. Project constraint scores before BFGS directions and secant updates, resetting curvature when the free set changes. Keep the model, variance bounds, FP64 precision, total iteration budget and strict `1e-6` projected-score convergence criterion. Numerical nonconvergence remains fatal.

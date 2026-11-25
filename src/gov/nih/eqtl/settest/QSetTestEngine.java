@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.util.*;
+import java.util.concurrent.Callable;
 import static gov.nih.utils.QDataUtils.kUndefinedValue;
 import static gov.nih.eqtl.settest.QSetTestRunner.csv;
 import gov.nih.eqtl.settest.QBurdenReference.Variant;
@@ -71,12 +72,19 @@ public final class QSetTestEngine {
         String modelSignature = mixed == null ? "fixed" : mixed.signature();
         String extra = config.getTraitMissingPolicy()+";"+config.getFrequencyScope()+";"+config.getSkipUnestimableTraits()
             +";"+config.getSkatOMethod()+";"+config.getSkatORelativeTolerance()+";"+config.getSkatOMaxEvaluations();
+        int tailWorkers=QSetResultPipeline.workers(config.getNumThreads(),setSize,
+            Runtime.getRuntime().availableProcessors(),Runtime.getRuntime().maxMemory());
         try (GpuContextPool ownership = new GpuContextPool(contexts);
-            QSetMatrixOperations operations = new QSetMatrixOperations(contexts,config.get("residualization") != null && config.get("residualization").equals("cpu"))) {
-            String signature = hash("set-v6-related-pattern-tilted-tail-stable-null-portable-sources;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature());
+            QSetMatrixOperations operations = new QSetMatrixOperations(contexts,config.get("residualization") != null && config.get("residualization").equals("cpu"));
+            SpectralLinearAlgebra algebra = options.method() == QSetTestMethod.BURDEN ? null : SpectralLinearAlgebra.open();
+            QSetResultPipeline tails = new QSetResultPipeline(tailWorkers)) {
+            String eigenIdentity=algebra == null ? "none-burden" : algebra.identity();
+            String signature = hash("set-v7-native-eigen-bounded-tails;"+sourceStamp+";"+traitContent+";"+modelSignature+";"+modelSources+";"+extra+";"+operations.executionSignature()+";set-eigen="+eigenIdentity);
             QAnalysisCheckpoint checkpoint = QAnalysisCheckpoint.open(options.checkpointDirectory(),signature,
                 Math.multiplyExact(traitCount,setBlocks),options.resume(),true);
             System.out.println("Set FP64 products: "+operations.executionSignature());
+            System.out.println("Set eigen: "+eigenIdentity+"; CPU tail workers="+tailWorkers
+                +"; at most "+tailWorkers+" pending compact results; ordered checkpoint writes");
             System.out.println("Backend executes burden aggregation, fixed projection, fitted P*G, genotype scores and score covariance; CPU executes REML, QR, eigenvalues and p-value integration.");
             System.out.println("Set schedule: one trait null at a time; set tile="+setSize+"; related="+(mixed != null)
                 +"; frequency scope="+config.getFrequencyScope()+"; SKAT-O="+config.getSkatOMethod());
@@ -105,8 +113,9 @@ public final class QSetTestEngine {
                             for (SetDefinition set : table.sets()) {
                                 if (model == null) {
                                     writer.write("A"+audit(set,traitId,samples.length,mask,0,0,List.of(),0,"skipped-unestimable-mask","unfitted",definitions,options));
-                                } else analyze(writer,set,selected,model,traitId,mask,definitions,options,config,operations);
+                                } else tails.submit(writer,prepare(set,selected,model,traitId,mask,definitions,options,config,operations,algebra));
                             }
+                            tails.drain(writer);
                             if (!modelSources.equals(modelStamps.capture(modelFiles)) || !sourceStamp.equals(QSetTestRunner.signature(variants,variantColumns,traits,traitColumns,design,definitions,options,setSize)))
                                 throw new IOException("Set input changed before checkpoint commit");
                         });
@@ -122,9 +131,9 @@ public final class QSetTestEngine {
         }
     }
 
-    private static void analyze(Writer writer,SetDefinition set,Map<String,Variant> variants,QSetTraitModel model,
+    private static Callable<String> prepare(SetDefinition set,Map<String,Variant> variants,QSetTraitModel model,
         String traitId,String mask,QVariantSetTable definitions,QSetTestRunner.Options options,QeQTLAnalysisConfig config,
-        QSetMatrixOperations operations) throws Exception {
+        QSetMatrixOperations operations,SpectralLinearAlgebra algebra) throws Exception {
         int absent = 0, excluded = 0, monomorphic = 0;
         int[] samples = model.samples();
         List<double[]> rows = new ArrayList<>(); List<String> ids = new ArrayList<>();
@@ -158,27 +167,40 @@ public final class QSetTestEngine {
             if (max-min <= 1e-12) { monomorphic++; continue; }
             rows.add(subset); ids.add(variant.id());
         }
-        String status = "analyzed", result = null;
+        String status = "analyzed";
+        double[] u=null; double information=Double.NaN;
+        QSetScoreDistribution distribution=null;
         if (rows.isEmpty()) status = "skipped-empty-or-monomorphic";
         else {
             var score = model.scores(rows.toArray(double[][]::new),operations,options.method() == QSetTestMethod.BURDEN);
             double trace = 0; for (int i = 0; i < score.covariance().length; i++) trace += score.covariance()[i][i];
             if (trace < 0 || !Double.isFinite(trace)) throw new ArithmeticException("Invalid set score covariance trace");
             if (!(trace > 0)) status = "skipped-degenerate-kernel";
-            else result = result(set.id(),traitId,ids.size(),mask,model,score,options,config);
+            else {
+                u=score.u(); information=score.covariance()[0][0];
+                if (options.method() != QSetTestMethod.BURDEN)
+                    distribution=new QSetScoreDistribution(score.covariance(),algebra,options.method() == QSetTestMethod.SKAT_O);
+            }
         }
         if (!status.equals("analyzed") && policy.degenerateSet() == FailurePolicy.ERROR)
             throw new IllegalArgumentException("Set "+set.id()+", trait "+traitId+": "+status);
-        writer.write("A"+audit(set,traitId,samples.length,mask,absent,excluded,ids,monomorphic,status,model.diagnostics(),definitions,options));
-        if (result != null) writer.write("R"+result);
+        String audit="A"+audit(set,traitId,samples.length,mask,absent,excluded,ids,monomorphic,status,model.diagnostics(),definitions,options);
+        if (!status.equals("analyzed")) return () -> audit;
+        double[] scores=u;double variance=information;QSetScoreDistribution prepared=distribution;
+        int included=ids.size();String setId=set.id();
+        return () -> {
+            String result=result(setId,traitId,included,mask,model,scores,variance,prepared,options,config);
+            return result == null ? audit : audit+"R"+result;
+        };
     }
 
     private static String result(String set,String trait,int variants,String mask,QSetTraitModel model,
-        QSetTraitModel.Scores score,QSetTestRunner.Options options,QeQTLAnalysisConfig config) {
+        double[] scores,double information,QSetScoreDistribution distribution,
+        QSetTestRunner.Options options,QeQTLAnalysisConfig config) {
         double statistic,p,logP,rsq = Double.NaN,effect = Double.NaN,t = Double.NaN,minimum = Double.NaN;
         int df = model.nullDf(); String method, components = "";
         if (options.method() == QSetTestMethod.BURDEN) {
-            double u = score.u()[0], information = score.covariance()[0][0];
+            double u = scores[0];
             statistic = u*u/information;
             if (model.related()) {
                 df = 1; effect = u/information;
@@ -195,10 +217,9 @@ public final class QSetTestEngine {
             }
             p = Math.pow(10,logP);
         } else {
-            QSetScoreDistribution distribution = new QSetScoreDistribution(score.covariance());
             long seed = options.skatOSeed() ^ set.hashCode() ^ Long.rotateLeft(trait.hashCode(),23);
-            var r = options.method() == QSetTestMethod.SKAT ? distribution.skat(score.u())
-                : distribution.omnibus(score.u(),options.skatORhoGrid(),config.getSkatOMethod().equals("simulation"),
+            var r = options.method() == QSetTestMethod.SKAT ? distribution.skat(scores)
+                : distribution.omnibus(scores,options.skatORhoGrid(),config.getSkatOMethod().equals("simulation"),
                     options.skatOSimulations(),seed,config.getSkatORelativeTolerance(),config.getSkatOMaxEvaluations());
             statistic = r.statistic(); p = r.p(); logP = Math.log10(p); method = r.method(); minimum = r.minimumP(); components = r.components();
         }

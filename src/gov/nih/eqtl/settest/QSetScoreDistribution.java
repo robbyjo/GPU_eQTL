@@ -3,6 +3,7 @@ package gov.nih.eqtl.settest;
 
 import java.util.*;
 import gov.nih.jama.*;
+import gov.nih.gpu.SpectralLinearAlgebra;
 
 /** Score-space SKAT/SKAT-O: U~N(0,C), including fitted related-sample covariance. */
 public final class QSetScoreDistribution {
@@ -11,6 +12,10 @@ public final class QSetScoreDistribution {
     private final int dimension;
 
     public QSetScoreDistribution(double[][] covariance) {
+        this(covariance,null,true);
+    }
+    /** The caller exclusively owns the native algebra; null selects the scalar reference. */
+    public QSetScoreDistribution(double[][] covariance,SpectralLinearAlgebra algebra,boolean vectors) {
         if (covariance == null || covariance.length == 0) throw new IllegalArgumentException("Empty score covariance");
         int m = covariance.length;
         dimension = m;
@@ -21,21 +26,37 @@ public final class QSetScoreDistribution {
             scale = Math.max(scale,Math.abs(value));
         }
         if (!(scale > 0)) throw new IllegalArgumentException("Zero score covariance");
-        double[][] normalized = new double[m][m];
-        for (int i = 0; i < m; i++) for (int j = 0; j < m; j++)
-            normalized[i][j] = .5*(covariance[i][j]/scale+covariance[j][i]/scale);
-        var eig = new EigenvalueDecomposition(new Matrix(normalized));
-        double[] all = eig.getRealEigenvalues(); double[][] v = eig.getV().getArray();
+        double[] all, v = null;
+        if (algebra == null) {
+            double[][] normalized = new double[m][m];
+            for (int i = 0; i < m; i++) for (int j = 0; j < m; j++)
+                normalized[i][j] = .5*(covariance[i][j]/scale+covariance[j][i]/scale);
+            var eig = new EigenvalueDecomposition(new Matrix(normalized));
+            all = eig.getRealEigenvalues();
+            if (vectors) {
+                v = new double[Math.multiplyExact(m,m)];
+                double[][] matrix = eig.getV().getArray();
+                for (int i=0;i<m;i++) System.arraycopy(matrix[i],0,v,i*m,m);
+            }
+        } else {
+            double[] flat = new double[Math.multiplyExact(m,m)];
+            for (int i=0;i<m;i++) for (int j=0;j<m;j++)
+                flat[i*m+j]=.5*(covariance[i][j]/scale+covariance[j][i]/scale);
+            var eig = algebra.eigen(flat,m,vectors);
+            all = eig.values(); v = eig.vectors();
+        }
+        for (double value : all) if (!Double.isFinite(value))
+            throw new ArithmeticException("Non-finite set eigenvalue");
         double tolerance = Arrays.stream(all).max().orElse(0)*Math.ulp(1.0)*m*16;
         for (double value : all) if (value < -tolerance)
             throw new ArithmeticException("Set score covariance is not positive semidefinite");
         int rank = (int)Arrays.stream(all).filter(x -> x > tolerance).count();
         if (rank == 0) throw new IllegalArgumentException("Zero projected set kernel");
-        lambda = new double[rank]; burden = new double[rank];
+        lambda = new double[rank]; burden = vectors ? new double[rank] : null;
         for (int j = 0,k = 0; j < m; j++) if (all[j] > tolerance) {
             lambda[k] = all[j]*scale;
-            for (int i = 0; i < m; i++) {
-                burden[k] += v[i][j]*Math.sqrt(lambda[k]);
+            if (vectors) for (int i = 0; i < m; i++) {
+                burden[k] += v[i*m+j]*Math.sqrt(lambda[k]);
             }
             k++;
         }
@@ -48,6 +69,7 @@ public final class QSetScoreDistribution {
     }
     public Result omnibus(double[] scores,double[] rho,boolean simulation,int simulations,long seed,
         double tolerance,int maxEvaluations) {
+        if (burden == null) throw new IllegalStateException("SKAT-O requires eigenvectors");
         validateScores(scores);
         double skat = 0, b = 0;
         for (double u : scores) { skat += u*u; b += u; }

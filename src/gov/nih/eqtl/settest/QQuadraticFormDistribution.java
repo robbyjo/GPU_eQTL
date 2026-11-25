@@ -11,14 +11,25 @@ import jdistlib.ChiSquare;
 /** Deterministic positive chi-square-mixture survival probabilities. */
 final class QQuadraticFormDistribution {
     private static final int MAXIMUM_SERIES_TERMS = 131072;
+    // The existing contour inversion integrates the same law. Hand off before
+    // quadratic coefficient convolution dominates runtime; neither tolerance
+    // nor the hard work ceiling is relaxed. Cache only the attempted prefix.
+    private static final int PREFERRED_SERIES_TERMS = 2048;
     private static final double RELATIVE_SERIES_TOLERANCE = 1e-12;
 
     private QQuadraticFormDistribution() { }
 
     record Tail(double pValue, String method,
         double degreesOfFreedom, double scale) { }
+    @FunctionalInterface interface Inversion {
+        QTiltedQuadraticForm.Result probability(double q,double[] lambda,boolean lower);
+    }
+    private record Computed(double probability,String method) { }
 
     static Tail survival(double statistic, double[] suppliedEigenvalues) {
+        return survival(statistic,suppliedEigenvalues,QTiltedQuadraticForm::probability);
+    }
+    static Tail survival(double statistic, double[] suppliedEigenvalues,Inversion inversion) {
         if (!Double.isFinite(statistic) || statistic < 0
                 || suppliedEigenvalues == null)
             throw new IllegalArgumentException(
@@ -62,15 +73,8 @@ final class QQuadraticFormDistribution {
             return new Tail(probability(angularProbability(statistic, eigenvalues, false)),
                 "rank-two-angular-integral", degrees, maximum*scale);
         }
-        try {
-            return new Tail(probability(gammaSeries(statistic, eigenvalues, false)),
-                "positive-gamma-series", degrees, maximum * scale);
-        } catch (SeriesResolutionException unresolved) {
-            var result = QTiltedQuadraticForm.probability(statistic,eigenvalues,false);
-            return new Tail(probability(result.probability()),
-                "tilted-characteristic-inversion;estimated-relative-error="+result.estimatedRelativeError(),
-                degrees,maximum*scale);
-        }
+        var result=compute(statistic,eigenvalues,false,inversion);
+        return new Tail(probability(result.probability()),result.method(),degrees,maximum*scale);
     }
 
     static double critical(double[] eigenvalues, double survivalProbability) {
@@ -107,9 +111,22 @@ final class QQuadraticFormDistribution {
 
     private static double lowerProbability(double q, double[] eigenvalues) {
         if (eigenvalues.length == 2) return angularProbability(q,eigenvalues,true);
-        try { return gammaSeries(q,eigenvalues,true); }
+        return compute(q,eigenvalues,true,QTiltedQuadraticForm::probability).probability();
+    }
+    private static Computed compute(double q,double[] eigenvalues,boolean lower,Inversion inversion) {
+        try { return new Computed(gammaSeries(q,eigenvalues,lower,PREFERRED_SERIES_TERMS),"positive-gamma-series"); }
         catch (SeriesResolutionException unresolved) {
-            return QTiltedQuadraticForm.probability(q,eigenvalues,true).probability();
+            try {
+                var result=inversion.probability(q,eigenvalues,lower);
+                return new Computed(result.probability(),"tilted-characteristic-inversion;estimated-relative-error="+result.estimatedRelativeError());
+            } catch (ArithmeticException inversionFailure) {
+                // Early handoff must not lose spectra the former full series
+                // could resolve. Cancellation is deliberately not caught.
+                try { return new Computed(gammaSeries(q,eigenvalues,lower,MAXIMUM_SERIES_TERMS),"positive-gamma-series"); }
+                catch (SeriesResolutionException seriesFailure) {
+                    seriesFailure.addSuppressed(inversionFailure);throw seriesFailure;
+                }
+            }
         }
     }
 
@@ -155,7 +172,7 @@ final class QQuadraticFormDistribution {
      * probability, without cancellation or subtraction from total mass.
      * This is a truncation bound, not a claim of interval-arithmetic rounding.
      */
-    private static double gammaSeries(double q, double[] lambda, boolean lower) {
+    private static double gammaSeries(double q, double[] lambda, boolean lower,int requestedBudget) {
         if (q == 0) return lower ? 0 : 1;
         if (!Double.isFinite(q)) return lower ? 1 : 0;
         double beta = Arrays.stream(lambda).min().orElseThrow();
@@ -175,16 +192,19 @@ final class QQuadraticFormDistribution {
         for (double r : ratios) logG -= .5*Math.log1p(-r*z);
         if (!(logZ > 0) || !Double.isFinite(logG) || Math.exp(logC) == 0)
             throw new SeriesResolutionException("positive gamma series cannot resolve this eigenvalue spectrum");
-        if (!lower && logG-(MAXIMUM_SERIES_TERMS+1)*logZ > Math.log(RELATIVE_SERIES_TOLERANCE))
+        int budget = Math.min(MAXIMUM_SERIES_TERMS,requestedBudget);
+        if (!lower && logG-(budget+1)*logZ > Math.log(RELATIVE_SERIES_TOLERANCE))
             throw new SeriesResolutionException("positive gamma series cannot meet its remainder bound for this spectrum within "
-                + MAXIMUM_SERIES_TERMS + " terms; no approximate p-value was substituted");
+                + budget + " terms");
         Series state = SERIES.get();
         if (state == null || !Arrays.equals(state.lambda, lambda)) {
             state = new Series(lambda, ratios, logC);
             SERIES.set(state);
         }
         double probability = 0;
-        for (int k = 0; k <= MAXIMUM_SERIES_TERMS; k++) {
+        for (int k = 0; k <= budget; k++) {
+            if ((k & 63) == 0 && Thread.currentThread().isInterrupted())
+                throw new java.util.concurrent.CancellationException("Set tail computation interrupted");
             state.extend(k);
             probability += state.weights[k]*ChiSquare.cumulative(q/beta, lambda.length+2.0*k, lower, false);
             // Lower gamma CDF decreases with shape, tightening its remainder.
@@ -194,7 +214,7 @@ final class QQuadraticFormDistribution {
                 return Math.min(1, probability);
         }
         throw new SeriesResolutionException("positive gamma series did not meet relative remainder tolerance in "
-            + MAXIMUM_SERIES_TERMS + " terms");
+            + budget + " terms");
     }
 
     // One bounded spectrum per calling thread. Quantile inversion and repeated
@@ -205,8 +225,8 @@ final class QQuadraticFormDistribution {
     }
     private static final class Series {
         final double[] lambda, ratios, powers;
-        final double[] weights = new double[MAXIMUM_SERIES_TERMS+1];
-        final double[] coefficients = new double[MAXIMUM_SERIES_TERMS+1];
+        double[] weights = new double[PREFERRED_SERIES_TERMS+1];
+        double[] coefficients = new double[PREFERRED_SERIES_TERMS+1];
         int computed;
         Series(double[] lambda, double[] ratios, double logC) {
             this.lambda = lambda.clone(); this.ratios = ratios.clone();
@@ -215,6 +235,10 @@ final class QQuadraticFormDistribution {
         }
         void extend(int k) {
             if (k <= computed) return;
+            if (k >= weights.length) {
+                int capacity=Math.min(MAXIMUM_SERIES_TERMS+1,Math.max(k+1,2*weights.length));
+                weights=Arrays.copyOf(weights,capacity);coefficients=Arrays.copyOf(coefficients,capacity);
+            }
             double coefficient = 0;
             for (int i = 0; i < powers.length; i++) {
                 powers[i] *= ratios[i]; coefficient += .5*powers[i];
