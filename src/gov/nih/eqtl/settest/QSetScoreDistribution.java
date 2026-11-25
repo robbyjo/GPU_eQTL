@@ -69,6 +69,7 @@ public final class QSetScoreDistribution {
     }
     public Result omnibus(double[] scores,double[] rho,boolean simulation,int simulations,long seed,
         double tolerance,int maxEvaluations) {
+        QQuadraticFormDistribution.checkCancellation();
         if (burden == null) throw new IllegalStateException("SKAT-O requires eigenvectors");
         validateScores(scores);
         double skat = 0, b = 0;
@@ -77,6 +78,7 @@ public final class QSetScoreDistribution {
         double minimum = 1;
         StringJoiner components = new StringJoiner(";");
         for (double r : rho) {
+            QQuadraticFormDistribution.checkCancellation();
             double[] spectrum = spectrum(r); spectra.add(spectrum);
             double q = (1-r)*skat+r*b*b;
             double p = spectrum.length == 0 ? 1 : QQuadraticFormDistribution.survival(q,spectrum).pValue();
@@ -92,6 +94,7 @@ public final class QSetScoreDistribution {
         }
         Random random = new Random(seed); int extreme = 0;
         for (int iteration = 0; iteration < simulations; iteration++) {
+            if ((iteration & 63) == 0) QQuadraticFormDistribution.checkCancellation();
             double qs = 0, qb = 0;
             for (int j = 0; j < lambda.length; j++) {
                 double z = random.nextGaussian(); qs += lambda[j]*z*z; qb += burden[j]*z;
@@ -106,6 +109,7 @@ public final class QSetScoreDistribution {
         for (double value : scores) if (!Double.isFinite(value)) throw new ArithmeticException("Non-finite set score");
     }
     private double[] spectrum(double rho) {
+        QQuadraticFormDistribution.checkCancellation();
         if (rho == 0) return lambda;
         double b = 0; for (double x : burden) b += x*x;
         if (rho == 1) return b > 1e-28*Arrays.stream(lambda).sum() ? new double[]{b} : new double[0];

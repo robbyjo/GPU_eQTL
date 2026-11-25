@@ -18,6 +18,10 @@ final class QQuadraticFormDistribution {
     private static final double RELATIVE_SERIES_TOLERANCE = 1e-12;
 
     private QQuadraticFormDistribution() { }
+    static void checkCancellation() {
+        if (Thread.currentThread().isInterrupted())
+            throw new java.util.concurrent.CancellationException("Set tail computation interrupted");
+    }
 
     record Tail(double pValue, String method,
         double degreesOfFreedom, double scale) { }
@@ -30,6 +34,7 @@ final class QQuadraticFormDistribution {
         return survival(statistic,suppliedEigenvalues,QTiltedQuadraticForm::probability);
     }
     static Tail survival(double statistic, double[] suppliedEigenvalues,Inversion inversion) {
+        checkCancellation();
         if (!Double.isFinite(statistic) || statistic < 0
                 || suppliedEigenvalues == null)
             throw new IllegalArgumentException(
@@ -114,6 +119,7 @@ final class QQuadraticFormDistribution {
         return compute(q,eigenvalues,true,QTiltedQuadraticForm::probability).probability();
     }
     private static Computed compute(double q,double[] eigenvalues,boolean lower,Inversion inversion) {
+        checkCancellation();
         try { return new Computed(gammaSeries(q,eigenvalues,lower,PREFERRED_SERIES_TERMS),"positive-gamma-series"); }
         catch (SeriesResolutionException unresolved) {
             try {
@@ -154,6 +160,7 @@ final class QQuadraticFormDistribution {
     private static double angularIntegral(double left, double right, double a,
             double b, double c, double whole, double q, double[] lambda,
             double tolerance, int depth, boolean lower) {
+        checkCancellation();
         double middle = (left+right)/2;
         double d = angular((left+middle)/2,q,lambda,lower), e = angular((middle+right)/2,q,lambda,lower);
         double first = (middle-left)*(a+4*d+b)/6;

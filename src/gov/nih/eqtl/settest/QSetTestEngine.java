@@ -184,17 +184,20 @@ public final class QSetTestEngine {
         }
         if (!status.equals("analyzed") && policy.degenerateSet() == FailurePolicy.ERROR)
             throw new IllegalArgumentException("Set "+set.id()+", trait "+traitId+": "+status);
-        String audit="A"+audit(set,traitId,samples.length,mask,absent,excluded,ids,monomorphic,status,model.diagnostics(),definitions,options);
+        String diagnostics=model.diagnostics();
+        String audit="A"+audit(set,traitId,samples.length,mask,absent,excluded,ids,monomorphic,status,diagnostics,definitions,options);
         if (!status.equals("analyzed")) return () -> audit;
         double[] scores=u;double variance=information;QSetScoreDistribution prepared=distribution;
         int included=ids.size();String setId=set.id();
+        ResultModel metadata=new ResultModel(model.sampleCount(),model.nullDf(),model.related(),model.sigma(),diagnostics);
         return () -> {
-            String result=result(setId,traitId,included,mask,model,scores,variance,prepared,options,config);
+            String result=result(setId,traitId,included,mask,metadata,scores,variance,prepared,options,config);
             return result == null ? audit : audit+"R"+result;
         };
     }
 
-    private static String result(String set,String trait,int variants,String mask,QSetTraitModel model,
+    private record ResultModel(int sampleCount,int nullDf,boolean related,double sigma,String diagnostics) { }
+    private static String result(String set,String trait,int variants,String mask,ResultModel model,
         double[] scores,double information,QSetScoreDistribution distribution,
         QSetTestRunner.Options options,QeQTLAnalysisConfig config) {
         double statistic,p,logP,rsq = Double.NaN,effect = Double.NaN,t = Double.NaN,minimum = Double.NaN;

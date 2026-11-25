@@ -12,6 +12,58 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class QSetNumericsPerformanceTest {
+    @Test void nativeSkatOmnibusVectorsMatchPortableAtMultipleScales() {
+        String old=System.getProperty("eqtl.cpu.blas");
+        double[][] covariance={{1.5,.5,0},{.5,1.5,0},{0,0,0}};
+        double[] scores={1,.3,0},rho={0,.5,1};
+        var reference=new QSetScoreDistribution(covariance).omnibus(scores,rho,false,100,7,1e-6,1048576);
+        try {
+            for(String engine:new String[]{"java","openblas"}) {
+                System.setProperty("eqtl.cpu.blas",engine);
+                try(var algebra=SpectralLinearAlgebra.open()) {
+                    for(double scale:new double[]{1e-100,1,1e100}) {
+                        double[][] c=Arrays.stream(covariance).map(row->Arrays.stream(row).map(v->v*scale).toArray()).toArray(double[][]::new);
+                        double[] u=Arrays.stream(scores).map(v->v*Math.sqrt(scale)).toArray();
+                        var actual=new QSetScoreDistribution(c,algebra,true).omnibus(u,rho,false,100,7,1e-6,1048576);
+                        assertEquals(reference.p(),actual.p(),reference.p()*2e-10);
+                        assertEquals(reference.minimumP(),actual.minimumP(),reference.minimumP()*2e-10);
+                    }
+                }
+            }
+        } finally {if(old==null)System.clearProperty("eqtl.cpu.blas");else System.setProperty("eqtl.cpu.blas",old);}
+    }
+    @Test void interruptedProductionTailsStopWithoutReturningAProbability() {
+        var distribution=new QSetScoreDistribution(new double[][]{{1,0},{0,2}});
+        try {
+            Thread.currentThread().interrupt();
+            assertThrows(CancellationException.class,()->distribution.omnibus(new double[]{1,.3},new double[]{0,1},true,1,7,1e-5,1048576));
+            assertThrows(CancellationException.class,()->distribution.omnibus(new double[]{1,.3},new double[]{0,1},false,1,7,1e-5,1048576));
+            assertThrows(CancellationException.class,()->QQuadraticFormDistribution.survival(1.25,new double[]{1,2}));
+            assertThrows(CancellationException.class,()->QSkatOmnibusIntegration.integrate(new double[]{1,2},new double[]{1,1},new double[]{0,1},new double[]{3,3},.1,1e-5,1048576,7));
+        } finally {Thread.interrupted();}
+    }
+    @Test void failureCancelsARealSimulationWithoutHangingCleanup(@TempDir Path root)throws Exception {
+        Path log=root.resolve("simulation-cancellation.log");
+        var child=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin","java").toString(),"-Xmx128m","-cp",System.getProperty("java.class.path"),SimulationChild.class.getName())
+            .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertTrue(child.waitFor(15,TimeUnit.SECONDS),"Real simulation cancellation timed out");
+            assertEquals(0,child.exitValue(),java.nio.file.Files.readString(log));
+        } finally {if(child.isAlive()){child.destroyForcibly();child.waitFor();}}
+    }
+    public static final class SimulationChild {
+        public static void main(String[] args)throws Exception {
+            CountDownLatch started=new CountDownLatch(1),stopped=new CountDownLatch(1);
+            var distribution=new QSetScoreDistribution(new double[][]{{1,0},{0,2}});
+            try(var pipeline=new QSetResultPipeline(2)) {
+                StringWriter writer=new StringWriter();
+                pipeline.submit(writer,()->{assertTrue(started.await(5,TimeUnit.SECONDS));Thread.sleep(200);throw new ArithmeticException("synthetic failure");});
+                pipeline.submit(writer,()->{started.countDown();try {distribution.omnibus(new double[]{1,.3},new double[]{0,1},true,Integer.MAX_VALUE,7,1e-5,1048576);return "unexpected";}finally{stopped.countDown();}});
+                assertThrows(ArithmeticException.class,()->pipeline.drain(writer));
+            }
+            assertTrue(stopped.await(1,TimeUnit.SECONDS));
+        }
+    }
     @Test void nativeValuesOnlyAndVectorsMatchScalarOnRotatedSingularKernels() {
         String old=System.getProperty("eqtl.cpu.blas");
         try {

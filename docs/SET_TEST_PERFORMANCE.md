@@ -38,6 +38,11 @@ is consumed in source order and committed only after all tails and source
 checks in the block succeed. Failed tasks cancel pending work; contexts close
 after workers exit. Device contexts remain exclusive. The existing product
 tile schedule is unchanged; this does not introduce concurrent multi-GPU tiles.
+Workers receive immutable scalar model metadata rather than the fitted model's
+projection state. Cancellation is checked during simulation and quadrature and
+between eigenproblems; an eigenproblem already in progress completes first.
+SKAT-O still constructs portable rho-dependent matrices inside a worker, with
+workspace quadratic in kernel rank. Reduce result workers for large SKAT-O sets.
 
 Budget the **sum** of the producer's native BLAS team and CPU result workers,
 across all concurrent JVMs. For example, a process allocated eight cores can use
