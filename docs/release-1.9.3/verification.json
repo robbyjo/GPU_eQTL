@@ -1,0 +1,979 @@
+{
+  "version": "1.9.3",
+  "verified_utc": "2026-11-25T05:33:48.754167+00:00",
+  "source_pr": {
+    "number": 47,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/47",
+    "reviewed_head": "684ffd3f01c6624fa9b65dc36c73da92959532bf",
+    "merged_commit": "598b5cccd9f1a0e6251a82781e150d762344dc1c",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "684ffd3f01c6624fa9b65dc36c73da92959532bf",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45552135049/job/138995530640"
+      }
+    ],
+    "review": "Reviewed native eigensolver layout/PSD/rank, full score covariance, checked same-law tails/recovery, exclusive producer ownership, bounded ordering and signatures. Fixed real production simulation/quadrature cancellation and removed fitted-model projection retention from pending tasks. Added three regressions; eigenproblems in progress complete before cancellation."
+  },
+  "release_pr": {
+    "number": 48,
+    "url": "https://github.com/robbyjo/GPU_eQTL/pull/48",
+    "head": "53bbe042f7207c222e3c7e927682bfe4064d3d49",
+    "merged_commit": "92bbfab1501241b77513cad4af280406aebd9954",
+    "required_ci": [
+      {
+        "name": "Maven tests (Java 17)",
+        "head_sha": "53bbe042f7207c222e3c7e927682bfe4064d3d49",
+        "conclusion": "success",
+        "html_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45552481750/job/138996636383"
+      }
+    ]
+  },
+  "annotated_tag": {
+    "name": "v1.9.3",
+    "tag_object": "437af8d1ddd3d961e164148f6b17f2029ec90243",
+    "commit": "53bbe042f7207c222e3c7e927682bfe4064d3d49",
+    "remote_verified": true
+  },
+  "package": {
+    "version": "1.9.3",
+    "source_commit": "53bbe042f7207c222e3c7e927682bfe4064d3d49",
+    "jar_bytes": 150832365,
+    "jar_sha256": "b4091ccf3702ba6ce75f65d5177781e7ec162781e74042277d29b351f8b58388",
+    "tests": {
+      "tests": 283,
+      "skipped": 5,
+      "failures": 0,
+      "errors": 0,
+      "passed": 278
+    },
+    "packaged_license_files": 9,
+    "dependency_namespace_files": {
+      "org/jlinalg/": 1098,
+      "jdistlib/": 933
+    },
+    "bundled_openblas_platforms": [
+      "windows-x86_64",
+      "linux-x86_64",
+      "linux-arm64",
+      "macosx-x86_64",
+      "macosx-arm64"
+    ],
+    "engine_class_sha256": "ff5b3f2a1008d902c09a721f2b6ffb992c6c60652ae50a12db5320e420ee5f16",
+    "java_class_major": 61,
+    "manifest_clean": true,
+    "backend_smoke": true,
+    "cuda_jni_payloads": [
+      {
+        "entry": "lib/libJCudaDriver-12.6.0-linux-x86_64.so",
+        "bytes": 1201712,
+        "sha256": "fdc3b4b4fca4f0fab54ff12c0b4d6ad1c5e8d55015b4950834c705e5db301255",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaDriver-12.6.0-windows-x86_64.dll",
+        "bytes": 453120,
+        "sha256": "4499dbe4ff61e20950a7c57e246d2ac79e9c7449087bf4e522f384c0be576ae2",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCudaRuntime-12.6.0-linux-x86_64.so",
+        "bytes": 1037872,
+        "sha256": "710738a34ac2e1bc35879b55989b7f7661a36b0e821840399d16940a91d888e4",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCudaRuntime-12.6.0-windows-x86_64.dll",
+        "bytes": 477696,
+        "sha256": "83bdfb8d88a7bdf147162b72123842a1957b469984746770ced37ccd6975a8af",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvrtc-12.6.0-linux-x86_64.so",
+        "bytes": 88648,
+        "sha256": "1c5a7926684e5af45f6e1280bab41d50735500db2a61cd59f58ab3520e93960c",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvrtc-12.6.0-windows-x86_64.dll",
+        "bytes": 137728,
+        "sha256": "7475cc1b76fcb13fda6e8aa3343c3d9a067913051e781dc60b9805cfeaea38f5",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJNvPTXCompiler-12.6.0-linux-x86_64.so",
+        "bytes": 24063816,
+        "sha256": "6bce6925256b2456ab9521372a3a6ae76438488d0394dd467e32f3c0a32efa18",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JNvPTXCompiler-12.6.0-windows-x86_64.dll",
+        "bytes": 20139008,
+        "sha256": "493036fd54a6c8e0ba9cfd512fa0db4e5ec7549d1dfd484d390c61aff2af2442",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas-12.6.0-linux-x86_64.so",
+        "bytes": 232240,
+        "sha256": "12ea4fd8365a9378ae339e22f14cd404b0ea053ac73a38764dd93a7765779ea3",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas-12.6.0-windows-x86_64.dll",
+        "bytes": 256000,
+        "sha256": "505869eb22765ec8008281d6c769ce2f780f431f826eb807cc629a6edc5c462f",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/libJCublas2-12.6.0-linux-x86_64.so",
+        "bytes": 1614384,
+        "sha256": "990b2129e540a7f93d0776799d48659dc85e4f7f5bfb6473d0c8369ef8126c32",
+        "x86_64_verified": true
+      },
+      {
+        "entry": "lib/JCublas2-12.6.0-windows-x86_64.dll",
+        "bytes": 897024,
+        "sha256": "b6b96ecd19889c90d95b7b4758ec4a267dbf6a38785b2f7ff1f701dff5cf7e46",
+        "x86_64_verified": true
+      }
+    ],
+    "gate_native_threads": 4
+  },
+  "packaged_tests": {
+    "tests": 157,
+    "passed": 156,
+    "optional_aborted": 1,
+    "failures": 0,
+    "errors": 0,
+    "optional_details": [
+      {
+        "classname": "gov.nih.eqtl.io.QVariantMatrixSourceTest",
+        "name": "readsExternalBcftoolsFixtureWhenConfigured()"
+      }
+    ]
+  },
+  "cancellation_regression": {
+    "original_pr_failure_reproduced": true,
+    "fixed_probe_passed": true,
+    "packaged_real_simulation_child_jvm_cleanup_passed": true,
+    "child_jvm_heap_MiB": 128
+  },
+  "set_migration": {
+    "version": "1.9.3",
+    "cases": [
+      {
+        "mode": "fixed",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "fixed",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "fixed",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "fixed",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "fixed",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "fixed",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "legacy",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "burden",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "burden",
+        "backend": "cuda",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "burden",
+        "backend": "opencl",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat",
+        "backend": "cuda",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat",
+        "backend": "opencl",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "cuda",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "opencl",
+        "engine": "openblas",
+        "simulation": false,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": true,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "cpu",
+        "engine": "java",
+        "simulation": true,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": false,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      },
+      {
+        "mode": "spectral",
+        "method": "skat-o",
+        "backend": "cuda",
+        "engine": "openblas",
+        "simulation": true,
+        "rows": 15,
+        "sets": 5,
+        "traits": 3,
+        "N": [
+          48,
+          43
+        ],
+        "old_checkpoint_rejected": false,
+        "worker_1_4_results_and_audits_byte_identical": true,
+        "worker_count_resume_zero_products": true,
+        "source_order_membership_masks_DF": true
+      }
+    ],
+    "old_checkpoints_rejected": 24,
+    "new_serial_association_rows": 390,
+    "worker_counts": [
+      1,
+      4
+    ],
+    "maximum_relative_skat_or_burden_p_difference": 7.771561172376096e-16,
+    "maximum_relative_skat_o_p_difference": 0.0013529291525296028,
+    "old_new_tolerance": {
+      "relative": 3e-08,
+      "absolute": 1e-10,
+      "skat_o_adjusted_relative": 0.01,
+      "skat_o_configured_relative_accuracy": 0.005
+    },
+    "new_worker_results_byte_identical": true,
+    "prior_outputs_preserved": true,
+    "selective_threshold_order_and_complete_audit": true
+  },
+  "pooled_upgrade": {
+    "version": "1.9.3",
+    "checks": [
+      {
+        "backend": "cpu",
+        "engine": "java",
+        "rows": 4,
+        "previous_release": "1.9.2.8",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v6_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "cpu",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.8",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v6_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "cuda",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.8",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v6_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      },
+      {
+        "backend": "opencl",
+        "engine": "openblas",
+        "rows": 4,
+        "previous_release": "1.9.2.8",
+        "byte_identical_result_audit_resume": true,
+        "immutable_null_bytes_preserved": true,
+        "fresh_output_reuses_v6_nulls": true,
+        "dense_R_absolute_tolerance": 2e-05
+      }
+    ],
+    "shared_null_files": 4,
+    "pooled_result_identity_unchanged": true,
+    "shared_null_key_unchanged": true
+  },
+  "synthetic_components": {
+    "repeats": 3,
+    "native_threads": 4,
+    "exact_official_jars": true,
+    "interpretation": "Synthetic component medians on one local host; uncontrolled background load, not full-cohort speedup.",
+    "measurements": [
+      {
+        "version": "1.9.2.8",
+        "mode": "eigen-java",
+        "rows": [
+          {
+            "kind": "environment",
+            "mode": "eigen-java",
+            "java": "25",
+            "cores": 16,
+            "threads": "4",
+            "heap": 2147483648
+          },
+          {
+            "kind": "eigen",
+            "n": 64,
+            "p": 0.4750802481695785,
+            "median_ms": 2.7192
+          },
+          {
+            "kind": "eigen",
+            "n": 256,
+            "p": 0.4875188527516139,
+            "median_ms": 84.2296
+          },
+          {
+            "kind": "eigen",
+            "n": 512,
+            "p": 0.49117195287083226,
+            "median_ms": 481.8417
+          },
+          {
+            "kind": "eigen",
+            "n": 1024,
+            "p": 0.4937567260599593,
+            "median_ms": 13132.882
+          }
+        ]
+      },
+      {
+        "version": "1.9.2.8",
+        "mode": "tail",
+        "rows": [
+          {
+            "kind": "environment",
+            "mode": "tail",
+            "java": "25",
+            "cores": 16,
+            "threads": "4",
+            "heap": 2147483648
+          },
+          {
+            "kind": "tail",
+            "q": 10.0,
+            "p": 0.001733458648207219,
+            "median_ms": 8.5697,
+            "method": "positive-gamma-series"
+          },
+          {
+            "kind": "tail",
+            "q": 100.0,
+            "p": 1.6748563178173308e-23,
+            "median_ms": 39.1144,
+            "method": "positive-gamma-series"
+          },
+          {
+            "kind": "tail",
+            "q": 500.0,
+            "p": 1.0438561821139083e-110,
+            "median_ms": 418.5995,
+            "method": "positive-gamma-series"
+          }
+        ]
+      },
+      {
+        "version": "1.9.3",
+        "mode": "eigen-native",
+        "rows": [
+          {
+            "kind": "environment",
+            "mode": "eigen-native",
+            "java": "25",
+            "cores": 16,
+            "threads": "4",
+            "heap": 2147483648
+          },
+          {
+            "kind": "eigen",
+            "n": 64,
+            "p": 0.4750802481695784,
+            "median_ms": 0.7135
+          },
+          {
+            "kind": "eigen",
+            "n": 256,
+            "p": 0.48751885275160367,
+            "median_ms": 7.1685
+          },
+          {
+            "kind": "eigen",
+            "n": 512,
+            "p": 0.49117195287084964,
+            "median_ms": 31.8871
+          },
+          {
+            "kind": "eigen",
+            "n": 1024,
+            "p": 0.49375672605986914,
+            "median_ms": 115.9417
+          }
+        ]
+      },
+      {
+        "version": "1.9.3",
+        "mode": "tail",
+        "rows": [
+          {
+            "kind": "environment",
+            "mode": "tail",
+            "java": "25",
+            "cores": 16,
+            "threads": "4",
+            "heap": 2147483648
+          },
+          {
+            "kind": "tail",
+            "q": 10.0,
+            "p": 0.0017334586482072305,
+            "median_ms": 0.5406,
+            "method": "tilted-characteristic-inversion;estimated-relative-error=1.7366797946076194E-13"
+          },
+          {
+            "kind": "tail",
+            "q": 100.0,
+            "p": 1.6748563178174152e-23,
+            "median_ms": 0.3762,
+            "method": "tilted-characteristic-inversion;estimated-relative-error=1.0415419741112364E-12"
+          },
+          {
+            "kind": "tail",
+            "q": 500.0,
+            "p": 1.04385618211417e-110,
+            "median_ms": 0.3029,
+            "method": "tilted-characteristic-inversion;estimated-relative-error=1.6585364643761013E-12"
+          }
+        ]
+      }
+    ],
+    "probability_comparison": {
+      "relative_tolerance": 1e-12,
+      "absolute_tolerance": 1e-14,
+      "passed": true
+    },
+    "commands": [
+      "javac --release 17 -cp <current-official-jar> -d <classes> scripts/benchmarks/SetNumericsBenchmark.java",
+      "java --enable-native-access=ALL-UNNAMED -Xmx2g -Deqtl.cpu.blas=openblas -Deqtl.cpu.threads=4 -cp <classes-and-official-jar> gov.nih.eqtl.settest.SetNumericsBenchmark <mode> 3"
+    ],
+    "jar_sha256": {
+      "1.9.2.8": "bbe388dbcff296f3d495e9b3704db644118903a624197aa0d262057bb6bbc50d",
+      "1.9.3": "b4091ccf3702ba6ce75f65d5177781e7ec162781e74042277d29b351f8b58388"
+    },
+    "maximum_relative_probability_difference": 2.507753599172494e-13
+  },
+  "cuda_related_set_cli": {
+    "method": "SKAT-O",
+    "N": 43,
+    "actual_cuda_products": true,
+    "model_file_identical_content_replacement": true,
+    "byte_identical_result_audit_resume": true,
+    "resume_recomputed_matrix_products": 0
+  },
+  "hardware": {
+    "os": "Windows",
+    "jdk": "25 targeting Java17",
+    "gpu": "NVIDIA GeForce RTX 2080",
+    "driver": "621.14",
+    "cuda_runtime": "12.6",
+    "paths": [
+      "portable Java",
+      "native OpenBLAS",
+      "CUDA",
+      "OpenCL"
+    ],
+    "official_jar_linux_gpu_tested": false
+  },
+  "release": {
+    "id": 457692760,
+    "url": "https://github.com/robbyjo/GPU_eQTL/releases/tag/v1.9.3",
+    "latest_stable_publicly_verified": true,
+    "assets": [
+      {
+        "name": "gpu-eqtl-1.9.3-universal.jar",
+        "bytes": 150832365,
+        "sha256": "b4091ccf3702ba6ce75f65d5177781e7ec162781e74042277d29b351f8b58388",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.3/gpu-eqtl-1.9.3-universal.jar",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 95,
+        "sha256": "a193fd3fc890ab3cb7b55fce9d6938975616f4db7b942581e59779a28c6edced",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.3/SHA256SUMS",
+        "public_download_verified": true
+      },
+      {
+        "name": "RELEASE-MANIFEST.txt",
+        "bytes": 399,
+        "sha256": "b43ce439e3396bb78c916e6c97f1f49faf0fe16ffc1b1c92ffd0357f241b1a40",
+        "url": "https://github.com/robbyjo/GPU_eQTL/releases/download/v1.9.3/RELEASE-MANIFEST.txt",
+        "public_download_verified": true
+      }
+    ]
+  },
+  "website": {
+    "commit": "92bbfab1501241b77513cad4af280406aebd9954",
+    "verified_utc": "2026-11-25T05:32:28.9349832+00:00",
+    "workflow_url": "https://github.com/robbyjo/GPU_eQTL/actions/runs/45554153817",
+    "conclusion": "success",
+    "files": [
+      {
+        "http_status": 200,
+        "matches_release_source": true,
+        "url": "https://robbyjo.github.io/GPU_eQTL/index.html?verify=1795584748",
+        "file": "index.html"
+      },
+      {
+        "http_status": 200,
+        "matches_release_source": true,
+        "url": "https://robbyjo.github.io/GPU_eQTL/updates.html?verify=1795584748",
+        "file": "updates.html"
+      },
+      {
+        "http_status": 200,
+        "matches_release_source": true,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.js?verify=1795584748",
+        "file": "site.js"
+      },
+      {
+        "http_status": 200,
+        "matches_release_source": true,
+        "url": "https://robbyjo.github.io/GPU_eQTL/site.css?verify=1795584748",
+        "file": "site.css"
+      }
+    ],
+    "workflow_id": 45554153817
+  },
+  "documentation": {
+    "local_repository_links_anchors": 162,
+    "files": 8,
+    "javascript_syntax": true,
+    "posix_shell_syntax": true,
+    "powershell_syntax": true,
+    "whitespace": true
+  },
+  "compatibility": {
+    "set_runner": "gpu-eqtl-set-runner-v6-bounded-series-tilted-tail",
+    "set_engine": "set-v7-native-eigen-bounded-tails",
+    "requirement": "From v1.9.2.8 or earlier use fresh set result/checkpoint paths, including burden, SKAT and SKAT-O; retain prior state.",
+    "raw_dosage_cache_identity_unchanged": true,
+    "fitted_null_identity_unchanged": true,
+    "changing_only_result_worker_count_is_resume_compatible": true,
+    "pooled_result_identity": "pooled-pedigree-block-v7-projected-bfgs",
+    "shared_null_key": "pooled-null-v6-projected-bfgs",
+    "pooled_v1_9_2_8_state_compatible": true,
+    "earlier_migrations": "Earlier pooled/BCF version boundaries still apply when skipping releases."
+  },
+  "limits": [
+    "Synthetic software qualification; no production deployment, restricted-host rerun or controlled cohort association.",
+    "Component medians do not establish cohort throughput, calibration or completion ETA; background host load was uncontrolled.",
+    "SKAT-O adjusted old/new finite quadrature estimates differ by at most 0.001353 relative, within the existing 0.005 configured relative accuracy; one/four-worker current results and audits are byte-identical.",
+    "SKAT-O rho-dependent eigenproblems still need quadratic rank workspace; worker caps are admission limits, not total memory estimates. Budget native BLAS plus result workers across JVMs.",
+    "No fresh official-artifact Linux/macOS/other-vendor/concurrent multi-GPU execution is claimed.",
+    "Optional oneMKL and configured external bcftools fixture unavailable; synthetic native BCF and constrained-heap tests ran."
+  ]
+}
